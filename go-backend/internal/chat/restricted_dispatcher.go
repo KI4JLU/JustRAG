@@ -9,7 +9,7 @@ import (
 	"github.com/justrag/go-backend/internal/mcp"
 )
 
-// RestrictedDispatcher enforces a user-agent's tool allowlist at BOTH the
+// RestrictedDispatcher enforces a tool allowlist at BOTH the
 // catalog projection and the dispatch boundary. Catalog-only filtering is
 // insufficient: a prompt-injected model can emit a call for a tool that was
 // hidden from its catalog but is still registered — Dispatch is the
@@ -21,8 +21,7 @@ type RestrictedDispatcher struct {
 
 // NewRestrictedDispatcher wraps inner with an allowlist. Privileged tools
 // (mcp.PrivilegedTools) are stripped from the allowlist unless
-// allowPrivileged — belt-and-suspenders on top of save-time validation,
-// covering records saved before an admin turned the flag off.
+// allowPrivileged.
 func NewRestrictedDispatcher(inner *MCPDispatcher, toolNames []string, allowPrivileged bool) *RestrictedDispatcher {
 	allowed := make(map[string]bool, len(toolNames))
 	for _, n := range toolNames {

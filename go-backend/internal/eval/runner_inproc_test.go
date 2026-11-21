@@ -1,6 +1,10 @@
 package eval
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+)
 
 func TestApplyRunKBOverride(t *testing.T) {
 	const runKB = "11111111-1111-1111-1111-111111111111"
@@ -47,4 +51,16 @@ func TestApplyRunKBOverride(t *testing.T) {
 		applyRunKBOverride(nil, runKB)
 		applyRunKBOverride([]Question{}, runKB)
 	})
+}
+
+// TestRunInProcessFromRecordRefusesTeamRun pins that a queued run created for
+// an agent team fails with ErrTeamRunUnsupported instead of running as a
+// standard run. Oracle: errors.Is on the returned error; the zero RunDeps
+// prove the refusal comes before any dependency is touched.
+func TestRunInProcessFromRecordRefusesTeamRun(t *testing.T) {
+	team := "team-1"
+	_, err := RunInProcessFromRecord(context.Background(), Run{TeamID: &team}, RunDeps{})
+	if !errors.Is(err, ErrTeamRunUnsupported) {
+		t.Fatalf("err = %v, want ErrTeamRunUnsupported", err)
+	}
 }

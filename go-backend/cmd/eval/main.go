@@ -24,7 +24,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/chat"
 	"github.com/justrag/go-backend/internal/chatpolicy"
@@ -69,7 +68,6 @@ func main() {
 	nodeKindFilter := flag.String("node-kind", "", `Phase F (RAPTOR) ablation: restrict retrieval to a single node_kind. "leaf" reproduces pre-RAPTOR behaviour; "summary" runs against summaries only; "" (default) lets both compete in one pool — production parity. Eval-only — the chat handler never sets this.`)
 	depthBucketsMinChunks := flag.Int("depth-buckets-min-chunks", 4, `Min totalChunks required for a chunk to count toward the depth-bucket aggregate. Suppresses noise from short files where bucketing has no useful signal. Pass 1 to disable filtering. Only effective with --depth-buckets.`)
 	orchestratorDispatch := flag.Bool("orchestrator-dispatch", true, `With --production-context: route each question through the same orchestrator predicate production uses (Supervisor / Plan-Execute / Plan-Execute-DAG / Agentic / standard fallback) and record per-question 'agent' + per-orchestrator aggregates in the report. Default true. Set to false to reproduce pre-2026-05 retrieval-only behaviour for byte-stable diffs against historical eval runs, except that recency-listing-shaped questions now exercise the recency lister and window scoping, which pre-2026-09 runs did not. Ignored when --production-context is unset.`)
-	teamID := flag.String("team-id", "", "Dispatch every question through this user-created agent team (requires --production-context; team must be attached + enabled on the golden set's KB)")
 	keepRawFlag := flag.String("keep-raw", "", `Multi-turn replay override for the rewrite⊕raw retrieval lane (ruling W2-R10): "on" forces chat_condense_keep_raw_enabled on for this run, "off" forces it off, "" (default) reads the live site_config — same three-way shape as --crag. Only effective on a golden set with turns (a multi-turn replay); ignored otherwise.`)
 	baselinePath := flag.String("baseline", "", "Path to a previous eval-report.json. When set, prints a per-route delta table and exits 3 if recall or MRR dropped beyond --regress-recall-pp / --regress-mrr-pp (overall or on any route present in both reports). Runs with question errors exit 1 before the delta is computed.")
 	regressRecallPP := flag.Float64("regress-recall-pp", eval.DefaultRegressionThresholds.RecallPP, "Max tolerated mean-recall drop vs --baseline, in percentage points.")
@@ -128,15 +126,6 @@ func main() {
 			os.Exit(2)
 		}
 		baseline = &rep
-	}
-
-	if *teamID != "" && !*productionContext {
-		slog.Error("--team-id requires --production-context")
-		os.Exit(2)
-	}
-	if *teamID != "" && *trajectoryMode {
-		slog.Error("team-id is not supported with --trajectory")
-		os.Exit(2)
 	}
 
 	// nil = leave the decision to the classifier.
@@ -265,10 +254,6 @@ func main() {
 		slog.Error("golden set has turns; --multi-turn replay requires --production-context")
 		os.Exit(2)
 	}
-	if hasTurns && *teamID != "" {
-		slog.Error("--team-id is not supported with a golden set that has turns (multi-turn replay always runs the standard PrepareChatContext path)")
-		os.Exit(2)
-	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -369,7 +354,7 @@ func main() {
 			GoldenQueryType:         *goldenQueryType,
 		}
 		// KB-system-prompt accessor - same closure shape as the trajectory
-		// runner uses below - so the dispatched orchestrators/team see the
+		// runner uses below - so the dispatched orchestrators see the
 		// prompt production wires in via tryDeepChat.
 		getKbSystemPrompt := func(ctx context.Context, kbID string) string {
 			if sp, err := chatStore.GetKBSystemPrompt(ctx, kbID); err == nil && sp != nil {
@@ -414,10 +399,8 @@ func main() {
 		// reaches FileDates then).
 		fileDates := &fileDatesAdapter{store: files.NewStore(db.Main)}
 		if hasTurns {
-			// Turn rows bypass orchestrator dispatch and teams entirely
-			// (validated above: --team-id is already rejected when
-			// hasTurns) and always run the standard PrepareChatContext
-			// path — the same one production's condense→retrieve follow-up
+			// Turn rows bypass orchestrator dispatch entirely and always
+			// run the standard PrepareChatContext path — the same one production's condense→retrieve follow-up
 			// handling uses. MultiTurnAdapter sits in front of a plain
 			// ProductionContextAdapter, condensing each turn's query (or
 			// carrying over the previous turn's sources for an answer_ref
@@ -432,18 +415,7 @@ func main() {
 				eval.WithFileDates(fileDates),
 			)
 			adapter = eval.NewMultiTurnAdapter(prod, aiResolver, siteReader, keepRaw)
-			slog.Info("eval: multi-turn replay mode on (golden set has turns; standard PrepareChatContext path, no orchestrator dispatch, no team)")
-		} else if *teamID != "" {
-			teamStore := agentteams.NewStore(db.Main)
-			adapter = eval.NewTeamDispatchAdapter(
-				aiResolver,
-				searchService,
-				siteReader,
-				teamStore,
-				*teamID,
-				getKbSystemPrompt,
-			)
-			slog.Info("eval: team-dispatch mode on", "team_id", *teamID)
+			slog.Info("eval: multi-turn replay mode on (golden set has turns; standard PrepareChatContext path, no orchestrator dispatch)")
 		} else if *orchestratorDispatch {
 			adapter = eval.NewOrchestratorDispatchAdapter(
 				aiResolver,

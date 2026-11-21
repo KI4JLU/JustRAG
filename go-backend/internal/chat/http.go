@@ -15,7 +15,6 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/chatattach"
@@ -90,10 +89,6 @@ type Handler struct {
 	// from parser.DefaultFactoryWith(nil) when unset so UploadAttachment
 	// always has a working factory without extra wiring.
 	parserFactory *parser.Factory
-	// teamLoader loads user-created agent-team/agent selections at chat
-	// time. Optional — when nil, TeamID/AgentID on the request are
-	// ignored (feature not wired).
-	teamLoader    TeamLoader
 	usageRecorder usage.Recorder // optional, per-turn usage ledger (internal/usage)
 	// tabularQueryLog persists one row of the tabular router's SQL audit
 	// trail (tabular_query_log) per turn, written post-response with the
@@ -131,15 +126,6 @@ type TabularQueryLogger interface {
 	InsertQueryLog(ctx context.Context, e tabular.QueryLogEntry) error
 }
 
-// TeamLoader loads user-created agent-team selections at chat time,
-// verifying attachment to the requesting KB and enabled state. Satisfied by
-// *agentteams.Store. Optional — when nil, TeamID/AgentID on the request are
-// ignored (feature not wired).
-type TeamLoader interface {
-	LoadTeamForChat(ctx context.Context, teamID, kbID string) (*agentteams.TeamForChat, error)
-	LoadAgentForChat(ctx context.Context, agentID, kbID string) (*agentteams.AgentRecord, error)
-}
-
 // RaptorDescendantsResolver is the narrow interface
 // runPostResponseTasks uses to expand RAPTOR summary citations.
 // Returns a map keyed by summary chunk id → list of descendant leaf
@@ -165,14 +151,12 @@ type DecisionRecorder interface {
 	// Record persists one chat-decision row. toolCalls is the AP-B4
 	// per-turn tool-dispatch sequence captured by ToolCallRecorder;
 	// nil/empty signals "no MCP calls this turn" and lands as an
-	// empty JSONB array on disk. teamID / agentID carry the
-	// user-created team/agent selection for mode="team" rows (nil
-	// otherwise). policyRule (W6-R6) is the chat_orchestrator_policy
+	// empty JSONB array on disk. policyRule (W6-R6) is the chat_orchestrator_policy
 	// rule index that pinned the route, nil when the flag ladder
 	// decided — including for a "prefer" rule that matched but whose
 	// orchestrator was disabled. Implementations are fire-and-forget —
 	// failures should log and drop, never propagate.
-	Record(ctx context.Context, kbID, mode, outcome string, hops, rounds, latencyMs int, toolCalls []ToolCallRecord, teamID, agentID *string, policyRule *int)
+	Record(ctx context.Context, kbID, mode, outcome string, hops, rounds, latencyMs int, toolCalls []ToolCallRecord, policyRule *int)
 }
 
 // TabularCatalogChecker reports whether a KB has materialized tabular sheets.
@@ -240,14 +224,6 @@ func WithDecisionRecorder(r DecisionRecorder) HandlerOption {
 func WithUsageRecorder(r usage.Recorder) HandlerOption {
 	return func(h *Handler) {
 		h.usageRecorder = r
-	}
-}
-
-// WithTeamLoader attaches the agent-teams store so explicit team/agent
-// selections on the chat request resolve. Optional.
-func WithTeamLoader(l TeamLoader) HandlerOption {
-	return func(h *Handler) {
-		h.teamLoader = l
 	}
 }
 
@@ -491,7 +467,7 @@ func (h *Handler) ListAllChats(w http.ResponseWriter, r *http.Request) {
 // GetChat answers GET /api/chats/{id}: one chat of the caller's, as a row of
 // the chat list (GET /api/kb/{id}/chats) without `hasBranches`. It exists so a
 // link names a chat by its id alone: the row carries the topic (`kbId`, ""
-// for a library chat) and the sticky team/agent the client restores. Another
+// for a library chat). Another
 // user's chat, a missing one and a malformed id are all 404, as for
 // GET /api/chats/{id}/messages, so the route says nothing about chats that
 // are not the caller's.

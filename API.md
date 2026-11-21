@@ -48,7 +48,7 @@ Where a table has an **Access** column, its values mean:
 - **public** — no authentication.
 - **authenticated** — any signed-in user; ownership, if any, is checked in the handler.
 - **KB view / edit / admin / owner** — the caller's effective KB role on `{id}` (`view < edit < admin < owner`, see "KB members and ownership").
-- **KB advanced** — system role `admin` or `superadmin`, on a public KB, a shared one (a member besides the owner) or their own, whatever their KB role (none needed); somebody else's private KB nobody shares is 403 for everyone, a missing one 404. No KB role opens it, an `api-user`'s included (the KB settings panel's RAG settings, agents and teams, evals and workflow — „RAG-Settings" in the admin console's KB-Übersicht, whose rows carry `shared`).
+- **KB advanced** — system role `admin` or `superadmin`, on a public KB, a shared one (a member besides the owner) or their own, whatever their KB role (none needed); somebody else's private KB nobody shares is 403 for everyone, a missing one 404. No KB role opens it, an `api-user`'s included (the KB settings panel's RAG settings, evals and workflow — „RAG-Settings" in the admin console's KB-Übersicht, whose rows carry `shared`).
 - **system admin** / **superadmin** — the user's system role (`admin` or `superadmin` / `superadmin` only).
 
 `docs/api-contracts/` holds the full request/response contracts for the larger features (agent chat, user file library, early-open SSE, Open WebUI).
@@ -515,32 +515,6 @@ The settings dialog's „Startseite" and „Verhalten" in one save, with a versi
   version, `409 {code: "settings_conflict"}` for a stale `baseVersion`, `409 {code:
   "version_not_restorable"}` when the version uses a role or rule the catalog no longer has.
 
-### Agents and teams
-
-User-created agents (persona prompt, model override, tool allowlist, retrieval overrides) and teams (router → specialists → synthesis), attached to KBs and picked per chat.
-
-| Method | Path | Access |
-|---|---|---|
-| GET | `/agents` | authenticated |
-| POST | `/agents` | authenticated |
-| GET | `/agents/registry` | authenticated |
-| GET | `/agents/{id}` | authenticated (owner) |
-| PUT | `/agents/{id}` | authenticated (owner) |
-| DELETE | `/agents/{id}` | authenticated (owner) |
-| GET | `/agent-teams` | authenticated |
-| POST | `/agent-teams` | authenticated |
-| GET | `/agent-teams/{id}` | authenticated (owner) |
-| PUT | `/agent-teams/{id}` | authenticated (owner) |
-| DELETE | `/agent-teams/{id}` | authenticated (owner) |
-| GET | `/kb/{id}/agents` | KB view |
-| PUT | `/kb/{id}/agents/{agentId}` | KB advanced |
-| DELETE | `/kb/{id}/agents/{agentId}` | KB advanced |
-| PUT | `/kb/{id}/teams/{teamId}` | KB advanced |
-| DELETE | `/kb/{id}/teams/{teamId}` | KB advanced |
-
-- `GET /agents/registry` returns the tools and override keys the agent form may offer (the same list the save validates against).
-- `GET /kb/{id}/agents` is the chat picker's payload: the agents and teams attached to the KB.
-
 ### Per-user topic filters
 
 The shell's chip row: a favorite (star) on any KB the caller can see, and the
@@ -878,7 +852,7 @@ Every user's personal file library; a KB's indexed copy references a library fil
 - `PUT /chats/{id}/pin` (authenticated, owner) keeps a chat at hand in the caller's history: in the built-in "Angepinnt", or with the optional body `{"sectionId"}` in one of the caller's own sections (`/chat-sections`); a chat kept already moves there. `DELETE /chats/{id}/pin` lets it go back to the plain history. Both answer `204` and are idempotent, and neither changes `updatedAt`. Keeping a kept chat leaves its first `pinnedAt`; it keeps its place in the order below only while it stays in the same section. The chat lists (`GET /chats`, `GET /kb/{id}/chats`) carry `pinnedAt` on a kept chat, and `sectionId` when it is in a section; both are omitted otherwise. `400` for a malformed `sectionId`; `404` when the chat or the section is not the caller's, does not exist, or the chat id is malformed.
 - `PUT /chats/pin-order` (authenticated) with `{"chatIds": [...], "sectionId"}` saves the caller's own order of the chats of one section, front to back (the web UI sends it after a drag); without `sectionId` it is the order of "Angepinnt". The body is that section's whole order: a chat of it that is left out loses its place, and ids that are not the caller's chats in that section are ignored. The chat lists then carry `pinPosition` (1 = first) on those chats. A kept chat without `pinPosition` — added since the last save — sorts before the ordered ones, newest first. `204`; `400` for more than 500 ids or a malformed id.
 - `GET /chat-sections` (authenticated) lists the caller's own sections of the chat history in their order: `id`, `name`, `createdAt`. `POST /chat-sections` with `{"name"}` creates one (`201` with the section; `409` at 50 sections), `PATCH /chat-sections/{id}` with `{"name"}` renames it and `DELETE /chat-sections/{id}` removes it (`204` each); the chats of a deleted section go back to the plain history. `PUT /chat-sections/order` with `{"sectionIds": [...]}` saves the caller's own order of their sections, front to back (`204`; `400` for more than 50 ids or a malformed one): a section left out loses its place, ids that are not the caller's sections are ignored, and a section without a place — added since the last save — is listed after the ordered ones, oldest first. A name is one line of 1 to 60 characters (`400` otherwise). `404` when the section is not the caller's, does not exist, or the id is malformed.
-- `GET /chats/{id}` (authenticated, owner) returns one of the caller's chats as a row of the chat list, without `hasBranches`: `id`, `kbId` (`""` for a library chat), `title`, `type`, `teamId`, `agentId`, timestamps, `branchedFromChatId` when set. It lets a link name a chat by its id alone (the web UI's `/c/<chat>` URLs). `404` when the chat is not the caller's, does not exist, or the id is malformed.
+- `GET /chats/{id}` (authenticated, owner) returns one of the caller's chats as a row of the chat list, without `hasBranches`: `id`, `kbId` (`""` for a library chat), `title`, `type`, timestamps, `branchedFromChatId` when set. It lets a link name a chat by its id alone (the web UI's `/c/<chat>` URLs). `404` when the chat is not the caller's, does not exist, or the id is malformed.
 - `POST /chats/{id}/branch` (authenticated, owner) with `{"messageId"}` copies the conversation from its first message down to that message — the path only, not sibling versions — into a new chat of the caller in the same KB, and answers `201` with the new chat (`branchedFromChatId` = `{id}`) plus `copiedMessageId`, the copy of `messageId`. Without `messageId` the branch is empty (no `copiedMessageId`). The web UI branches for every way of taking a conversation elsewhere: "Verzweigen" at an answer; "Antwort neu generieren" at its question, then answers the copied question with `regenerateOfMessageId`; editing a question at the turn before it (empty for the first question), then sends the edit under `copiedMessageId`. Feedback is not copied; chat attachments are re-linked. `400` for a malformed `messageId`, `404` when the chat is not the caller's, is not an ordinary KB chat (library chats, research sessions and agent chats cannot be branched: their state is more than the message chain), or the message is not in it.
 - `POST /kb/{id}/agui/chat` (KB view, `chat` rate limit) is the agent chat (AG-UI in, SSE out); `404` unless `chat_agent_chat_enabled` is on for the KB. Contract: [`docs/api-contracts/agent-chat.md`](docs/api-contracts/agent-chat.md).
 - `POST /kb/{id}/chat/attachment` (KB view, `chat` rate limit) uploads a document for in-chat comparison against the KB (parsed in memory, held 24 h, never ingested); `503` unless `chat_compare_enabled`. Refusals carry a `code`: `413 file_too_large` (`limitBytes` = `chat_compare_max_file_bytes`), `415 unsupported_file_type`, `422 file_unreadable` (the parser failed) or `no_text`, `400 invalid_upload`.
@@ -963,9 +937,8 @@ and a tool call's `query` are removed for a reader without `seeCitations`, like 
 
 A request with `webSearch: true` is refused with **422 Unprocessable Entity** — before a chat is created
 or usage is recorded — when web search is not available on the server (admin gate
-`chat_web_search_enabled`, `web_search_enabled` or the Google credentials), when the request is not
-streaming, or when it also selects an agent or team (`teamId`/`agentId`). The error message is generic;
-the reason is in the server log. When the admin's per-route tool allowlist removes `web_search` for the
+`chat_web_search_enabled`, `web_search_enabled` or the Google credentials), or when the request is not
+streaming. The error message is generic; the reason is in the server log. When the admin's per-route tool allowlist removes `web_search` for the
 turn's route, the turn is answered without it and the stream carries the trajectory event
 `{"agentTrajectory":{"stage":"web_search","decision":"skipped","reason":"web search is not available for this turn"}}`;
 the specific cause is only in the server log.
@@ -993,7 +966,7 @@ as for `POST /kb/{id}/chat`. It is not the complete prompt of a turn: per turn
 the default path adds the current-date line, low-confidence/abstain notices,
 enumeration/recency/conflict addenda and the retrieved context; memory blocks
 and tabular guidance are added to the KB prompt when those features are on;
-and the corpus-table path and the document-comparison summary without a team
+and the corpus-table path and the document-comparison summary
 use their own instructions instead. Answers `200`, or `401` when not
 authenticated.
 
@@ -1250,6 +1223,8 @@ These routes drive the in-app evaluation runner. They are admin-only and are ski
 | GET | `/admin/eval/golden-sets/jobs` |
 
 `POST /admin/eval/golden-sets/generate` starts an asynchronous draft golden set generated from a KB's corpus; `GET /admin/eval/golden-sets/jobs` reports the jobs.
+
+A run request (`POST /admin/eval/runs`, `POST /kb/{id}/eval/runs`) that carries a non-null `team_id` is refused with `400` (team eval runs were removed); `"team_id": null` counts as omitted. The run lists still carry `team_id` and `team_name` on runs made through a team before then.
 
 ### Per-KB evaluation
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/auth"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/usage"
 	"github.com/justrag/go-backend/internal/vector"
 )
@@ -131,10 +132,6 @@ func (m *mockStore) CreateChatWithRole(ctx context.Context, kbID, userID, title,
 	}
 	c.RoleID = &roleID
 	return c, nil
-}
-
-func (m *mockStore) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *string) error {
-	return nil
 }
 
 func (m *mockStore) UpdateChatTitle(_ context.Context, _, _, _ string) error {
@@ -376,9 +373,8 @@ func TestDeepChat_SiteConfigReaderPropagates(t *testing.T) {
 // publicapi's and openaicompat's identical pattern (see
 // internal/publicapi/handler_test.go's erroringSearcher). The rest of the
 // pipeline between resolveOrCreateChat and PrepareChatContext (classifyQuery,
-// resolveGraphRouting, resolveTeamSelection, assembleSystemPrompt) is
-// nil-safe against the harness's nil aiResolver/siteConfigReader/kgStore/
-// teamLoader for a short, marker-free message like "hello", so this reaches
+// resolveGraphRouting, assembleSystemPrompt) is
+// nil-safe against the harness's nil aiResolver/siteConfigReader/kgStore for a short, marker-free message like "hello", so this reaches
 // the real failure point without panicking.
 // ---------------------------------------------------------------------------
 
@@ -650,3 +646,25 @@ func (m *mockStore) GetAllChats(context.Context, string, string, int) ([]ChatLis
 func (m *mockStore) SetChatPinned(context.Context, string, string, bool, *string) error { return nil }
 
 func (m *mockStore) SetPinnedOrder(context.Context, string, *string, []string) error { return nil }
+
+// TestSendMessage_LegacyTeamAndAgentIgnored pins that an old client's teamId
+// or agentId changes nothing about a successful turn. Oracle: the same turn
+// without the field — the response body and the persisted AI message match.
+func TestSendMessage_LegacyTeamAndAgentIgnored(t *testing.T) {
+	for _, stream := range []bool{true, false} {
+		wantBody, wantStored := citingTurn(t, kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, stream, `{"message": "hello"}`)
+		if wantStored == nil {
+			t.Fatalf("stream=%v: baseline turn persisted no AI message", stream)
+		}
+		for _, field := range []string{"teamId", "agentId"} {
+			body := `{"message": "hello", "` + field + `": "00000000-0000-0000-0000-000000000001"}`
+			gotBody, gotStored := citingTurn(t, kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, stream, body)
+			if gotBody != wantBody {
+				t.Errorf("stream=%v, %s: response differs from the turn without it:\n got %s\nwant %s", stream, field, gotBody, wantBody)
+			}
+			if gotStored == nil || gotStored.Content != wantStored.Content || len(gotStored.Sources) != len(wantStored.Sources) {
+				t.Errorf("stream=%v, %s: persisted AI message = %+v, want %+v", stream, field, gotStored, wantStored)
+			}
+		}
+	}
+}

@@ -72,8 +72,6 @@ type chatDBRow struct {
 	UserID    string    `db:"user_id"`
 	Title     string    `db:"title"`
 	Type      string    `db:"type"`
-	TeamID    *string   `db:"team_id"`
-	AgentID   *string   `db:"agent_id"`
 	CreatedAt time.Time `db:"created_at"`
 	UpdatedAt time.Time `db:"updated_at"`
 	// BranchedFromChatID: see ChatRow.
@@ -106,8 +104,6 @@ type messageDBRow struct {
 	StructuredTable   json.RawMessage `db:"structured_table"`
 	Conflicts         json.RawMessage `db:"conflicts"`
 	Trajectory        json.RawMessage `db:"trajectory"`
-	TeamID            *string         `db:"team_id"`
-	AgentID           *string         `db:"agent_id"`
 	CreatedAt         time.Time       `db:"created_at"`
 }
 
@@ -118,8 +114,6 @@ func toChatRow(r chatDBRow) ChatRow {
 		UserID:             r.UserID,
 		Title:              r.Title,
 		Type:               r.Type,
-		TeamID:             r.TeamID,
-		AgentID:            r.AgentID,
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
 		BranchedFromChatID: r.BranchedFromChatID,
@@ -150,8 +144,6 @@ func toMessageRow(r messageDBRow) (MessageRow, error) {
 		FeedbackComment:   r.FeedbackComment,
 		FeedbackUpdatedAt: r.FeedbackUpdatedAt,
 		TraceID:           r.TraceID,
-		TeamID:            r.TeamID,
-		AgentID:           r.AgentID,
 		CreatedAt:         r.CreatedAt,
 	}
 	if len(r.Sources) > 0 && !isJSONNull(r.Sources) {
@@ -216,7 +208,7 @@ func isJSONNull(raw json.RawMessage) bool {
 // messages through messages_chat_id_idx.
 func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow, error) {
 	const sql = `
-		SELECT c.id, COALESCE(c.kb_id::text, '') AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
+		SELECT c.id, COALESCE(c.kb_id::text, '') AS kb_id, c.user_id, c.title, c.type,
 		       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id, c.pinned_at, c.pin_position,
 		       c.section_id::text AS section_id,
 		       EXISTS (
@@ -267,7 +259,7 @@ func (s *PGStore) GetAllChats(ctx context.Context, userID, sysRole string, limit
 	const sql = `
 		WITH ` + kbaccess.VisibleKBsCTE + `,
 		mine AS (
-			SELECT c.id, c.kb_id::text AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
+			SELECT c.id, c.kb_id::text AS kb_id, c.user_id, c.title, c.type,
 			       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id, c.pinned_at, c.pin_position,
 			       c.section_id::text AS section_id,
 			       v.name AS kb_name, v.visibility AS kb_visibility, v.role AS kb_role
@@ -314,7 +306,7 @@ func (s *PGStore) GetAllChats(ctx context.Context, userID, sysRole string, limit
 // GetChatByID returns the chat with the given ID, or nil if not found.
 func (s *PGStore) GetChatByID(ctx context.Context, chatID string) (*ChatRow, error) {
 	const sql = `
-		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id
+		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, created_at, updated_at, branched_from_chat_id, role_id
 		FROM chats WHERE id = $1`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, chatID)
@@ -333,7 +325,7 @@ func (s *PGStore) CreateChat(ctx context.Context, kbID, userID, title string) (*
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title)
 		VALUES ($1, $2, $3)
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, created_at, updated_at, branched_from_chat_id, role_id`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, title)
 	if err != nil {
@@ -352,7 +344,7 @@ func (s *PGStore) CreateChatWithRole(ctx context.Context, kbID, userID, title, r
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title, role_id)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, created_at, updated_at, branched_from_chat_id, role_id`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, title, roleID)
 	if err != nil {
@@ -371,7 +363,7 @@ func (s *PGStore) CreateChatWithID(ctx context.Context, id, kbID, userID, title 
 	const sql = `
 		INSERT INTO chats (id, kb_id, user_id, title)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		RETURNING id, kb_id, user_id, title, type, created_at, updated_at, branched_from_chat_id, role_id`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, id, kbID, userID, title)
 	if err != nil {
@@ -390,7 +382,7 @@ func (s *PGStore) CreateLibraryChat(ctx context.Context, userID, title string) (
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title, type)
 		VALUES (NULL, $1, $2, 'library')
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, created_at, updated_at, branched_from_chat_id, role_id`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, userID, title)
 	if err != nil {
@@ -421,7 +413,7 @@ func (s *PGStore) LastMessageID(ctx context.Context, chatID string) (*string, er
 // GetLibraryChats returns the user's library chats, newest activity first.
 func (s *PGStore) GetLibraryChats(ctx context.Context, userID string) ([]ChatRow, error) {
 	const sql = `
-		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id
+		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, created_at, updated_at, branched_from_chat_id, role_id
 		FROM chats
 		WHERE type = 'library' AND kb_id IS NULL AND user_id = $1
 		ORDER BY updated_at DESC`
@@ -671,10 +663,10 @@ func (s *PGStore) BranchChat(ctx context.Context, chatID, messageID, userID stri
 		}
 
 		row, err := pgxutil.QueryOne[chatDBRow](ctx, tx, `
-			INSERT INTO chats (kb_id, user_id, title, type, team_id, agent_id, branched_from_chat_id, role_id)
-			SELECT kb_id, user_id, title, type, team_id, agent_id, id, role_id
+			INSERT INTO chats (kb_id, user_id, title, type, branched_from_chat_id, role_id)
+			SELECT kb_id, user_id, title, type, id, role_id
 			FROM chats WHERE id = $1
-			RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`,
+			RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, created_at, updated_at, branched_from_chat_id, role_id`,
 			chatID)
 		if err != nil {
 			return fmt.Errorf("create chat: %w", err)
@@ -685,9 +677,9 @@ func (s *PGStore) BranchChat(ctx context.Context, chatID, messageID, userID stri
 
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO messages (id, chat_id, parent_message_id, role, content, sources, is_enhanced, enhanced_query,
-			                      reasoning, verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at)
+			                      reasoning, verification, trace_id, structured_table, conflicts, trajectory, created_at)
 			SELECT map.new_id, $3, parent.new_id, m.role, m.content, m.sources, m.is_enhanced, m.enhanced_query,
-			       m.reasoning, m.verification, m.trace_id, m.structured_table, m.conflicts, m.trajectory, m.team_id, m.agent_id, m.created_at
+			       m.reasoning, m.verification, m.trace_id, m.structured_table, m.conflicts, m.trajectory, m.created_at
 			FROM unnest($1::uuid[], $2::uuid[]) AS map(old_id, new_id)
 			JOIN messages m ON m.id = map.old_id
 			LEFT JOIN unnest($1::uuid[], $2::uuid[]) AS parent(old_id, new_id) ON parent.old_id = m.parent_message_id`,
@@ -741,24 +733,12 @@ func branchPath(ctx context.Context, tx pgx.Tx, chatID, messageID string) ([]str
 	return ids, nil
 }
 
-// UpdateChatAgentSelection persists the sticky per-chat team/agent pick.
-// NULLs clear it (picker back to Standard).
-func (s *PGStore) UpdateChatAgentSelection(ctx context.Context, chatID string, teamID, agentID *string) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE chats SET team_id = $2, agent_id = $3, updated_at = now() WHERE id = $1`,
-		chatID, teamID, agentID)
-	if err != nil {
-		return fmt.Errorf("UpdateChatAgentSelection: %w", err)
-	}
-	return nil
-}
-
 // GetChatMessages returns all messages for the given chatID, ordered by created_at ASC.
 func (s *PGStore) GetChatMessages(ctx context.Context, chatID string) ([]MessageRow, error) {
 	const sql = `
 		SELECT id, chat_id, parent_message_id, role, content, sources,
 		       is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
-		       verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at
+		       verification, trace_id, structured_table, conflicts, trajectory, created_at
 		FROM messages
 		WHERE chat_id = $1
 		ORDER BY created_at ASC`
@@ -785,13 +765,13 @@ func (s *PGStore) GetMessageAncestors(ctx context.Context, messageID, chatID str
 		WITH RECURSIVE message_tree AS (
 			SELECT id, chat_id, parent_message_id, role, content, sources,
 			       is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
-			       verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at
+			       verification, trace_id, structured_table, conflicts, trajectory, created_at
 			FROM messages
 			WHERE id = $1 AND chat_id = $2
 			UNION ALL
 			SELECT p.id, p.chat_id, p.parent_message_id, p.role, p.content, p.sources,
 			       p.is_enhanced, p.enhanced_query, p.reasoning, p.feedback, p.feedback_comment, p.feedback_updated_at,
-			       p.verification, p.trace_id, p.structured_table, p.conflicts, p.trajectory, p.team_id, p.agent_id, p.created_at
+			       p.verification, p.trace_id, p.structured_table, p.conflicts, p.trajectory, p.created_at
 			FROM messages p
 			INNER JOIN message_tree mt ON mt.parent_message_id = p.id
 			-- The walk must never leave the chat: a parent_message_id that
@@ -866,23 +846,23 @@ func (s *PGStore) AddMessage(ctx context.Context, p AddMessageParams) (*MessageR
 	}
 
 	const insertSQL = `
-		INSERT INTO messages (chat_id, role, content, sources, is_enhanced, enhanced_query, reasoning, parent_message_id, structured_table, conflicts, team_id, agent_id, trajectory)
+		INSERT INTO messages (chat_id, role, content, sources, is_enhanced, enhanced_query, reasoning, parent_message_id, structured_table, conflicts, trajectory)
 		VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7,
 		        -- A parent outside this chat (or a missing one) is stored as
 		        -- NULL: a foreign parent would let a later ancestor walk start
 		        -- in another user's conversation.
 		        (SELECT pm.id FROM messages pm WHERE pm.id = $8::uuid AND pm.chat_id = $1::uuid),
-		        $9::jsonb, $10::jsonb, $11, $12, $13::jsonb)
+		        $9::jsonb, $10::jsonb, $11::jsonb)
 		RETURNING id, chat_id, parent_message_id, role, content, sources,
 		          is_enhanced, enhanced_query, reasoning, feedback, feedback_comment, feedback_updated_at,
-		          verification, trace_id, structured_table, conflicts, trajectory, team_id, agent_id, created_at`
+		          verification, trace_id, structured_table, conflicts, trajectory, created_at`
 	const updateChatSQL = `UPDATE chats SET updated_at = NOW() WHERE id = $1`
 
 	var row *messageDBRow
 	err = pgxutil.WithTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		row, err = pgxutil.QueryOne[messageDBRow](ctx, tx, insertSQL,
-			p.ChatID, p.Role, p.Content, sourcesJSON, p.IsEnhanced, p.EnhancedQuery, p.Reasoning, p.ParentMessageID, structuredTableJSON, conflictsJSON, p.TeamID, p.AgentID, trajectoryJSON)
+			p.ChatID, p.Role, p.Content, sourcesJSON, p.IsEnhanced, p.EnhancedQuery, p.Reasoning, p.ParentMessageID, structuredTableJSON, conflictsJSON, trajectoryJSON)
 		if err != nil {
 			return fmt.Errorf("AddMessage insert: %w", err)
 		}
@@ -1105,7 +1085,7 @@ func (s *PGStore) CreateResearchSession(ctx context.Context, kbID, userID, goal,
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title, type)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, created_at, updated_at, branched_from_chat_id, role_id`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, goal, sessionType)
 	if err != nil {

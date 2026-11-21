@@ -1094,7 +1094,7 @@ func ChatCodeExecEnabled(ctx context.Context, reader SiteConfigReader) bool {
 }
 
 // ChatSQLQueryEnabled gates the sql_query MCP tool. GLOBAL-ONLY (no
-// kbConfigRegistry row, so no KB or agent overlay can switch it on), default
+// kbConfigRegistry row, so no KB overlay can switch it on), default
 // off, evaluated at every invocation like chat_code_exec_enabled. The tool's
 // validator is a regex with no function allowlist, so an LLM-authored query
 // can reach any table the JUSTRAG_DB_URL_READONLY role can read
@@ -1356,7 +1356,7 @@ func ChatAnswerToolsMaxRounds(ctx context.Context, reader SiteConfigReader) int 
 
 // ChatWebSearchEnabled is the admin gate for the per-turn web-search opt-in
 // (the chat request's webSearch field). GLOBAL-ONLY: it has no
-// kbConfigRegistry row, so a per-KB or per-agent overlay can never switch it
+// kbConfigRegistry row, so a per-KB overlay can never switch it
 // on. Default off. web_search is a privileged tool (mcp.PrivilegedTools) and
 // injected KB content in the answer prompt is the threat model, so a user's
 // request alone never enables it: this flag is what the web-search-only
@@ -1922,17 +1922,11 @@ func ChatRecencyListingNameMatchEnabled(ctx context.Context, reader SiteConfigRe
 	return readBool(ctx, reader, "chat_recency_listing_name_match_enabled", true)
 }
 
-// AgentsAllowPrivilegedTools gates whether user-created agents may select
-// privileged tools (mcp.PrivilegedTools). Default false — deny-by-default
-// for the dangerous tier.
+// AgentsAllowPrivilegedTools gates whether the agent chat (AG-UI, internal/
+// adkbridge) may offer privileged tools (mcp.PrivilegedTools). Default
+// false — deny-by-default for the dangerous tier.
 func AgentsAllowPrivilegedTools(ctx context.Context, reader SiteConfigReader) bool {
 	return readBool(ctx, reader, "agents_allow_privileged_tools", false)
-}
-
-// AgentTeamRouterModel resolves the team router's fast-tier model
-// (per-task key → model_tier_fast → KB chat model).
-func AgentTeamRouterModel(ctx context.Context, reader SiteConfigReader) string {
-	return ResolveFastTierModel(ctx, reader, "agent_team_router_model")
 }
 
 // ChatSSEEarlyOpenEnabled opens a streamed SendMessage turn's SSE response

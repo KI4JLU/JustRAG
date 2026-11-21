@@ -15,10 +15,8 @@ type CreateRunRequest struct {
 	JudgeEnabled *bool      `json:"judge_enabled,omitempty"`
 	TopK         *int       `json:"top_k,omitempty"`
 	Label        string     `json:"label,omitempty"`
-	// TeamID dispatches the eval run through a user-created agent team
-	// instead of the standard orchestrator-dispatch adapter. Teams are
-	// KB-scoped, so TeamID requires an explicit KBID on the same request
-	// (see CreateRun validation) — it cannot rely on eval_default_kb_id.
+	// TeamID is read only to refuse it: team eval runs were removed, and a
+	// request naming one gets a 400 instead of a standard run.
 	TeamID *uuid.UUID `json:"team_id,omitempty"`
 }
 
@@ -50,11 +48,10 @@ type RunSummary struct {
 	Aggregate       *AggregateSummary  `json:"aggregate,omitempty"`
 	RouteMeanRecall map[string]float64 `json:"route_mean_recall,omitempty"`
 	ErrorMessage    string             `json:"error_message,omitempty"`
-	// TeamID/TeamName (W6-R9) surface which runs dispatched through a user
-	// team instead of the standard orchestrator-dispatch adapter. TeamID
-	// mirrors eval.Run.TeamID verbatim; TeamName is resolved best-effort via
-	// the handler's teamLoader (errors swallowed — an unresolved name still
-	// leaves TeamID set, so the run is still identifiable as a team run).
+	// TeamID/TeamName mark the runs that dispatched through an agent team
+	// before team runs were removed — history only. TeamID mirrors
+	// eval.Run.TeamID verbatim; TeamName is empty when the team is gone, and
+	// TeamID still identifies the run as a team run.
 	TeamID   *string `json:"team_id,omitempty"`
 	TeamName string  `json:"team_name,omitempty"`
 }

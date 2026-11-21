@@ -116,8 +116,6 @@ type ChatRow struct {
 	UserID    string    `json:"userId" db:"user_id"`
 	Title     string    `json:"title" db:"title"`
 	Type      string    `json:"type" db:"type"`
-	TeamID    *string   `json:"teamId" db:"team_id"`
-	AgentID   *string   `json:"agentId" db:"agent_id"`
 	CreatedAt time.Time `json:"createdAt" db:"created_at"`
 	UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
 	// BranchedFromChatID is the chat this one was branched from
@@ -237,8 +235,6 @@ type MessageRow struct {
 	// Attachments are the files attached to a user message (migration 0090),
 	// filled by GetMessages; omitted when there are none.
 	Attachments []MessageAttachment `json:"attachments,omitempty" db:"-"`
-	TeamID      *string             `json:"teamId,omitempty" db:"team_id"`
-	AgentID     *string             `json:"agentId,omitempty" db:"agent_id"`
 	CreatedAt   time.Time           `json:"createdAt" db:"created_at"`
 }
 
@@ -280,10 +276,6 @@ type AddMessageParams struct {
 	// Trajectory is the turn's agent steps (trajectoryRecorder.stored);
 	// empty inserts SQL NULL.
 	Trajectory []TrajectoryEvent
-	// TeamID / AgentID attribute an AI message to the user-created team or
-	// agent that produced it (nil on user messages and non-team turns).
-	TeamID  *string
-	AgentID *string
 	// AttachmentIDs are the user_files ids attached to a user message, in the
 	// order the user attached them (message_attachments, migration 0090).
 	// Written in the same transaction as the message. Every id must already
@@ -342,7 +334,6 @@ type Store interface {
 	KBHasRole(ctx context.Context, kbID, roleID string) (bool, error)
 	// CreateChatWithRole is CreateChat for a chat started in roleID.
 	CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID string) (*ChatRow, error)
-	UpdateChatAgentSelection(ctx context.Context, chatID string, teamID, agentID *string) error
 	// StarterContext returns what the starter questions of an empty chat
 	// are generated from: the KB's name and up to limit of its documents.
 	StarterContext(ctx context.Context, kbID string, limit int) (StarterSource, error)

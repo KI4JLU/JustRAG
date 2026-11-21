@@ -45,10 +45,9 @@ func webSearchLogValue(ws *bool) string {
 const (
 	// webSearchSkippedReason is the client-visible Reason of the
 	// "web_search skipped" trajectory event; the specific cause is logged.
-	webSearchSkippedReason   = "web search is not available for this turn"
-	msgWebSearchUnavailable  = "Web search is not available."
-	msgWebSearchNeedsStream  = "Web search is only available on streaming requests (stream=true)."
-	msgWebSearchWithTeamTurn = "Web search cannot be combined with an agent or team selection."
+	webSearchSkippedReason  = "web search is not available for this turn"
+	msgWebSearchUnavailable = "Web search is not available."
+	msgWebSearchNeedsStream = "Web search is only available on streaming requests (stream=true)."
 )
 
 // errWebSearchUnavailable marks the configuration reasons webSearchAvailable
@@ -91,10 +90,7 @@ func (h *Handler) webSearchAvailable(ctx context.Context) error {
 //   - web search is unavailable on this server (admin gate off,
 //     web_search_enabled off, Google credentials missing, tool not wired);
 //   - a non-streaming request: writeJSONResponse runs a single completion
-//     with no tool loop, so the request would be answered without it;
-//   - an agent/team selection on a non-Enhance turn: answer tools are off on
-//     team-authored turns (persona-influenced findings in the prompt), so
-//     web search could not run there either.
+//     with no tool loop, so the request would be answered without it.
 //
 // The one skip that depends on work done later in the turn — a
 // chat_answer_tools_by_route allowlist that drops web_search for the
@@ -118,26 +114,7 @@ func (h *Handler) refuseWebSearchTurn(ctx context.Context, body sendMessageReque
 		logctx.From(ctx).Warn("chat.web_search.refused", "reason", "non-streaming request")
 		return http.StatusUnprocessableEntity, msgWebSearchNeedsStream
 	}
-	if teamTurnRequested(body) && h.teamLoader != nil {
-		logctx.From(ctx).Warn("chat.web_search.refused", "reason", "agent/team selection")
-		return http.StatusUnprocessableEntity, msgWebSearchWithTeamTurn
-	}
 	return 0, ""
-}
-
-// teamTurnRequested reports whether the request will be answered by its
-// agent/team selection. SendMessage only uses the selection on a turn
-// without an Enhance pass — judged AFTER resolveRegenerate, which clears
-// body.Enhance (a regenerate re-answers the stored question unenhanced). The
-// up-front check runs before that rewrite, so it has to apply it itself:
-// otherwise a regenerate carrying a team and an Enhance value would pass
-// the check and then run as a team turn.
-func teamTurnRequested(body sendMessageRequest) bool {
-	enhance := body.Enhance
-	if body.RegenerateOfMessageID != "" {
-		enhance = ""
-	}
-	return enhance == "" && (body.TeamID != "" || body.AgentID != "")
 }
 
 // answerToolsInput is what answerToolsForTurn needs to know about the turn.
@@ -149,9 +126,6 @@ type answerToolsInput struct {
 	queryType         string
 	isGlobalSynthesis bool
 	webSearch         *bool
-	// teamAuthored: a team/agent wrote this turn's prompt content (see
-	// teamAuthoredTurn) — answer tools stay off.
-	teamAuthored bool
 	// library: a library-chat turn (no KB). It never gets answer-time tools
 	// (P3-R5) — every catalog tool is KB-scoped and kbID is "".
 	library bool
@@ -250,12 +224,6 @@ func (h *Handler) baseAnswerTools(ctx context.Context, in answerToolsInput) (set
 	if in.library {
 		if requested {
 			return answerToolSet{}, false, "answer tools are off on a library chat turn"
-		}
-		return answerToolSet{}, false, ""
-	}
-	if in.teamAuthored {
-		if requested {
-			return answerToolSet{}, false, "answer tools are off on a turn a team or agent authored"
 		}
 		return answerToolSet{}, false, ""
 	}

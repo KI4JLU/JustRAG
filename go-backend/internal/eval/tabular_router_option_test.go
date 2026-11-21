@@ -9,7 +9,20 @@ import (
 	"github.com/justrag/go-backend/internal/chat"
 	"github.com/justrag/go-backend/internal/tabular"
 	"github.com/justrag/go-backend/internal/tabular/sqlexec"
+	"github.com/justrag/go-backend/internal/vector"
 )
+
+// fakeBaseSearcher is a minimal vector.Searcher stand-in (not a
+// *vector.SearchService) for adapters that never search in these tests.
+type fakeBaseSearcher struct{}
+
+func (fakeBaseSearcher) Search(context.Context, string, string, int, vector.SearchOptions) (*vector.SearchResult, error) {
+	return &vector.SearchResult{}, nil
+}
+
+func (fakeBaseSearcher) ExpandNeighbors(_ context.Context, chunks []vector.SearchChunk, _ int, _, _ string) []vector.SearchChunk {
+	return chunks
+}
 
 // TestOrchestratorDispatchAdapterCarriesTabularRouter is the R51 regression
 // guard. cmd/eval builds the tabular router once and hands it to

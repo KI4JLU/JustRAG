@@ -43,9 +43,9 @@ type Searcher interface {
 type GenerateRequest struct {
 	Topic    string `json:"topic"`
 	Language string `json:"language"` // default "de"
-	// Workspace-Dialog: die im Dialog gewählte Agent-/Team-Auswahl. Team hat
-	// Vorrang. Leer = wie bisher, ohne Agent. Nur von GenerateAnalysis
-	// ausgewertet.
+	// AgentID / TeamID kommen nur noch von alten Clients: Agenten und Teams
+	// sind entfernt. GenerateAnalysis läuft dann ohne Agent und meldet das
+	// als degradedReason "unavailable", statt stillschweigend zu liefern.
 	AgentID string `json:"agentId"`
 	TeamID  string `json:"teamId"`
 }
@@ -112,16 +112,6 @@ type Handler struct {
 	// GetWorkspacePresets die Code-Defaults — die Dialoge bleiben bedienbar.
 	siteCfg SiteConfigReader
 	kbCfg   KBConfigOverrideLister
-
-	// Optionale Agent-/Team-Abhängigkeiten (via SetAgentDeps) für die
-	// Workspace-Analyse über einen gewählten Agenten/Team. Fehlen sie, läuft
-	// GenerateAnalysis wie vor 2026-08 (Retrieval + ein Modellaufruf).
-	// teamSearcher ist vom breiteren vector.Searcher-Typ, den RunTeamChat
-	// verlangt — h.searchSvc ist auf das schmalere Searcher-Interface dieses
-	// Pakets typisiert (nur Search, kein ExpandNeighbors) und genügt nicht;
-	// siehe Handler.SetAgentDeps für die Begründung.
-	teams        TeamLoader
-	teamSearcher vector.Searcher
 }
 
 // NewHandler creates a new Handler.
@@ -163,21 +153,6 @@ func defaultLang(lang string) string {
 func (h *Handler) SetPresetDeps(cfg SiteConfigReader, kbCfg KBConfigOverrideLister) {
 	h.siteCfg = cfg
 	h.kbCfg = kbCfg
-}
-
-// SetAgentDeps verdrahtet die Agent-/Team-Auflösung für die
-// Workspace-Analyse. Optional: ohne sie läuft GenerateAnalysis wie vor
-// 2026-08 (Retrieval + ein Modellaufruf, kein Agent).
-//
-// searcher nimmt bewusst vector.Searcher statt des schmaleren
-// contentgen.Searcher entgegen: h.searchSvc kann von Tests mit einem Mock
-// belegt sein, der nur Search (nicht ExpandNeighbors) implementiert, sodass
-// eine Typ-Assertion h.searchSvc.(vector.Searcher) dort zur Laufzeit
-// fehlschlagen würde — ein zweites, explizit typisiertes Feld ist hier
-// sicherer als eine Assertion, die nicht garantiert gelingt.
-func (h *Handler) SetAgentDeps(teams TeamLoader, searcher vector.Searcher) {
-	h.teams = teams
-	h.teamSearcher = searcher
 }
 
 // readerForKB überlagert den globalen Reader mit den per-KB-Overrides.
@@ -711,66 +686,22 @@ func (h *Handler) GenerateAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 	lang := defaultLang(req.Language)
 
-	sel, degraded := resolveAnalysisAgent(ctx, h.teams, kbID, req.AgentID, req.TeamID)
-
-	var analysis string
-	if sel != nil {
-		params := chat.BuildTeamParams(ctx, chat.TeamParamsInput{
-			KbID:     kbID,
-			Query:    req.Topic,
-			Language: lang,
-			// Same source the chat path uses (http_send.go). Without it an
-			// agent analysis cannot resolve "seit Mai" while the same agent
-			// can in chat, and chat_date_awareness_enabled defaults ON.
-
-			CurrentDateLine:  chat.SystemPromptDateLine(ctx, h.readerForKB(ctx, kbID), lang),
-			KbSystemPrompt:   prompts.AnalysisSystemPrompt(lang),
-			Team:             sel.Team,
-			Agent:            sel.Agent,
-			DeriveToolPolicy: true,
-			SiteCfg:          h.readerForKB(ctx, kbID),
-			SearchService:    h.teamSearcher,
-		})
-		// RunTeamChat liefert einen SystemPrompt, KEINE fertige Antwort — die
-		// Chat-Sendestrecke streamt sie im Anschluss selbst. Hier gibt es
-		// keinen Streamer, also wird die Antwort direkt erzeugt.
-		chatCtx, rerr := chat.RunTeamChat(ctx, h.aiResolver, h.teamSearcher, params, func(map[string]any) {})
-		if rerr != nil {
-			logctx.From(ctx).Warn("workspace.analysis.team_run_failed", "kb_id", kbID, "error", rerr)
-			degraded = "run_failed"
-			sel = nil
-		} else {
-			res, gerr := ai.GenerateCompletion(ctx, h.aiResolver, req.Topic, chatCtx.SystemPrompt, kbID, false)
-			if gerr != nil {
-				httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "LLM generation failed")
-				return
-			}
-			if strings.TrimSpace(res.Content) == "" {
-				// Storing this would produce an artifact with empty text and an
-				// empty degradedReason — for the user indistinguishable from a
-				// real result.
-				logctx.From(ctx).Warn("workspace.analysis.empty_output", "kb_id", kbID)
-				httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "the agent returned an empty analysis")
-				return
-			}
-			analysis = res.Content
-		}
+	degraded := ""
+	if req.AgentID != "" || req.TeamID != "" {
+		degraded = "unavailable"
 	}
 
-	if sel == nil {
-		contextStr, err := getContext(ctx, h.searchSvc, kbID, req.Topic, 25)
-		if err != nil {
-			httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to retrieve context")
-			return
-		}
+	contextStr, err := getContext(ctx, h.searchSvc, kbID, req.Topic, 25)
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "failed to retrieve context")
+		return
+	}
 
-		prompt := fmt.Sprintf("Analyze the following topic based on the context:\n\nTopic: %s\n\nContext:\n%s", req.Topic, contextStr)
-		var genErr error
-		analysis, genErr = generateWithLLM(ctx, h.aiResolver, prompt, prompts.AnalysisSystemPrompt(lang), kbID)
-		if genErr != nil {
-			httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "LLM generation failed")
-			return
-		}
+	prompt := fmt.Sprintf("Analyze the following topic based on the context:\n\nTopic: %s\n\nContext:\n%s", req.Topic, contextStr)
+	analysis, err := generateWithLLM(ctx, h.aiResolver, prompt, prompts.AnalysisSystemPrompt(lang), kbID)
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "LLM generation failed")
+		return
 	}
 
 	contentVal := map[string]any{"text": analysis}
@@ -782,7 +713,7 @@ func (h *Handler) GenerateAnalysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Das Artefakt reist mit dem Degradationsgrund, damit der Workspace
+	// Das Artefakt reist mit dem Degradationsgrund, damit ein alter Client
 	// „Ohne Agent erzeugt“ anzeigen kann statt stillschweigend zu liefern.
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, map[string]any{
 		"record":         record,

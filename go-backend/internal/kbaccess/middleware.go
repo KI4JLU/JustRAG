@@ -282,7 +282,7 @@ const SharedSQL = `EXISTS (SELECT 1 FROM kb_members sm WHERE sm.kb_id = kb.id AN
 
 // SystemAdminMayOperate reports whether a system admin whose kb_members role
 // on kb is memberRole ("" for none) may operate its advanced settings (RAG
-// settings, agents and teams, evals, workflow): on a global KB, a shared one,
+// settings, evals, workflow): on a global KB, a shared one,
 // or their own. Somebody else's private KB nobody shares stays its owner's
 // alone — evals read its content. memberRole is the raw row, not the
 // effective role, which makes a superadmin the owner of every KB.
@@ -310,14 +310,6 @@ func (m *Middleware) RequireKBRole(required string) func(http.Handler) http.Hand
 func (m *Middleware) RequireOperableKB() func(http.Handler) http.Handler {
 	return m.resolveKB(func(sysRole string, kb *KnowledgeBase, memberRole, _ string) bool {
 		return isSystemAdmin(sysRole) && SystemAdminMayOperate(kb, memberRole)
-	})
-}
-
-// RequireKBRoleOrOperable is RequireKBRole(required) that also admits a system
-// admin to a KB they may operate (RequireOperableKB).
-func (m *Middleware) RequireKBRoleOrOperable(required string) func(http.Handler) http.Handler {
-	return m.resolveKB(func(sysRole string, kb *KnowledgeBase, memberRole, role string) bool {
-		return AtLeast(role, required) || (isSystemAdmin(sysRole) && SystemAdminMayOperate(kb, memberRole))
 	})
 }
 

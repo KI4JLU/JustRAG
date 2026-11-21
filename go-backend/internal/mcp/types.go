@@ -114,11 +114,11 @@ type errMissing string
 
 func (e errMissing) Error() string { return "mcp: server spec missing field: " + string(e) }
 
-// PrivilegedTools are excluded from user-created agents unless the
-// agents_allow_privileged_tools site_config is on: code_exec executes code,
+// PrivilegedTools are the dangerous tool tier: code_exec executes code,
 // sql_query reaches the (read-only) DB, web_search is an exfiltration channel
-// for prompt-injected content. Enforced at agent-save validation AND at
-// dispatch time (chat.RestrictedDispatcher).
+// for prompt-injected content. A restricted dispatcher
+// (chat.RestrictedDispatcher) strips them unless its caller's own gate allows
+// them; the agent chat reads agents_allow_privileged_tools for that.
 var PrivilegedTools = map[string]bool{
 	"code_exec":  true,
 	"sql_query":  true,
