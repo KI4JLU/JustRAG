@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
-import { AdminHarness } from './test/AdminHarness';
+import { AdminHarness } from '../test/AdminHarness';
 
 /* ---------------------------------------------------------------------------
  * No `<h1>` inside the admin console.
@@ -33,17 +33,17 @@ vi.mock('axios', () => ({
 // effect's, so a fresh object per render re-runs the fetch on every render.
 // The same trap is documented in the two dashboards' shell suites.
 const themeMock = { t: (k: string) => k, language: 'en' as const };
-vi.mock('./contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 const toastMock = { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() };
-vi.mock('./contexts/ToastContext', () => ({ useToast: () => toastMock }));
+vi.mock('../contexts/ToastContext', () => ({ useToast: () => toastMock }));
 const modalMock = { showConfirm: vi.fn(), showAlert: vi.fn(), showPrompt: vi.fn() };
-vi.mock('./contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
+vi.mock('../contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
 const authMock = { user: { id: 'op-1', role: 'superadmin' } };
-vi.mock('./contexts/AuthContext', () => ({ useAuth: () => authMock }));
+vi.mock('../contexts/AuthContext', () => ({ useAuth: () => authMock }));
 // jsdom has no `window.matchMedia`, which this hook reads through
 // `useSyncExternalStore` — the same accommodation AdminConfigsTab.test.tsx
 // makes. Unrelated to headings; without it the configs tab cannot mount.
-vi.mock('./hooks/useReducedMotion', () => ({
+vi.mock('../hooks/useReducedMotion', () => ({
     useReducedMotion: () => false,
     getMotionProps: () => ({}),
 }));

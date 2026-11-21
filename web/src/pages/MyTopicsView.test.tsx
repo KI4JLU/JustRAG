@@ -26,7 +26,7 @@ vi.mock('axios');
 
 // The console is covered by AdminUI.*.test.tsx and App.authenticated-home.test.tsx;
 // here it only has to open.
-vi.mock('../AdminUI', () => ({
+vi.mock('./AdminUI', () => ({
   default: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="admin console" /> : null),
 }));
 const mockedAxios = vi.mocked(axios, true);

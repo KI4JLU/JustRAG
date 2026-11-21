@@ -8,7 +8,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LegalPage } from './LegalPage';
 import { ToastProvider } from '../contexts/ToastContext';
-import { ToastContainer } from './ToastContainer';
+import { ToastContainer } from '../components/ToastContainer';
 import { translations, type Language } from '../translations';
 
 /* ---------------------------------------------------------------------------

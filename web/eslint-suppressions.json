@@ -24,7 +24,7 @@
       "count": 3
     }
   },
-  "src/components/GlobalKbSettings.tsx": {
+  "src/pages/GlobalKbSettings.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 19
     }

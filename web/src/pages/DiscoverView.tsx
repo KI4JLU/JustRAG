@@ -1,8 +1,8 @@
 import { Container, PageHeader } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';
-import { AppChrome } from './AppChrome';
-import KbCatalogPanel from './KbCatalogPanel';
-import { TopicFilterBar } from './TopicFilterBar';
+import { AppChrome } from '../components/AppChrome';
+import KbCatalogPanel from '../components/KbCatalogPanel';
+import { TopicFilterBar } from '../components/TopicFilterBar';
 import { useTopicFilters } from '../hooks/useTopicFilters';
 
 /* ---------------------------------------------------------------------------

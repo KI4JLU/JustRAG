@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useId } from 'react';
 import axios from 'axios';
-import { getApiErrorMessage } from './utils/apiError';
+import { getApiErrorMessage } from '../utils/apiError';
 import {
     AreaChart, Area, BarChart, Bar, LineChart, Line,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -14,8 +14,8 @@ import {
     Button, Card, CardContent, CardHeader, Checkbox, DashboardLayout, Grid, Label,
     SegmentedControl, Spinner, Stack, cn,
 } from '@ki4jlu/design-system';
-import { API_BASE_URL } from './api';
-import { useTheme } from './contexts/ThemeContext';
+import { API_BASE_URL } from '../api';
+import { useTheme } from '../contexts/ThemeContext';
 
 /* ---------------------------------------------------------------------------
  * Shell: the design system's `DashboardLayout` template (card KI-714,
@@ -33,7 +33,7 @@ import { useTheme } from './contexts/ThemeContext';
  *    real `<h1>` and the level was not a prop), which gave this page two:
  *    AdminUI.tsx already renders one. Closed by card KI-743 — design-system
  *    v0.24.0 added `headingLevel`, this call site passes 2, and
- *    `src/AdminUI.headings.test.tsx` pins the count in the admin composition.
+ *    `src/pages/AdminUI.headings.test.tsx` pins the count in the admin composition.
  *
  * TODO: no visual confirmation in this pass; the stories exist for the
  * developer's both-theme pass.

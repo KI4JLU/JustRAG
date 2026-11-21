@@ -6,16 +6,16 @@ import {
     PopoverContent, PopoverTrigger, Spinner, Stack, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn,
     useSettingsSearch, type ActionMenuItem,
 } from '@ki4jlu/design-system';
-import { getApiErrorMessage } from './utils/apiError';
-import { COMPACT_INPUT } from './components/form/SettingsFieldRow';
-import { formatRelative } from './utils/dates';
-import { translations } from './translations';
-import { API_BASE_URL } from './api';
-import { useTheme } from './contexts/ThemeContext';
-import { useAuth } from './contexts/AuthContext';
-import { KbDeleteDialog } from './components/admin/KbDeleteDialog';
-import { KbPublishDialog } from './components/admin/KbPublishDialog';
-import { KbTransferOwnerDialog } from './components/admin/KbTransferOwnerDialog';
+import { getApiErrorMessage } from '../utils/apiError';
+import { COMPACT_INPUT } from '../components/form/SettingsFieldRow';
+import { formatRelative } from '../utils/dates';
+import { translations } from '../translations';
+import { API_BASE_URL } from '../api';
+import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
+import { KbDeleteDialog } from '../components/admin/KbDeleteDialog';
+import { KbPublishDialog } from '../components/admin/KbPublishDialog';
+import { KbTransferOwnerDialog } from '../components/admin/KbTransferOwnerDialog';
 
 /* ---------------------------------------------------------------------------
  * Shell: the design system's `DashboardLayout` template (card KI-714,
@@ -40,7 +40,7 @@ import { KbTransferOwnerDialog } from './components/admin/KbTransferOwnerDialog'
  * and only means something once a KB is public (docs/kb-access.md, staged publishing).
  *
  * That open question is closed: design-system v0.24.0 added `headingLevel`,
- * this call site passes 2 (card KI-743), and `src/AdminUI.headings.test.tsx`
+ * this call site passes 2 (card KI-743), and `src/pages/AdminUI.headings.test.tsx`
  * pins the count in the composition where it matters.
  * TODO: no visual confirmation in this pass; the stories exist for the
  * developer's both-theme pass.

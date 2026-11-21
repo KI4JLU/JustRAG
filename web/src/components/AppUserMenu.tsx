@@ -15,7 +15,7 @@ import { openAdminDialog, setAdminDialogOpen, setAdminDialogSection, stripAdminD
 import { roleLabel } from '../utils/roleLabel';
 
 // The admin console and its tabs load only when it is opened.
-const AdminUI = lazy(() => import('../AdminUI'));
+const AdminUI = lazy(() => import('../pages/AdminUI'));
 
 /**
  * The user menu of every sidebar (AppChrome's pages and the topic view):

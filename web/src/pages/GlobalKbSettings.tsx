@@ -13,8 +13,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useFormValidation } from '../hooks/useFormValidation';
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useToast } from '../contexts/ToastContext';
-import { ConfluenceModal } from './sidebar/ConfluenceModal';
-import { SyncScheduleSelect } from './sidebar/SyncScheduleSelect';
+import { ConfluenceModal } from '../components/sidebar/ConfluenceModal';
+import { SyncScheduleSelect } from '../components/sidebar/SyncScheduleSelect';
 import { getApiErrorMessage } from '../utils/apiError';
 import { uploadFailureMessage, userErrorMessage } from '../utils/userErrors';
 

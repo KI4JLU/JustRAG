@@ -16,7 +16,7 @@ import { AppUpdateProvider } from './contexts/AppUpdateContext';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { goToSsoLogin, reloadPage, startSsoReauth } from './routing/sessionExpiry';
 // Lazy load
-const Login = lazy(() => import('./Login'));
+const Login = lazy(() => import('./pages/Login'));
 const AuthenticatedApp = lazy(() => import('./AuthenticatedApp'));
 
 const LoadingFallback = () => (

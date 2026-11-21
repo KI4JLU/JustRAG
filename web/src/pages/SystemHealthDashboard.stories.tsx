@@ -150,7 +150,7 @@ export const Healthy: Story = {
     // Level 2 because this page is NESTED under AdminUI.tsx's own <h1>; the
     // template's level was fixed at 1 before v0.24.0, which gave the admin
     // area two. Standalone, as here, the page has no <h1> — the "exactly one
-    // in the admin tree" oracle lives in src/AdminUI.headings.test.tsx.
+    // in the admin tree" oracle lives in src/pages/AdminUI.headings.test.tsx.
     const heading = await canvas.findByRole('heading', { level: 2, name: /System Health/ });
 
     // ORACLE 2: the browser's CSSOM. index.css reverts h1-h6 margins to the

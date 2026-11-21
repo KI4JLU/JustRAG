@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import AdminUI, { type AdminSection } from '../AdminUI';
+import AdminUI, { type AdminSection } from '../pages/AdminUI';
 
 /** AdminUI open on a section, keeping the section it is switched to (the nav is controlled). */
 export function AdminHarness({ userRole, section = 'configs' }: { userRole: string; section?: AdminSection }) {

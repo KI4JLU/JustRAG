@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
-import { AdminHarness } from './test/AdminHarness';
+import { AdminHarness } from '../test/AdminHarness';
 
 /* ---------------------------------------------------------------------------
  * Saving the system notice sends only the fields edited in this dialog.
@@ -18,14 +18,14 @@ vi.mock('axios', () => ({
 
 // Stable objects: `t` and `toast` sit in AdminUI's fetch dependency lists.
 const themeMock = { t: (k: string) => k, language: 'en' as const };
-vi.mock('./contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 const toastMock = { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() };
-vi.mock('./contexts/ToastContext', () => ({ useToast: () => toastMock }));
+vi.mock('../contexts/ToastContext', () => ({ useToast: () => toastMock }));
 const modalMock = { showConfirm: vi.fn(), showAlert: vi.fn(), showPrompt: vi.fn() };
-vi.mock('./contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
+vi.mock('../contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
 const authMock = { user: { id: 'op-1', role: 'admin' } };
-vi.mock('./contexts/AuthContext', () => ({ useAuth: () => authMock }));
-vi.mock('./hooks/useReducedMotion', () => ({ useReducedMotion: () => false, getMotionProps: () => ({}) }));
+vi.mock('../contexts/AuthContext', () => ({ useAuth: () => authMock }));
+vi.mock('../hooks/useReducedMotion', () => ({ useReducedMotion: () => false, getMotionProps: () => ({}) }));
 
 const STORED = {
     system_notice_enabled: 'true',

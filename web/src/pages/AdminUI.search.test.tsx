@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
-import { AdminHarness } from './test/AdminHarness';
-import { ADMIN_SEARCH_KEYS } from './components/admin/adminSearchKeywords';
-import { ADMIN_SECTIONS } from './hooks/adminDialog';
-import { translations } from './translations';
+import { AdminHarness } from '../test/AdminHarness';
+import { ADMIN_SEARCH_KEYS } from '../components/admin/adminSearchKeywords';
+import { ADMIN_SECTIONS } from '../hooks/adminDialog';
+import { translations } from '../translations';
 
 /* ---------------------------------------------------------------------------
  * Every section of the admin dialog is searchable by what is inside it, not only by its name
@@ -16,14 +16,14 @@ import { translations } from './translations';
 
 vi.mock('axios', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 const themeMock = { t: (k: string) => k, language: 'en' as const };
-vi.mock('./contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 const toastMock = { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() };
-vi.mock('./contexts/ToastContext', () => ({ useToast: () => toastMock }));
+vi.mock('../contexts/ToastContext', () => ({ useToast: () => toastMock }));
 const authMock = { user: { id: 'op-1', role: 'superadmin' } };
-vi.mock('./contexts/AuthContext', () => ({ useAuth: () => authMock }));
+vi.mock('../contexts/AuthContext', () => ({ useAuth: () => authMock }));
 const modalMock = { showConfirm: vi.fn(), showAlert: vi.fn(), showPrompt: vi.fn() };
-vi.mock('./contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
-vi.mock('./hooks/useReducedMotion', () => ({ useReducedMotion: () => false, getMotionProps: () => ({}) }));
+vi.mock('../contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
+vi.mock('../hooks/useReducedMotion', () => ({ useReducedMotion: () => false, getMotionProps: () => ({}) }));
 
 beforeEach(() => {
     vi.clearAllMocks();

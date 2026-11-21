@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import axios from 'axios';
 import { Button, Logo } from '@ki4jlu/design-system';
 import Login from './Login';
-import { withRouter } from './test/withRouter';
+import { withRouter } from '../test/withRouter';
 
 /* ---------------------------------------------------------------------------
  * Card KI-719. Two things about the login page's presentation were wrong and
@@ -35,12 +35,12 @@ vi.mock('axios', () => ({
 
 // Login pulls in useReducedMotion which calls window.matchMedia,
 // not available in jsdom by default.
-vi.mock('./hooks/useReducedMotion', () => ({
+vi.mock('../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
 
-vi.mock('./contexts/ThemeContext', () => ({
+vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
     theme: 'light' as const,
     resolvedTheme: 'light' as const,

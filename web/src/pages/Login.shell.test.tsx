@@ -3,9 +3,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import Login from './Login';
-import { withRouter } from './test/withRouter';
-import { API_BASE_URL } from './api';
-import { translations } from './translations';
+import { withRouter } from '../test/withRouter';
+import { API_BASE_URL } from '../api';
+import { translations } from '../translations';
 
 /* ---------------------------------------------------------------------------
  * This suite exists because of card KI-693, which replaced this page's
@@ -45,7 +45,7 @@ vi.mock('axios', () => ({
 
 // Login pulls in useReducedMotion which calls window.matchMedia,
 // not available in jsdom by default.
-vi.mock('./hooks/useReducedMotion', () => ({
+vi.mock('../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
@@ -64,7 +64,7 @@ const themeMock = {
     return entry ? entry.en : key;
   },
 };
-vi.mock('./contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 
 const mockedGet = axios.get as unknown as Mock;
 const mockedPost = axios.post as unknown as Mock;

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import axios from 'axios';
 import Login from './Login';
-import { withRouter } from './test/withRouter';
+import { withRouter } from '../test/withRouter';
 
 vi.mock('axios', () => ({
   default: { get: vi.fn(), post: vi.fn() },
@@ -10,12 +10,12 @@ vi.mock('axios', () => ({
 
 // Login pulls in useReducedMotion which calls window.matchMedia,
 // not available in jsdom by default.
-vi.mock('./hooks/useReducedMotion', () => ({
+vi.mock('../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
 
-vi.mock('./contexts/ThemeContext', () => ({
+vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
     theme: 'light' as const,
     resolvedTheme: 'light' as const,

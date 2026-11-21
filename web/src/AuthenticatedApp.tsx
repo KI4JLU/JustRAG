@@ -39,18 +39,18 @@ import { openSettingsDialog } from './hooks/settingsDialog';
 import { useChatRoute, useChatTopic } from './hooks/useChatRoute';
 
 // Components
-import { MyTopicsView } from './components/MyTopicsView';
-import { SharedTopicsView } from './components/SharedTopicsView';
-import { DiscoverView } from './components/DiscoverView';
+import { MyTopicsView } from './pages/MyTopicsView';
+import { SharedTopicsView } from './pages/SharedTopicsView';
+import { DiscoverView } from './pages/DiscoverView';
 import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from './components/AppChrome';
 import { ChatView } from './components/ChatView';
 import { TopicModals } from './components/TopicModals';
 
 // Lazy load heavy components
-const GlobalKbSettings = lazy(() => import('./components/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));
+const GlobalKbSettings = lazy(() => import('./pages/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));
 const KbSettingsPanel = lazy(() => import('./components/kbSettings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
 
-import { LegalPage } from './components/LegalPage';
+import { LegalPage } from './pages/LegalPage';
 import { PolicyAcceptanceGate } from './components/PolicyAcceptanceDialog';
 import { viewportHeight } from './utils/viewport';
 import { chatWebSearchRequestField } from './utils/chatWebSearch';

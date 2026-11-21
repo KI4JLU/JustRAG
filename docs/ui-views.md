@@ -17,13 +17,13 @@ Every view the web app renders and how each one is reached. Code: `web/src/`.
 
 | URL | `view` | Renders | Shell |
 |---|---|---|---|
-| `/` | `my-topics` | `components/MyTopicsView.tsx` | `AppFrame` |
-| `/shared` | `shared-topics` | `components/SharedTopicsView.tsx` | `AppFrame` |
-| `/discover` | `discover` | `components/DiscoverView.tsx` | `AppFrame` |
+| `/` | `my-topics` | `pages/MyTopicsView.tsx` | `AppFrame` |
+| `/shared` | `shared-topics` | `pages/SharedTopicsView.tsx` | `AppFrame` |
+| `/discover` | `discover` | `pages/DiscoverView.tsx` | `AppFrame` |
 | `/kb/<id>` | `kb` | `components/ChatView.tsx` on a new chat | `AppFrame` with a topic |
 | `/c/<id>` | `chat` | `components/ChatView.tsx` on that chat; the chat names its topic | `AppFrame` with a topic |
-| `/kb/<id>/admin` | `global-kb-settings` | `components/GlobalKbSettings.tsx` | Full page |
-| `/terms`, `/privacy`, `/accessibility` | same as path | `components/LegalPage.tsx` | Full page |
+| `/kb/<id>/admin` | `global-kb-settings` | `pages/GlobalKbSettings.tsx` | Full page |
+| `/terms`, `/privacy`, `/accessibility` | same as path | `pages/LegalPage.tsx` | Full page |
 | Anything else, or an id segment that is no id | `not-found` | See redirects | — |
 
 **Redirects** (signed in; the URL is replaced, so back does not return to it)
@@ -48,7 +48,7 @@ a join link is replaced with `/`.
 |---|---|---|
 | Login | `Login.tsx` | Password form when local auth or LDAP is enabled (also the fallback when provider discovery fails); SSO button when OIDC is configured. Variants: session expired, pending invite. |
 | Password login | `Login.tsx` on `/admin` | Forces the password form and hides SSO; the same login endpoint. Replaces the URL with `/` on success. Signed in, `/admin` is an unknown path. |
-| Legal pages | `components/LegalPage.tsx` | `/terms`, `/privacy`, `/accessibility`, linked from the login footer (`components/Footer.tsx`). |
+| Legal pages | `pages/LegalPage.tsx` | `/terms`, `/privacy`, `/accessibility`, linked from the login footer (`components/Footer.tsx`). |
 | Join link | — | `/join/<token>` is captured before the router starts, kept in `sessionStorage`, and the URL replaced with `/`. `useJoinRedeem` redeems it and opens the topic, after sign-in or at once in an existing session. |
 
 ## The shell (`AppFrame`)

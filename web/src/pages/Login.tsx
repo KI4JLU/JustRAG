@@ -3,20 +3,20 @@ import axios from 'axios';
 import { useLocation, useRouter } from '@tanstack/react-router';
 import { motion } from 'framer-motion';
 import { Alert, AlertDescription, AuthLayout, Button, Spinner, Stack } from '@ki4jlu/design-system';
-import { API_BASE_URL } from './api';
+import { API_BASE_URL } from '../api';
 
-import { useTheme } from './contexts/ThemeContext';
-import { useFormValidation } from './hooks/useFormValidation';
-import { useReducedMotion, getMotionProps } from './hooks/useReducedMotion';
-import { AppLogo } from './components/AppLogo';
-import { LanguageFlag } from './components/LanguageFlag';
-import { appNameFrom } from './utils/appName';
-import { Footer } from './components/Footer';
-import { LegalPage } from './components/LegalPage';
-import { FieldRow } from './components/form/FieldRow';
-import { peekJoinToken } from './hooks/useJoinLink';
-import { useAppNavigate, useAppRoute } from './routing/navigation';
-import { parkPostLoginPath, takePostLoginPath } from './routing/postLoginPath';
+import { useTheme } from '../contexts/ThemeContext';
+import { useFormValidation } from '../hooks/useFormValidation';
+import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
+import { AppLogo } from '../components/AppLogo';
+import { LanguageFlag } from '../components/LanguageFlag';
+import { appNameFrom } from '../utils/appName';
+import { Footer } from '../components/Footer';
+import { LegalPage } from './LegalPage';
+import { FieldRow } from '../components/form/FieldRow';
+import { peekJoinToken } from '../hooks/useJoinLink';
+import { useAppNavigate, useAppRoute } from '../routing/navigation';
+import { parkPostLoginPath, takePostLoginPath } from '../routing/postLoginPath';
 
 interface LoginProps {
     onLogin: (token: string, user: { id: string; username: string; role: string }) => void;
