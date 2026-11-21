@@ -120,10 +120,12 @@ Current storage split:
 
 The frontend lives in `web/src/` and is organized around:
 
-- `components/`: feature UI, admin screens, studio, sidebars, API key UI
+- `app/`: the app shell (`App`, `AppRoot`, `AuthenticatedApp`); `main.tsx` and `index.css` stay in `src/`
+- `pages/`: the full-screen views the router opens (overview pages, admin, login, legal)
+- `routing/`: the route table, URL dialogs and short ids
+- `components/`: feature UI, admin sections, sidebars, API key UI
 - `contexts/`: auth, theme, modal, toast, topic view state
 - `hooks/`: chat, file management, RSS, Confluence, sharing, version checks, UI behavior
-- `routes/`: route-level composition
 - `utils/`: SSE parsing, message tree helpers, clipboard, viewport, error handling
 
 The production build is generated in `web/dist` and copied into `/app/client/dist` by the root [`Dockerfile`](Dockerfile).
