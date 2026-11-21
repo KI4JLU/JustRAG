@@ -9,7 +9,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useFormValidation } from '../hooks/useFormValidation';
 import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
 import { AppLogo } from '../components/AppLogo';
-import { LanguageFlag } from '../components/LanguageFlag';
+import { LanguageFlag } from '../components/ui/LanguageFlag';
 import { appNameFrom } from '../utils/appName';
 import { Footer } from '../components/Footer';
 import { LegalPage } from './LegalPage';

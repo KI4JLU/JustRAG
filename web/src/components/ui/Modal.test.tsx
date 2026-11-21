@@ -3,9 +3,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { Button, Dialog, DialogContent, DialogTitle } from '@ki4jlu/design-system';
-import { ModalProvider, useModalContext } from '../contexts/ModalContext';
+import { ModalProvider, useModalContext } from '../../contexts/ModalContext';
 
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 
 /** A DS dialog (like the members dialog) whose button asks for a confirmation. */
 function Host({ onAnswer }: { onAnswer: (answer: boolean) => void }) {

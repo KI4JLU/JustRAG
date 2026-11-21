@@ -1,6 +1,6 @@
 import { Kbd, KbdGroup } from '@ki4jlu/design-system';
-import { useTheme } from '../contexts/ThemeContext';
-import { IS_APPLE } from '../utils/searchShortcut';
+import { useTheme } from '../../contexts/ThemeContext';
+import { IS_APPLE } from '../../utils/searchShortcut';
 
 export interface ShortcutHintProps {
   /** The key pressed with ⌘ (Apple) or Ctrl (elsewhere). */

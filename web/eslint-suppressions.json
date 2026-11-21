@@ -14,7 +14,7 @@
       "count": 6
     }
   },
-  "src/components/ErrorBoundary.tsx": {
+  "src/components/ui/ErrorBoundary.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 2
     }

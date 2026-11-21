@@ -244,7 +244,7 @@ A section the user may not see falls back to `configs`.
 | Element | Component | When |
 |---|---|---|
 | Loading screen | `LoadingFallback` in `app/AppRoot.tsx` and in `app/AuthenticatedApp.tsx` | While the sign-in split loads; during a redirect and while a lazy full page loads |
-| Error screen | `components/ErrorBoundary.tsx` | A render crash: full screen, with „Try Again" and „Reload Page" |
+| Error screen | `components/ui/ErrorBoundary.tsx` | A render crash: full screen, with „Try Again" and „Reload Page" |
 | Usage-policy notice | `components/PolicyAcceptanceDialog.tsx` | The configured policy version is not accepted yet. Until the lookup answers, the signed-in app is inert except the legal pages; a failed lookup offers retry or sign-out. |
 | System notice | `components/SystemNotice.tsx` | Enabled with a text; a dismissible one hides once dismissed. Banner above the app, pill over the main area, or toast. |
 | App update | `hooks/useSystemNoticeBanner.tsx` | A new version is waiting: an alert in the shell that applies it and reloads |

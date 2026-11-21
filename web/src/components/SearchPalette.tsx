@@ -4,7 +4,7 @@ import {
 } from '@ki4jlu/design-system';
 import { Search } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
-import { ShortcutHint } from './ShortcutHint';
+import { ShortcutHint } from './ui/ShortcutHint';
 import { restoreSearchPaletteFocus, setSearchPaletteOpen, useSearchPaletteOpen } from '../hooks/useSearchPalette';
 import { SEARCH_KEYSHORTCUT, isSearchShortcut } from '../utils/searchShortcut';
 

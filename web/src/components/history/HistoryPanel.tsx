@@ -1,4 +1,4 @@
-import { ShortcutHint } from '../ShortcutHint';
+import { ShortcutHint } from '../ui/ShortcutHint';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     GitBranch, SquarePen, Trash2, Pencil, FolderPlus, ArrowUp, ArrowDown, ChevronsDownUp,

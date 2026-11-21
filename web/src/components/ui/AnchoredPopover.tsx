@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { useAnchoredPosition, type AnchorAlign, type AnchorPlacement } from '../hooks/useAnchoredPosition';
+import { useAnchoredPosition, type AnchorAlign, type AnchorPlacement } from '../../hooks/useAnchoredPosition';
 
 interface AnchoredPopoverProps {
     open: boolean;

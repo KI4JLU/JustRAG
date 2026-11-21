@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import {
     Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input,
 } from '@ki4jlu/design-system';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../../contexts/ThemeContext';
 
 export interface ModalState {
     show: boolean;

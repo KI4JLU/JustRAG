@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { API_BASE_URL } from '../api';
-import { LeaveGuard } from './LeaveGuard';
+import { LeaveGuard } from './ui/LeaveGuard';
 import { Check, History, House, Info, Loader2, Shield, SlidersHorizontal, Trash2, Users } from 'lucide-react';
 import { Button, Notice, SettingsDialog } from '@ki4jlu/design-system';
 import { useTheme } from '../contexts/ThemeContext';

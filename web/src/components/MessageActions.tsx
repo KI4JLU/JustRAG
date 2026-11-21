@@ -7,7 +7,7 @@ import { openExternal } from '../utils/openExternal';
 import { useTheme } from '../contexts/ThemeContext';
 import { useMessageActionRules, useMessageExport } from '../hooks/useMessageActions';
 import { AnswerExportMenu } from './AnswerExportMenu';
-import { AnchoredPopover } from './AnchoredPopover';
+import { AnchoredPopover } from './ui/AnchoredPopover';
 
 interface MessageActionsProps {
     message: Message;

@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Alert, AlertDescription } from '@ki4jlu/design-system';
-import { useToastContext, type Toast } from '../contexts/ToastContext';
-import { useTheme } from '../contexts/ThemeContext';
-import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
+import { useToastContext, type Toast } from '../../contexts/ToastContext';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import './Toast.css';
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {

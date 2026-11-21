@@ -5,7 +5,7 @@ import { MenuItem, MessageAction } from '@ki4jlu/design-system';
 import type { Message } from '../types';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { useMessageExport } from '../hooks/useMessageActions';
-import { AnchoredPopover } from './AnchoredPopover';
+import { AnchoredPopover } from './ui/AnchoredPopover';
 
 interface AnswerExportMenuProps {
   message: Message;

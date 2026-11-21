@@ -46,7 +46,7 @@ import { API_BASE_URL, authFetch } from '../api';
 import { SourcePanel } from './sources/SourcePanel';
 import { CitationsPanel } from './sources/CitationsPanel';
 import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../contexts/SourcePanelContext';
-import { MessageSkeleton } from './Skeleton';
+import { MessageSkeleton } from './ui/Skeleton';
 import { formatDaySeparator, sameLocalDay } from '../utils/chatDates';
 
 const ComparisonView = lazy(() => import('./ComparisonView').then(module => ({ default: module.ComparisonView })));
