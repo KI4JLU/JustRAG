@@ -68,8 +68,8 @@ func ClassifyQueryTypeForEval(ctx context.Context, resolver *ai.ConfigResolver, 
 // ladder, and the ladder's complex_reasoning precondition is part of that
 // ladder. A "force lookup → supervisor" rule that the mirror refused because
 // the question is a lookup would measure a route production does not take.
-// Production's three always-first arms (comparison / team / corpus-table)
-// have no mirror at all (they are explicit-intent routes, not complex-lane
+// Production's two always-first arms (comparison / corpus-table) have no
+// mirror at all (they are explicit-intent routes, not complex-lane
 // dispatch), so there is nothing here for the policy to jump ahead of.
 //
 // The two ladders are pinned to agree on these cases (Wave-6 fix round 1;
@@ -117,7 +117,7 @@ func SelectOrchestrator(ctx context.Context, siteCfg chat.SiteConfigReader, quer
 	// W4-R3: mirrors the chat ladder's OrchDrift arm, at the same position
 	// as production (directly above long-context — DRIFT needs KG
 	// community summaries and is the more specific global-synthesis
-	// answer). Comparison/Team/CorpusTable stay un-mirrored: none of them
+	// answer). Comparison/CorpusTable stay un-mirrored: none of them
 	// are complex-lane dispatch, so they have no place on this ladder.
 	if chat.ChatDriftEnabled(ctx, siteCfg) && chat.IsGlobalSynthesisQuery(query) {
 		return OrchestratorDrift, "complex_reasoning_drift_gate", dec

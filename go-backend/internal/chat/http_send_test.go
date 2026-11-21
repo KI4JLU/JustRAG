@@ -133,10 +133,6 @@ func (m *mockStore) CreateChatWithRole(ctx context.Context, kbID, userID, title,
 	return c, nil
 }
 
-func (m *mockStore) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *string) error {
-	return nil
-}
-
 func (m *mockStore) UpdateChatTitle(_ context.Context, _, _, _ string) error {
 	return nil
 }
@@ -376,9 +372,8 @@ func TestDeepChat_SiteConfigReaderPropagates(t *testing.T) {
 // publicapi's and openaicompat's identical pattern (see
 // internal/publicapi/handler_test.go's erroringSearcher). The rest of the
 // pipeline between resolveOrCreateChat and PrepareChatContext (classifyQuery,
-// resolveGraphRouting, resolveTeamSelection, assembleSystemPrompt) is
-// nil-safe against the harness's nil aiResolver/siteConfigReader/kgStore/
-// teamLoader for a short, marker-free message like "hello", so this reaches
+// resolveGraphRouting, assembleSystemPrompt) is
+// nil-safe against the harness's nil aiResolver/siteConfigReader/kgStore for a short, marker-free message like "hello", so this reaches
 // the real failure point without panicking.
 // ---------------------------------------------------------------------------
 

@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 
-	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/eval"
 	"github.com/justrag/go-backend/internal/httputil"
@@ -318,13 +317,9 @@ type Handler struct {
 	goldenSetStore goldenSetStore
 	genJobStore    *eval.GenJobStore
 	kbOverrides    kbOverrideLister
-	teamLoader     eval.TeamLoaderForEval
 }
 
-// NewHandler creates an eval Handler. teamLoader may be nil — in that case
-// any request specifying team_id is rejected with 400 (a team eval run can't
-// be validated without a loader, so it must not silently dispatch through
-// the standard adapter instead).
+// NewHandler creates an eval Handler.
 func NewHandler(
 	store runStore,
 	kbStore kbReader,
@@ -332,7 +327,6 @@ func NewHandler(
 	asynqClient enqueuer,
 	goldenSetStore goldenSetStore,
 	genJobStore *eval.GenJobStore,
-	teamLoader eval.TeamLoaderForEval,
 ) *Handler {
 	return &Handler{
 		store:          store,
@@ -341,42 +335,13 @@ func NewHandler(
 		asynqClient:    asynqClient,
 		goldenSetStore: goldenSetStore,
 		genJobStore:    genJobStore,
-		teamLoader:     teamLoader,
 	}
 }
 
-// validateTeamID confirms teamID (when non-nil) is attached and enabled for
-// kbID via the injected team loader. Returns (true, err) when err should be
-// surfaced as a 400 (invalid/unattached team_id — including a nil
-// teamLoader, since that means the loadability check can't be performed),
-// and (false, err) when err is an unexpected backend failure that should be
-// a 500. Returns (false, nil) when teamID is nil (nothing to validate) or
-// validation succeeded.
-func (h *Handler) validateTeamID(ctx context.Context, teamID *uuid.UUID, kbID uuid.UUID) (badRequest bool, err error) {
-	if teamID == nil {
-		return false, nil
-	}
-	if h.teamLoader == nil {
-		return true, errors.New("team not attached to this KB or disabled")
-	}
-	if _, lerr := h.teamLoader.LoadTeamForChat(ctx, teamID.String(), kbID.String()); lerr != nil {
-		if errors.Is(lerr, agentteams.ErrNotFound) {
-			return true, errors.New("team not attached to this KB or disabled")
-		}
-		return false, lerr
-	}
-	return false, nil
-}
-
-// teamIDString converts an optional request-level team UUID to the *string
-// representation eval.Run.TeamID uses (see store_pg.go for the rationale).
-func teamIDString(id *uuid.UUID) *string {
-	if id == nil {
-		return nil
-	}
-	s := id.String()
-	return &s
-}
+// errTeamRunUnsupported is the 400 for a run request that names an agent
+// team. Team dispatch was removed; running the request as a standard run
+// would report standard scores under a run the caller started for a team.
+const errTeamRunUnsupported = "team eval runs are no longer supported"
 
 // WithKBOverrides attaches the per-KB override lister used to merge a KB's
 // kb_site_configs into KB-scoped run snapshots.
@@ -519,11 +484,9 @@ func (h *Handler) CreateRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2b. team_id requires an explicit kb_id on the request — teams are
-	// KB-scoped, so a run that only relies on eval_default_kb_id has no
-	// KB to validate the team against.
-	if req.TeamID != nil && req.KBID == nil {
-		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "team_id requires kb_id")
+	// 2b. Team runs were removed; refuse before any side effect.
+	if req.TeamID != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, errTeamRunUnsupported)
 		return
 	}
 
@@ -543,17 +506,6 @@ func (h *Handler) CreateRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, fmt.Sprintf("kb_id %s not found", resolved.kbID))
-		return
-	}
-
-	// 4b. Validate team_id (if given) is attached + enabled for this KB.
-	if bad, terr := h.validateTeamID(ctx, req.TeamID, resolved.kbID); terr != nil {
-		if bad {
-			httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, terr.Error())
-			return
-		}
-		log.Error("eval.create_run.team_lookup", "error", terr, "team_id", req.TeamID)
-		httputil.WriteInternalErrorCtx(r.Context(), w, terr)
 		return
 	}
 
@@ -609,7 +561,6 @@ func (h *Handler) CreateRun(w http.ResponseWriter, r *http.Request) {
 		TopK:           resolved.topK,
 		Label:          resolved.label,
 		TriggeredBy:    triggeredByPtr,
-		TeamID:         teamIDString(req.TeamID),
 	}
 	runID, err := h.store.Insert(ctx, run)
 	if err != nil {
@@ -692,9 +643,8 @@ func parseSortOrder(q url.Values) (sort, order string, err error) {
 
 // summarizeRun builds a RunSummary for one eval.Run — KB name, aggregate
 // metrics parsed from the stored report, and (when the run carries a
-// TeamID) the team name resolved via h.teamLoader. Shared by ListRuns and
-// ListRunsForKB, which populated an identical loop body before this
-// extraction (W6-R9).
+// TeamID) the team's name as the store read it. Shared by ListRuns and
+// ListRunsForKB.
 func (h *Handler) summarizeRun(ctx context.Context, run eval.Run) RunSummary {
 	s := RunSummary{
 		ID:           run.ID,
@@ -718,17 +668,12 @@ func (h *Handler) summarizeRun(ctx context.Context, run eval.Run) RunSummary {
 		s.Aggregate, s.RouteMeanRecall = summarize(run.Report)
 	}
 
-	// Populate team id/name. TeamID is copied verbatim regardless of
-	// resolvability; TeamName resolution is best-effort (nil teamLoader or
-	// a load error both leave it empty, mirroring the fail-soft posture
-	// elsewhere in this handler for read-only listings).
+	// Team runs are history only (team dispatch was removed): the id is
+	// copied verbatim, the name is what the list query read, empty when the
+	// team is gone.
 	if run.TeamID != nil {
 		s.TeamID = run.TeamID
-		if h.teamLoader != nil {
-			if team, tErr := h.teamLoader.LoadTeamForChat(ctx, *run.TeamID, run.KBID.String()); tErr == nil {
-				s.TeamName = team.Team.Name
-			}
-		}
+		s.TeamName = run.TeamName
 	}
 
 	return s

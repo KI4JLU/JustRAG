@@ -94,7 +94,7 @@ func TestWireFormatIsCamelCase(t *testing.T) {
 		"chat_drift_enabled":      "true",
 		"chat_supervisor_enabled": "true",
 	}}
-	g, err := Project(context.Background(), r, fakeReader{vals: map[string]string{}}, LaneComplex, AgentBinding{})
+	g, err := Project(context.Background(), r, fakeReader{vals: map[string]string{}}, LaneComplex)
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
@@ -106,11 +106,7 @@ func TestWireFormatIsCamelCase(t *testing.T) {
 			// `deviations` is a number with a preset behind it, so the canvas
 			// cannot render "0 Abweichungen" against a base that no longer
 			// exists.
-			"presetBase", "presetBaseKnown", "deviations",
-			// The KB's default agent/team binding (Phase 6 Task 3). Top-level,
-			// not on the node, because Options and ID are values Project has no
-			// argument for — see AgentBindingInfo.
-			"agentBinding"})
+			"presetBase", "presetBaseKnown", "deviations"})
 
 	if len(g.Nodes) == 0 {
 		t.Fatal("projection returned no nodes")
@@ -170,58 +166,4 @@ func TestWireFormatIsCamelCase(t *testing.T) {
 	}
 	assertKeys(t, "OrchestratorCandidate(conditional)", keysOf(t, condCandidate),
 		[]string{"orchestrator", "activation", "condition"})
-}
-
-// TestAgentBindingWireFormat pins the binding payload, on the LIVE endpoint
-// body rather than on a struct literal — the same reason TestApplyResultWireFormat
-// does: only the endpoint proves the handler actually fills `agentBinding`
-// after Project, and only the endpoint can produce a non-empty `options`.
-//
-// Every field here has exactly one consumer, Task 4's inspector, and each of
-// them is load-bearing: `kind` selects which attach endpoint the write goes to
-// (…/agents/{id} vs …/teams/{id}), `id` is its path segment, `name` is what the
-// dropdown renders, and the top-level `id` is how the control knows which
-// option is selected. A rename would leave the control silently unable to
-// preselect or to save, with no compile error on either side.
-// Read off the RAW body, never off a decoded struct: decoding and re-encoding
-// go through the same struct tags, so a renamed tag would round-trip and the
-// assertion would pass on a payload the frontend can no longer read.
-func TestAgentBindingWireFormat(t *testing.T) {
-	rec := doGet(t, newBindingHandler(boundTeam()), "/api/kb/kb-1/workflow")
-	if rec.Code != 200 {
-		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
-	}
-
-	var body map[string]json.RawMessage
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("unmarshal body: %v", err)
-	}
-	raw, ok := body["agentBinding"]
-	if !ok {
-		t.Fatalf("no `agentBinding` on the wire — got %v", body)
-	}
-	// `disabled` and `emptyTeam` are the two "bound but cannot run" fields.
-	// Both are on the wire rather than derived from `options`, because they are
-	// what the inspector renders („abgeschaltet" / „kein aktives Mitglied") and
-	// what tells the admin there is a row to deal with at all. They stay two
-	// keys because the remedies differ — flip a switch vs staff a team.
-	assertKeys(t, "AgentBindingInfo", keysOf(t, raw),
-		[]string{"kind", "id", "name", "disabled", "emptyTeam", "options"})
-
-	var info map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &info); err != nil {
-		t.Fatalf("unmarshal agentBinding: %v", err)
-	}
-	var opts []json.RawMessage
-	if err := json.Unmarshal(info["options"], &opts); err != nil {
-		t.Fatalf("unmarshal options: %v", err)
-	}
-	if len(opts) == 0 {
-		t.Fatal("no options on the wire — adjust the fixture")
-	}
-	// isDefault must NOT appear: the bound option is named once, at the top
-	// level (see BindingOption.IsDefault). `disabled` and `emptyTeam` DO,
-	// because "can I pick this one" is per-option and has no other carrier.
-	assertKeys(t, "BindingOption", keysOf(t, opts[0]),
-		[]string{"kind", "id", "name", "disabled", "emptyTeam"})
 }

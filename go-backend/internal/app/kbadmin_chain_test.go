@@ -224,44 +224,6 @@ func TestKbAdvancedChain_SystemAdminMissingKB404(t *testing.T) {
 	}
 }
 
-// TestKbAgentListChain: the agent list stays readable with KB role view (the
-// chat's agent picker) and opens to system admins on every KB they operate,
-// shared or global (the RAG-Settings page's agent tab), but not on a private
-// KB nobody shares that is not theirs.
-func TestKbAgentListChain(t *testing.T) {
-	private := &kbaccess.KnowledgeBase{ID: "kb1"}
-	shared := &kbaccess.KnowledgeBase{ID: "kb1", Shared: true}
-	cases := []struct {
-		name     string
-		kb       *kbaccess.KnowledgeBase
-		sysRole  string
-		kbRole   string
-		wantCode int
-	}{
-		{"user+kb-view", private, auth.RoleUser, kbaccess.RoleView, http.StatusOK},
-		{"user+no-kb-row", shared, auth.RoleUser, "", http.StatusForbidden},
-		{"api-user+no-kb-row", shared, auth.RoleAPIUser, "", http.StatusForbidden},
-		{"admin+shared+no-kb-row", shared, auth.RoleAdmin, "", http.StatusOK},
-		{"admin+unshared+no-kb-row", private, auth.RoleAdmin, "", http.StatusForbidden},
-		{"admin+unshared+kb-owner", private, auth.RoleAdmin, kbaccess.RoleOwner, http.StatusOK},
-		{"superadmin+unshared", private, auth.RoleSuperAdmin, "", http.StatusOK},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			kbMw := kbaccess.NewMiddleware(kbStoreStub{kb: c.kb, role: c.kbRole})
-			h := kbAgentListInner(kbMw)(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-			req := httptest.NewRequest(http.MethodGet, "/api/kb/kb1/agents", nil)
-			req.SetPathValue("id", "kb1")
-			req = req.WithContext(auth.WithUser(req.Context(), &auth.Claims{ID: "u", Role: c.sysRole}))
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, req)
-			if w.Code != c.wantCode {
-				t.Fatalf("got %d want %d", w.Code, c.wantCode)
-			}
-		})
-	}
-}
-
 // TestKbAdminChain_EditRoleRejected ensures the edit/admin separation line
 // holds: a kb_members row of 'edit' is not enough for the KB-admin tier.
 func TestKbAdminChain_EditRoleRejected(t *testing.T) {

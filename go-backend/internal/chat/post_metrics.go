@@ -19,7 +19,7 @@ import (
 // actually dispatched.
 // W6-R6: policyRule is the 0-based chat_orchestrator_policy rule index that
 // pinned this turn's orchestrator, or nil when the flag ladder decided.
-func (h *Handler) recordAgentDecision(ctx context.Context, kbID, mode, outcome string, hops, rounds int, latencyMs int64, teamID, agentID *string, policyRule *int) {
+func (h *Handler) recordAgentDecision(ctx context.Context, kbID, mode, outcome string, hops, rounds int, latencyMs int64, policyRule *int) {
 	if h.decisionRecorder == nil {
 		return
 	}
@@ -38,7 +38,7 @@ func (h *Handler) recordAgentDecision(ctx context.Context, kbID, mode, outcome s
 		// span in the distributed trace.
 		bgCtx, cancel := detachedContext(ctx, 5*time.Second)
 		defer cancel()
-		h.decisionRecorder.Record(bgCtx, kbID, mode, outcome, hops, rounds, int(latencyMs), toolCalls, teamID, agentID, policyRule)
+		h.decisionRecorder.Record(bgCtx, kbID, mode, outcome, hops, rounds, int(latencyMs), toolCalls, policyRule)
 	})
 }
 
@@ -93,5 +93,5 @@ func (h *Handler) recordStandardPathDecision(ctx context.Context, p chatResponse
 	if mode == "" {
 		mode = "crag"
 	}
-	h.recordAgentDecision(ctx, p.kbID, mode, outcome, 0, 0, time.Since(p.chatStartTime).Milliseconds(), nil, nil, p.policyRule)
+	h.recordAgentDecision(ctx, p.kbID, mode, outcome, 0, 0, time.Since(p.chatStartTime).Milliseconds(), p.policyRule)
 }

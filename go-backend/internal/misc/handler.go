@@ -169,8 +169,7 @@ type exportDocxRequest struct {
 
 // ExportDocx handles POST /api/kb/{id}/export/docx.
 // Takes the report markdown and goal directly from the request body and
-// returns a downloadable DOCX file. This matches the frontend contract
-// (ResearchMode / AcademicResearchMode).
+// returns a downloadable DOCX file.
 func (h *Handler) ExportDocx(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {

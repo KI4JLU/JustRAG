@@ -15,7 +15,6 @@ func complexBase() OrchestratorInputs {
 		QueryType:             vector.QueryTypeComplexReasoning,
 		EnhanceRequested:      false,
 		ComparisonReady:       true,
-		TeamSelected:          true,
 		CorpusTableEnabled:    true,
 		CorpusChunksAvailable: true,
 		IsCorpusQuery:         true,
@@ -38,14 +37,11 @@ func TestSelectOrchestratorPrecedence(t *testing.T) {
 		want   Orchestrator
 	}{
 		{"comparison wins over everything", func(in *OrchestratorInputs) {}, OrchComparison},
-		{"team wins when no comparison", func(in *OrchestratorInputs) {
+		{"corpus table wins when no comparison", func(in *OrchestratorInputs) {
 			in.ComparisonReady = false
-		}, OrchTeam},
-		{"corpus table wins when no team", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected = false, false
 		}, OrchCorpusTable},
 		{"drift wins when corpus query does not match", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+			in.ComparisonReady, in.IsCorpusQuery = false, false
 		}, OrchDrift},
 		// W3-R5: long-context sits directly below DRIFT and above the
 		// supervisor. Mutation that this pins: swapping the drift and
@@ -53,28 +49,28 @@ func TestSelectOrchestratorPrecedence(t *testing.T) {
 		// "drift wins when corpus query does not match" row above return
 		// OrchLongContext and fail.
 		{"long-context wins when drift is off", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+			in.ComparisonReady, in.IsCorpusQuery = false, false
 			in.DriftEnabled = false
 		}, OrchLongContext},
 		{"supervisor wins when long-context is off too", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+			in.ComparisonReady, in.IsCorpusQuery = false, false
 			in.DriftEnabled, in.LongContextEnabled = false, false
 		}, OrchSupervisor},
 		{"supervisor wins when not a global synthesis query", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+			in.ComparisonReady, in.IsCorpusQuery = false, false
 			in.IsGlobalSynthesis = false
 		}, OrchSupervisor},
 		{"plan execute wins when supervisor off", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+			in.ComparisonReady, in.IsCorpusQuery = false, false
 			in.IsGlobalSynthesis, in.SupervisorEnabled = false, false
 		}, OrchPlanExecute},
 		{"agentic wins when plan execute off", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+			in.ComparisonReady, in.IsCorpusQuery = false, false
 			in.IsGlobalSynthesis, in.SupervisorEnabled = false, false
 			in.PlanExecuteEnabled = false
 		}, OrchAgentic},
 		{"standard is the fallback", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+			in.ComparisonReady, in.IsCorpusQuery = false, false
 			in.IsGlobalSynthesis, in.SupervisorEnabled = false, false
 			in.PlanExecuteEnabled, in.AgenticEnabled = false, false
 		}, OrchStandard},
@@ -96,7 +92,7 @@ func TestSelectOrchestratorPrecedence(t *testing.T) {
 func TestSelectOrchestratorLookupFallsThroughToStandard(t *testing.T) {
 	in := complexBase()
 	in.QueryType = vector.QueryTypeLookup
-	in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+	in.ComparisonReady, in.IsCorpusQuery = false, false
 
 	if got := SelectOrchestrator(in, alwaysConfirm); got != OrchStandard {
 		t.Fatalf("SelectOrchestrator() = %q, want %q", got, OrchStandard)
@@ -136,7 +132,7 @@ func TestSelectOrchestratorDoesNotConfirmWhenHigherGateWins(t *testing.T) {
 // confirmation fires exactly once.
 func TestSelectOrchestratorConfirmsExactlyOnce(t *testing.T) {
 	in := complexBase()
-	in.ComparisonReady, in.TeamSelected = false, false
+	in.ComparisonReady = false
 	in.CorpusRouterLLMOn = true
 
 	calls := 0
@@ -153,7 +149,7 @@ func TestSelectOrchestratorConfirmsExactlyOnce(t *testing.T) {
 // A refused confirmation falls through to the next gate.
 func TestSelectOrchestratorConfirmRefusalFallsThrough(t *testing.T) {
 	in := complexBase()
-	in.ComparisonReady, in.TeamSelected = false, false
+	in.ComparisonReady = false
 	in.CorpusRouterLLMOn = true
 
 	got := SelectOrchestrator(in, func() bool { return false })
@@ -182,7 +178,7 @@ func ladderCases() []struct {
 	mutate func(*OrchestratorInputs)
 } {
 	off := func(in *OrchestratorInputs) {
-		in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+		in.ComparisonReady, in.IsCorpusQuery = false, false
 	}
 	return []struct {
 		name   string
@@ -190,25 +186,24 @@ func ladderCases() []struct {
 	}{
 		{"all-on", func(in *OrchestratorInputs) {}},
 		{"comparison-only", func(in *OrchestratorInputs) {
-			in.TeamSelected, in.IsCorpusQuery = false, false
+			in.IsCorpusQuery = false
 		}},
-		{"team", func(in *OrchestratorInputs) { in.ComparisonReady = false }},
-		{"team-with-enhance", func(in *OrchestratorInputs) {
+		{"corpus-with-enhance", func(in *OrchestratorInputs) {
 			in.ComparisonReady, in.EnhanceRequested = false, true
 		}},
 		{"corpus-table", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected = false, false
+			in.ComparisonReady = false
 		}},
 		{"corpus-table-llm-router", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected = false, false
+			in.ComparisonReady = false
 			in.CorpusRouterLLMOn = true
 		}},
 		{"corpus-table-disabled", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected = false, false
+			in.ComparisonReady = false
 			in.CorpusTableEnabled = false
 		}},
 		{"corpus-chunks-missing", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected = false, false
+			in.ComparisonReady = false
 			in.CorpusChunksAvailable = false
 		}},
 		{"drift", off},
@@ -252,7 +247,7 @@ func ladderCases() []struct {
 			in.QueryType = vector.QueryTypeLookup
 		}},
 		{"lookup-with-corpus-query", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected = false, false
+			in.ComparisonReady = false
 			in.QueryType = vector.QueryTypeLookup
 		}},
 		{"enumeration", func(in *OrchestratorInputs) {
@@ -284,7 +279,7 @@ func ladderCases() []struct {
 			in.DriftEnabled, in.LongContextEnabled, in.SupervisorEnabled = false, false, false
 			in.AgenticEnabled = false
 		}},
-		{"lookup-team", func(in *OrchestratorInputs) {
+		{"lookup-corpus-off", func(in *OrchestratorInputs) {
 			in.ComparisonReady, in.IsCorpusQuery = false, false
 			in.QueryType = vector.QueryTypeLookup
 		}},
@@ -306,13 +301,11 @@ func ladderCases() []struct {
 // reordering of the ladder's rungs.
 //
 // Do not "simplify" this into a call. If a future change to the ladder is
-// intended, update this copy in the same commit and say so.
+// intended, update this copy in the same commit and say so. (The team arm was
+// removed with the user-created agents and teams.)
 func legacySelectOrchestrator(in OrchestratorInputs, confirmCorpus func() bool) Orchestrator {
 	if in.ComparisonReady {
 		return OrchComparison
-	}
-	if in.TeamSelected && !in.EnhanceRequested {
-		return OrchTeam
 	}
 	if in.CorpusTableEnabled && in.CorpusChunksAvailable && !in.EnhanceRequested &&
 		in.IsCorpusQuery && (!in.CorpusRouterLLMOn || confirmCorpus()) {
@@ -394,7 +387,7 @@ func TestSelectOrchestratorWithPolicy_EmptyPolicyIsByteIdentical(t *testing.T) {
 // feature flag is off — that is what force means.
 func TestSelectOrchestratorWithPolicy_ForceBeatsLadder(t *testing.T) {
 	in := complexBase()
-	in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+	in.ComparisonReady, in.IsCorpusQuery = false, false
 	in.QueryType = vector.QueryTypeLookup
 	in.DriftEnabled, in.LongContextEnabled = false, false
 	in.SupervisorEnabled, in.PlanExecuteEnabled, in.AgenticEnabled = false, false, false
@@ -421,7 +414,7 @@ func TestSelectOrchestratorWithPolicy_ForceBeatsLadder(t *testing.T) {
 // distinguish it from "no rule matched".
 func TestSelectOrchestratorWithPolicy_PreferNeedsFlag(t *testing.T) {
 	in := complexBase()
-	in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+	in.ComparisonReady, in.IsCorpusQuery = false, false
 	in.QueryType = vector.QueryTypeLookup
 	in.DriftEnabled, in.LongContextEnabled = false, false
 	in.SupervisorEnabled, in.PlanExecuteEnabled, in.AgenticEnabled = false, false, false
@@ -443,8 +436,8 @@ func TestSelectOrchestratorWithPolicy_PreferNeedsFlag(t *testing.T) {
 	}
 }
 
-// W6-R16: force never bypasses the comparison / team / corpus-table arms.
-func TestSelectOrchestratorWithPolicy_NeverBeatsComparisonTeamCorpus(t *testing.T) {
+// W6-R16: force never bypasses the comparison / corpus-table arms.
+func TestSelectOrchestratorWithPolicy_NeverBeatsComparisonCorpus(t *testing.T) {
 	pol := policyRule(chatpolicy.When{}, "agentic", chatpolicy.ModeForce)
 
 	tests := []struct {
@@ -453,9 +446,8 @@ func TestSelectOrchestratorWithPolicy_NeverBeatsComparisonTeamCorpus(t *testing.
 		want   Orchestrator
 	}{
 		{"comparison", func(in *OrchestratorInputs) {}, OrchComparison},
-		{"team", func(in *OrchestratorInputs) { in.ComparisonReady = false }, OrchTeam},
 		{"corpus table", func(in *OrchestratorInputs) {
-			in.ComparisonReady, in.TeamSelected = false, false
+			in.ComparisonReady = false
 		}, OrchCorpusTable},
 	}
 	for _, tt := range tests {
@@ -477,7 +469,7 @@ func TestSelectOrchestratorWithPolicy_NeverBeatsComparisonTeamCorpus(t *testing.
 // the DAG pinned on for the turn.
 func TestSelectOrchestratorWithPolicy_PlanExecuteDAGPinsDAG(t *testing.T) {
 	in := complexBase()
-	in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+	in.ComparisonReady, in.IsCorpusQuery = false, false
 	in.PlanExecuteEnabled = false
 
 	pol := policyRule(chatpolicy.When{}, "plan_execute_dag", chatpolicy.ModeForce)
@@ -498,7 +490,7 @@ func TestSelectOrchestratorWithPolicy_PlanExecuteDAGPinsDAG(t *testing.T) {
 // supervisor on — the operator opting a query class OUT of the orchestrators.
 func TestSelectOrchestratorWithPolicy_StandardForcesStandard(t *testing.T) {
 	in := complexBase()
-	in.ComparisonReady, in.TeamSelected, in.IsCorpusQuery = false, false, false
+	in.ComparisonReady, in.IsCorpusQuery = false, false
 	in.DriftEnabled, in.LongContextEnabled = false, false
 
 	pol := policyRule(chatpolicy.When{QueryType: []string{"complex_reasoning"}}, chatpolicy.OrchestratorStandard, chatpolicy.ModeForce)

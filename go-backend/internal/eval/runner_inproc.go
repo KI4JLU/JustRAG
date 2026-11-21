@@ -3,6 +3,7 @@ package eval
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,12 +50,6 @@ type RunDeps struct {
 	// a KB system prompt — eval still works, but the LLM context drifts
 	// slightly from production where the prompt is always present.
 	KbSystemPrompt func(ctx context.Context, kbID string) string
-	// AgentTeams loads a team for eval dispatch (Task 6's
-	// TeamLoaderForEval, satisfied by *agentteams.Store). May be nil when
-	// the deployment never wires team eval runs — RunInProcessFromRecord
-	// then hard-errors on any run with r.TeamID set rather than silently
-	// falling back to standard dispatch.
-	AgentTeams TeamLoaderForEval
 }
 
 // applyRunKBOverride sets every question's KbID to runKB in place.
@@ -65,6 +60,11 @@ func applyRunKBOverride(qs []Question, runKB string) {
 	}
 }
 
+// ErrTeamRunUnsupported marks an eval run that names an agent team. Team
+// dispatch was removed; such a run is refused rather than run as a standard
+// one.
+var ErrTeamRunUnsupported = errors.New("team eval runs are no longer supported")
+
 // RunInProcessFromRecord runs a full production-context eval based on the
 // fields captured in an eval.Run row and returns the marshaled Report JSON.
 // Dependencies are injected by the caller (the worker wires them at dispatch).
@@ -74,6 +74,13 @@ func applyRunKBOverride(qs []Question, runKB string) {
 // the frozen SnapshotConfigReader — exactly the "no extra flags" behaviour that
 // in-app eval is meant to exercise.
 func RunInProcessFromRecord(ctx context.Context, r Run, deps RunDeps) (json.RawMessage, error) {
+	// A run created for an agent team before team runs were removed fails
+	// loudly: running it through the standard dispatch would report standard
+	// scores under a run the operator started for a team.
+	if r.TeamID != nil && *r.TeamID != "" {
+		return nil, fmt.Errorf("run %s: %w", r.ID, ErrTeamRunUnsupported)
+	}
+
 	// 1. Load golden set from the DB record referenced by the run row.
 	if r.GoldenSetID == nil {
 		return nil, fmt.Errorf("run %s has no golden_set_id", r.ID)
@@ -116,40 +123,19 @@ func RunInProcessFromRecord(ctx context.Context, r Run, deps RunDeps) (json.RawM
 		vector.WithSiteConfigReader(siteReader),
 	)
 
-	// 4. Build the dispatch adapter. A run with TeamID set dispatches every
-	//    question through the fixed agent team (TeamDispatchAdapter) instead
-	//    of orchestrator selection — team runs are selection-driven from the
-	//    UI, not query-type-driven. Otherwise, mirror production dispatch
+	// 4. Build the dispatch adapter: mirror production dispatch
 	//    (Supervisor / Plan-Execute / Agentic / standard fallback). EvalFlags
 	//    are zero: no --enhance, no --hyde, no --multi-query, no
 	//    --enumeration override. CRAG and other pipeline knobs come from the
 	//    frozen site-config snapshot, and orchestrator selection follows the
 	//    snapshot's gate values.
-	//    Both adapters satisfy chatContextProvider (Search +
-	//    ChatContextForQuestion + ContentsForQuestion), so judge mode
-	//    composes identically for team and orchestrator dispatch.
-	var adapter chatContextProvider
-	if r.TeamID != nil && *r.TeamID != "" {
-		if deps.AgentTeams == nil {
-			return nil, fmt.Errorf("run %s specifies team_id=%s but no AgentTeams loader is wired", r.ID, *r.TeamID)
-		}
-		adapter = NewTeamDispatchAdapter(
-			deps.AIResolver,
-			svc,
-			siteReader,
-			deps.AgentTeams,
-			*r.TeamID,
-			deps.KbSystemPrompt,
-		)
-	} else {
-		adapter = NewOrchestratorDispatchAdapter(
-			deps.AIResolver,
-			svc,
-			siteReader,
-			deps.KbSystemPrompt,
-			EvalFlags{}, // all zero — KB config governs
-		)
-	}
+	var adapter chatContextProvider = NewOrchestratorDispatchAdapter(
+		deps.AIResolver,
+		svc,
+		siteReader,
+		deps.KbSystemPrompt,
+		EvalFlags{}, // all zero — KB config governs
+	)
 
 	// 5. Run retrieval eval (concurrency=1 for the worker path).
 	topK := r.TopK
@@ -171,7 +157,7 @@ func RunInProcessFromRecord(ctx context.Context, r Run, deps RunDeps) (json.RawM
 	// 6. Judge path — mirrors cmd/eval/main.go's judge loop.
 	//    The adapter's ChatContextForQuestion is used so the LLM answer is
 	//    generated from the exact system prompt and context text that the
-	//    chat handler (or RunTeamChat, for team runs) would produce
+	//    chat handler would produce
 	//    (production parity).
 	rep, err := runEvalWithProductionJudge(ctx, adapter, questions, topK, deps.AIResolver)
 	if err != nil {

@@ -58,7 +58,7 @@ func runPolicyWiringTurn(t *testing.T, h *Handler, queryType string) string {
 	tp := h.resolveTurnPolicy(wiringCtx("u1"), "kb1", queryType, "Welche Themen dominieren?", "de", body, nil)
 	handled := h.tryDeepChat(wiringCtx("u1"), w, r, "chat1", "kb1", "de", "",
 		"Welche Themen dominieren?", "", queryType, "", "",
-		body, turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, nil, "", tp, nil)
+		body, turnAnchor{}, GraphTraversalDecision{}, nil, nil, nil, tp, nil)
 	if !handled {
 		t.Fatalf("tryDeepChat did not handle the turn; body: %s", w.Body.String())
 	}
@@ -159,17 +159,16 @@ func TestShouldTryDeepChat(t *testing.T) {
 	noPolicy := turnPolicy{gate: chatpolicy.Decision{RuleIndex: -1}}
 
 	tests := []struct {
-		name                                    string
-		isComplex, runCompare, team, streamMode bool
-		tp                                      turnPolicy
-		want                                    bool
+		name                              string
+		isComplex, runCompare, streamMode bool
+		tp                                turnPolicy
+		want                              bool
 	}{
-		// The pre-W6-R6 gate, unchanged. These four rows are what "byte-identical
+		// The pre-W6-R6 gate, unchanged. These rows are what "byte-identical
 		// with no policy" means at this level.
 		{name: "no policy, lookup, streaming", streamMode: true, tp: noPolicy, want: false},
 		{name: "no policy, complex, streaming", isComplex: true, streamMode: true, tp: noPolicy, want: true},
 		{name: "no policy, comparison, streaming", runCompare: true, streamMode: true, tp: noPolicy, want: true},
-		{name: "no policy, team, streaming", team: true, streamMode: true, tp: noPolicy, want: true},
 		{name: "no policy, complex, NOT streaming", isComplex: true, tp: noPolicy, want: false},
 
 		// S1: a forced non-standard route opens the dispatch for a turn the
@@ -185,7 +184,7 @@ func TestShouldTryDeepChat(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldTryDeepChat(tt.isComplex, tt.runCompare, tt.team, tt.streamMode, tt.tp); got != tt.want {
+			if got := shouldTryDeepChat(tt.isComplex, tt.runCompare, tt.streamMode, tt.tp); got != tt.want {
 				t.Fatalf("shouldTryDeepChat = %v, want %v", got, tt.want)
 			}
 		})
@@ -338,7 +337,7 @@ func TestPolicyPreferWithFlagOffLeavesLookupOnStandardPath(t *testing.T) {
 	}}}
 	tp := h.resolveTurnPolicy(context.Background(), "kb1", vector.QueryTypeLookup, "q", "de", sendMessageRequest{}, nil)
 
-	if shouldTryDeepChat(false, false, false, true, tp) {
+	if shouldTryDeepChat(false, false, true, tp) {
 		t.Fatal("a prefer rule with its flag off opened the deep-chat gate for a lookup turn")
 	}
 	if standardPathPolicyRule(tp, false) != nil {

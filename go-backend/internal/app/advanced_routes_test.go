@@ -41,7 +41,7 @@ func routeChains(t *testing.T) map[string]string {
 }
 
 // advancedRoutes is the KB "advanced settings" surface: every endpoint
-// KbSettingsPanel's four tabs call, plus the per-KB re-embed sweep its Save
+// KbSettingsPanel's tabs call, plus the per-KB re-embed sweep its Save
 // flow offers. All of them require the system role admin (or superadmin), on
 // every KB.
 var advancedRoutes = []string{
@@ -56,12 +56,6 @@ var advancedRoutes = []string{
 	"GET /api/kb/{id}/workflow",
 	"GET /api/kb/{id}/workflow/preset",
 	"POST /api/kb/{id}/workflow/preset",
-	// Agenten & Teams tab — attach/detach, and the workflow canvas's
-	// default-binding write, which goes through the same two PUTs.
-	"PUT /api/kb/{id}/agents/{agentId}",
-	"DELETE /api/kb/{id}/agents/{agentId}",
-	"PUT /api/kb/{id}/teams/{teamId}",
-	"DELETE /api/kb/{id}/teams/{teamId}",
 	// Evals tab.
 	"GET /api/kb/{id}/eval/golden-sets",
 	"POST /api/kb/{id}/eval/golden-sets",
@@ -90,21 +84,14 @@ func TestAdvancedSurfaceIsOnKbAdvancedChain(t *testing.T) {
 	}
 }
 
-// TestAgentListStaysOnViewChain pins the one deliberate exception. The chat
-// session's agent picker (web/src/hooks/useKbAgents.ts) reads this list for
-// every ordinary user with view access, so gating it would break agent
-// selection in chat for exactly the people the four-role model means to let
-// chat. Its siblings PUT/DELETE .../agents/{agentId} are on kbAdvancedChain;
-// the read is on kbAgentListChain — KB role view, plus the system admins the
-// advanced surface lets in on every KB (TestKbAgentListChain).
-func TestAgentListStaysOnViewChain(t *testing.T) {
-	chains := routeChains(t)
-	const pattern = "GET /api/kb/{id}/agents"
-	got, ok := chains[pattern]
-	if !ok {
-		t.Fatalf("%s is not registered in routes.go", pattern)
-	}
-	if got != "kbAgentListChain" {
-		t.Errorf("%s is on rc.%s, want rc.kbAgentListChain — the chat agent picker reads it for ordinary users", pattern, got)
+// TestNoAgentTeamRoutes pins the removal of the user-created agents and
+// teams: none of their routes may come back by accident. Oracle: the route
+// table in routes.go.
+func TestNoAgentTeamRoutes(t *testing.T) {
+	agentRoute := regexp.MustCompile(`^[A-Z]+ /api/(agents|agent-teams)(/|$)|^[A-Z]+ /api/kb/\{id\}/(agents|teams)(/|$)`)
+	for pattern := range routeChains(t) {
+		if agentRoute.MatchString(pattern) {
+			t.Errorf("%s is registered — the agents and teams routes were removed", pattern)
+		}
 	}
 }

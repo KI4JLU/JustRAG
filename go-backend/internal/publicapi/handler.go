@@ -176,9 +176,6 @@ func (a chatStoreAdapter) UpdateMessageTraceID(_ context.Context, _ string, _ st
 func (a chatStoreAdapter) UpdateMessageTrajectory(_ context.Context, _ string, _ []chat.TrajectoryEvent) error {
 	return nil
 }
-func (a chatStoreAdapter) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *string) error {
-	return nil
-}
 
 // errChatStoreUnsupported is returned by the chat.Store methods the public
 // API never routes to, so an accidental call fails loudly instead of

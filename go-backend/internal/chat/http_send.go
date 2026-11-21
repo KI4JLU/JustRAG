@@ -14,7 +14,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/ai"
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/chatpolicy"
@@ -72,11 +71,6 @@ type sendMessageRequest struct {
 	// beside the named answer if there is one. Overrides Message, Enhance and
 	// ParentMessageID — see internal/chat/regenerate.go.
 	RegenerateOfMessageID string `json:"regenerateOfMessageId"`
-	// TeamID / AgentID select a user-created agent team (or single agent)
-	// for this turn — sticky per chat session (persisted on the chat row).
-	// Mutually exclusive; TeamID wins if both are set.
-	TeamID  string `json:"teamId"`
-	AgentID string `json:"agentId"`
 	// FileIDs selects the user-library files of a KB-less library chat turn
 	// (POST /api/library/chat, P3-R4). The KB send path ignores it.
 	FileIDs []string `json:"fileIds"`
@@ -450,20 +444,6 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	compareEnabled := CompareEnabled(ctx, h.siteConfigReader)
 	runCompare := willRunComparison(compareEnabled, body.AttachmentID, body.ComparisonModes)
 
-	// Explicit user-created team/agent selection: beats every flag-driven
-	// orchestrator (but not the comparison attachment), runs regardless of
-	// query classification — the team router is the triage. Enhance passes
-	// stay retrieval-transform turns and bypass it. Resolution itself runs
-	// unconditionally (even on Enhance turns) so persistChatSelection always
-	// reflects the pick's *current* validity — a load failure or a
-	// since-deleted team no longer gets persisted as if it still worked.
-	resolvedSel, teamSelReason := h.resolveTeamSelection(ctx, body, kbID)
-	h.persistChatSelection(ctx, chatID, resolvedSel)
-	var teamSel *teamSelection
-	if body.Enhance == "" {
-		teamSel = resolvedSel
-	}
-
 	// Follow-up over a prior upload: when an attachment rides along but this is
 	// NOT a fresh comparison run (no modes), inject a capped block of the
 	// uploaded document + prior findings into the KB system prompt so the user
@@ -497,9 +477,9 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// the standard path below.
 	isComplex := cls.UseHyDE && cls.UseMultiQuery
 	deepChatAttempted := false
-	if shouldTryDeepChat(isComplex, runCompare, teamSel != nil, streamMode, turnPol) {
+	if shouldTryDeepChat(isComplex, runCompare, streamMode, turnPol) {
 		deepChatAttempted = true
-		if handled := h.tryDeepChat(ctx, w, r, chatID, kbID, lang, dateLine, searchQuery, rawQuery, cls.QueryType, kbSystemPrompt, reasoningLevel, body, anchor, graphDec, graphChunkIDs, bridgeChunks, answerHistory, teamSel, teamSelReason, turnPol, turn); handled {
+		if handled := h.tryDeepChat(ctx, w, r, chatID, kbID, lang, dateLine, searchQuery, rawQuery, cls.QueryType, kbSystemPrompt, reasoningLevel, body, anchor, graphDec, graphChunkIDs, bridgeChunks, answerHistory, turnPol, turn); handled {
 			return
 		}
 		// Deep chat failed — fall through to standard path.
@@ -668,7 +648,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 //
 // `gate` is a PRE-decision: it answers "may this turn reach the deep-chat
 // dispatch at all", using the orchestrator flags read straight from
-// site_config. It deliberately knows nothing about the comparison / team /
+// site_config. It deliberately knows nothing about the comparison /
 // corpus-table arms — those are re-evaluated (and win) inside
 // SelectOrchestratorWithPolicy, which is the authoritative decision for the
 // turn. The two agree by construction: same document, same signals, and
@@ -717,8 +697,8 @@ func (tp turnPolicy) standardPathRule() *int {
 // non-streaming turn cannot use it no matter what the policy says. A rule
 // forcing a non-standard orchestrator on a non-streaming turn therefore does
 // not apply, and correctly records no rule index.
-func shouldTryDeepChat(isComplex, runCompare, teamSelected, streamMode bool, tp turnPolicy) bool {
-	return (isComplex || runCompare || teamSelected || tp.opensDeepChatDispatch()) && streamMode
+func shouldTryDeepChat(isComplex, runCompare, streamMode bool, tp turnPolicy) bool {
+	return (isComplex || runCompare || tp.opensDeepChatDispatch()) && streamMode
 }
 
 // standardPathPolicyRule is what the standard path records in
@@ -801,8 +781,6 @@ func (h *Handler) tryDeepChat(
 	graphChunkIDs []string,
 	bridgeChunks map[string]int,
 	answerHistory []ai.ChatHistoryEntry,
-	teamSel *teamSelection,
-	teamSelReason string,
 	turnPol turnPolicy,
 	turn *sseTurn,
 ) bool {
@@ -848,21 +826,6 @@ func (h *Handler) tryDeepChat(
 		turn.emit(data)
 	}
 
-	// Surface a silent team-selection degradation: the user explicitly picked
-	// a team/agent but resolveTeamSelection couldn't load it (deleted,
-	// disabled, empty team) and fell back to nil. Emitted here — rather than
-	// in resolveTeamSelection itself, which runs in SendMessage before the
-	// emit buffer exists — so the UI's reasoning panel shows the downgrade
-	// instead of silently answering off the standard/other-orchestrator path.
-	// Only fires on turns that reach tryDeepChat at all (gate: isComplex ||
-	// runCompare || teamSel != nil); a failed pick on an otherwise-simple,
-	// non-streaming-orchestrator query never enters this function, so no
-	// event is emitted for it — acceptable, since there is no orchestrator
-	// run to attach the event to on that path.
-	if teamSel == nil && teamSelReason != "" {
-		emitTrajectory(collectEmit, TrajectoryEvent{Stage: "decision", Decision: "team_unavailable", Reason: teamSelReason}, nil)
-	}
-
 	// AP-C4 trajectory event for the orchestrator path (mirrors the
 	// emission in the standard path's PrepareChatContext flow). Done
 	// here so the streaming client's reasoning panel sees the
@@ -891,12 +854,6 @@ func (h *Handler) tryDeepChat(
 	// branch of SendMessage.)
 	var chatCtx *ChatContext
 	var err error
-	// comparisonTeamAnswered is true only when a selected team/agent
-	// actually WROTE the comparison summary (RunTeamChat succeeded). It
-	// feeds teamAuthoredTurn below, which decides message attribution —
-	// a team merely selected but whose summary run failed must not be
-	// attributed.
-	var comparisonTeamAnswered bool
 
 	agenticEnabled := ChatAgenticEnabled(ctx, h.siteConfigReader)
 	planExecuteEnabled := ChatPlanExecuteEnabled(ctx, h.siteConfigReader)
@@ -915,14 +872,10 @@ func (h *Handler) tryDeepChat(
 	// The full precedence ladder now lives in SelectOrchestrator
 	// (orchestrator_select.go) — this call site only resolves inputs.
 	// Rationale for each gate, preserved from the original inline ladder:
-	//   - team: explicit user-created team/agent selection takes priority
-	//     over every flag-driven orchestrator (but not the comparison
-	//     attachment) — the team router is the triage, so it also
-	//     supersedes the corpus-table heuristic classifier.
 	//   - corpus-table: two-stage gate (keyword classifier + optional LLM
-	//     confirm). Both higher-priority explicit-intent gates short-circuit
-	//     it so the classifier — and especially the optional confirm LLM
-	//     call — never runs on comparison or team turns.
+	//     confirm). The comparison gate short-circuits it so the
+	//     classifier — and especially the optional confirm LLM call — never
+	//     runs on comparison turns.
 	//   - drift: full iterative DRIFT takes priority over the other
 	//     orchestrators, but only for global-synthesis queries (its primer
 	//     is wasted on narrow lookups). Narrow gate → it rarely intercepts;
@@ -942,7 +895,6 @@ func (h *Handler) tryDeepChat(
 		QueryType:             queryType,
 		EnhanceRequested:      body.Enhance != "",
 		ComparisonReady:       comparisonReady,
-		TeamSelected:          teamSel != nil,
 		CorpusTableEnabled:    corpusTableEnabled,
 		CorpusChunksAvailable: h.corpusChunks != nil,
 		IsCorpusQuery:         IsCorpusComparisonQuery(searchQuery, lang),
@@ -959,7 +911,7 @@ func (h *Handler) tryDeepChat(
 	// turn by SendMessage (resolveTurnPolicy) — it also gates whether this
 	// function is reached at all for a non-complex turn. Re-deciding it HERE
 	// rather than reusing turnPol.gate is deliberate: only this call site
-	// knows the comparison / team / corpus-table arms, and W6-R16 requires
+	// knows the comparison / corpus-table arms, and W6-R16 requires
 	// those to win over any rule.
 	//
 	// The corpus-table confirmation is an LLM call; SelectOrchestrator
@@ -1014,7 +966,6 @@ func (h *Handler) tryDeepChat(
 		"enhance", body.Enhance,
 		"will_run_comparison", orch == OrchComparison,
 		"will_run_corpus_table", orch == OrchCorpusTable,
-		"will_run_team", orch == OrchTeam,
 		"will_run_drift", orch == OrchDrift,
 		"will_run_longcontext", orch == OrchLongContext,
 		"will_run_supervisor", orch == OrchSupervisor,
@@ -1068,88 +1019,8 @@ func (h *Handler) tryDeepChat(
 			// prompt here (ComparisonSummaryPrompt's wording refers to "the
 			// following findings"). The structured findings were already streamed
 			// as a comparisonFindings event; this prose is the gist.
-			// Plain path: byte-identical to the pre-2026-08 behaviour (see
-			// 669ae5e) — deliberately built with an EMPTY kbSystemPrompt.
-			// This task is about agent routing, not about the comparison
-			// prompt's composition; changing what this shipping opt-in
-			// feature emits, as a side effect of sharing a builder with the
-			// new team path, would need its own decision and its own
-			// baseline, not a ride-along here. Also used as the fail-soft
-			// fallback when a selected team's RunTeamChat call fails: a
-			// resolved-but-unused pick degrades to exactly what a comparison
-			// turn without any team selection would have produced.
-			plainSummaryPrompt := comparisonSummaryPromptFor("", lang, cmpFindings)
-			if teamSel != nil {
-				// The findings extraction stays on chat_compare_model — a
-				// persona prompt does not help a structured-outputs call, and
-				// a team router per section would be expensive and pointless.
-				// Only the prose summary runs through the selected team/agent.
-				//
-				// Unlike the plain path above, this path is NEW — it has no
-				// prior behaviour to preserve — so it carries kbSystemPrompt,
-				// matching the OrchTeam case's own convention of passing
-				// kbSystemPrompt through as KbSystemPrompt.
-				teamSummaryPrompt := comparisonSummaryPromptFor(kbSystemPrompt, lang, cmpFindings)
-				var dispatcher *MCPDispatcher
-				if h.toolDispatcher != nil {
-					if md, ok := h.toolDispatcher.(*MCPDispatcher); ok {
-						dispatcher = md
-					}
-				}
-				tp := BuildTeamParams(ctx, TeamParamsInput{
-					KbID: kbID, ChatID: chatID, Query: searchQuery, Language: lang,
-					CurrentDateLine: dateLine, KbSystemPrompt: teamSummaryPrompt,
-					FileIDs: body.SelectedFileIDs,
-					Team:    teamSel.team, Agent: teamSel.agent,
-					DeriveToolPolicy: true,
-					SiteCfg:          h.siteConfigReader, SearchService: h.searchService, ToolDispatcher: dispatcher,
-				})
-				teamCtx, terr := RunTeamChat(ctx, h.aiResolver, h.searchService, tp, collectEmit)
-				if terr != nil {
-					// Fail-soft like everywhere else on the team path: the
-					// findings were already streamed as a comparisonFindings
-					// event, and a failure here must not discard them. Falls
-					// back to the PLAIN prompt (not teamSummaryPrompt) — a
-					// team that never wrote anything must not leave its
-					// kbSystemPrompt-carrying prompt behind either.
-					logctx.From(ctx).Warn("comparison.team_summary_failed", "error", terr)
-					emitTrajectory(collectEmit, TrajectoryEvent{
-						Stage: "decision", Decision: "team_unavailable",
-						Reason: terr.Error(),
-					}, nil)
-					chatCtx.SystemPrompt = plainSummaryPrompt
-					comparisonTeamAnswered = false
-				} else {
-					// Merge the comparison stage's peer chunks with the
-					// team's: citation validation and the source list must
-					// see both stages, or every finding source from stage 1
-					// drops out.
-					teamCtx.FinalChunks = mergeComparisonChunks(teamCtx.FinalChunks, chatCtx.FinalChunks)
-					teamCtx.Sources, teamCtx.Context = buildChatSourcesAndContext(teamCtx.FinalChunks)
-					chatCtx = teamCtx
-					comparisonTeamAnswered = true
-				}
-			} else {
-				chatCtx.SystemPrompt = plainSummaryPrompt
-			}
+			chatCtx.SystemPrompt = comparisonSummaryPromptFor(lang, cmpFindings)
 		}
-
-	case OrchTeam:
-		var dispatcher *MCPDispatcher
-		if h.toolDispatcher != nil {
-			if md, ok := h.toolDispatcher.(*MCPDispatcher); ok {
-				dispatcher = md
-			}
-		}
-		params := BuildTeamParams(ctx, TeamParamsInput{
-			KbID: kbID, ChatID: chatID, Query: searchQuery, Language: lang,
-			CurrentDateLine: dateLine, KbSystemPrompt: kbSystemPrompt,
-			FileIDs: body.SelectedFileIDs, GraphChunkIDs: graphChunkIDs, BridgeChunks: bridgeChunks,
-			Team: teamSel.team, Agent: teamSel.agent,
-			DeriveToolPolicy: true,
-			SiteCfg:          h.siteConfigReader, SearchService: h.searchService, ToolDispatcher: dispatcher,
-		})
-		chatCtx, err = RunTeamChat(ctx, h.aiResolver, h.searchService, params, collectEmit)
 
 	case OrchCorpusTable:
 		chatCtx, err = RunCorpusTableChat(ctx, h.aiResolver, h.searchService, h.corpusChunks, CorpusTableParams{
@@ -1418,15 +1289,6 @@ func (h *Handler) tryDeepChat(
 		func(s string) { ttft.mark(); writeSSE(ctx, w, map[string]string{"content": s}) },
 		func(s string) { ttft.mark(); writeSSE(ctx, w, map[string]string{"reasoning": s}) },
 	)
-	// Team synthesis carries user-authored, persona-influenced findings in its
-	// system prompt (a prompt-injection amplifier if handed the full,
-	// unrestricted answer-tool catalog) — answer tools stay off on any turn a
-	// team actually authored, until per-team catalog restriction lands
-	// (follow-up). That now includes a comparison turn whose summary a team
-	// wrote (OrchComparison + comparisonTeamAnswered): its system prompt
-	// carries the same kind of team-synthesised content via KbSystemPrompt,
-	// so it needs the same exclusion as a pure OrchTeam turn — not just
-	// "orch != OrchTeam", which teamAuthoredTurn is what makes this drop.
 	// answerToolsForTurn resolves the base catalog (admin flag and/or the
 	// user's per-turn webSearch switch) and then the per-route allowlist
 	// (W6-R8), narrowing dispatcher and catalog together so the catalog
@@ -1437,7 +1299,6 @@ func (h *Handler) tryDeepChat(
 		queryType:         queryType,
 		isGlobalSynthesis: orchIn.IsGlobalSynthesis,
 		webSearch:         body.WebSearch,
-		teamAuthored:      teamAuthoredTurn(orch, comparisonTeamAnswered),
 	}, func(pl map[string]any) { writeSSE(ctx, w, pl) })
 	catalog := answerTools.catalog
 	// A route restriction can filter the catalog down to empty; running the
@@ -1550,7 +1411,7 @@ func (h *Handler) tryDeepChat(
 		observability.RecordLowConfidence()
 	}
 
-	result := h.finishDeepChatAnswer(ctx, w, chatID, kbID, lang, body, userMsg.ID, chatCtx, fullResponse, &reasoningBuf, orch, comparisonTeamAnswered, teamSel, progressEvents, deepChatStart, policyRule)
+	result := h.finishDeepChatAnswer(ctx, w, chatID, kbID, lang, body, userMsg.ID, chatCtx, fullResponse, &reasoningBuf, orch, progressEvents, deepChatStart, policyRule)
 	// finishDeepChatAnswer calls writeSSEDone on every one of its own return
 	// paths (funlen extraction of the former tail of this function, which
 	// did the same inline) — sseFinished is a local of THIS function, so it
@@ -1578,8 +1439,6 @@ func (h *Handler) finishDeepChatAnswer(
 	fullResponse string,
 	reasoningBuf *strings.Builder,
 	orch Orchestrator,
-	comparisonTeamAnswered bool,
-	teamSel *teamSelection,
 	progressEvents []map[string]any,
 	deepChatStart time.Time,
 	policyRule *int,
@@ -1590,8 +1449,6 @@ func (h *Handler) finishDeepChatAnswer(
 		fullReasoning := reasoningBuf.String()
 		reasoningPtr = &fullReasoning
 	}
-	// Derive team/agent attribution for AI message (reused for recordAgentDecision below).
-	decTeamID, decAgentID := attributionIDs(teamAuthoredTurn(orch, comparisonTeamAnswered), teamSel)
 	steps := trajectoryRecorderFrom(ctx)
 	savedSteps := steps.count()
 	aiMsg, err := h.store.AddMessage(ctx, AddMessageParams{
@@ -1604,8 +1461,6 @@ func (h *Handler) finishDeepChatAnswer(
 		StructuredTable: chatCtx.StructuredTable,
 		Conflicts:       ConflictsForWire(chatCtx.Conflicts),
 		Trajectory:      steps.stored(),
-		TeamID:          decTeamID,
-		AgentID:         decAgentID,
 	})
 	if err != nil {
 		writeSSE(ctx, w, map[string]string{"error": "failed to save AI message"})
@@ -1643,8 +1498,6 @@ func (h *Handler) finishDeepChatAnswer(
 	switch orch {
 	case OrchComparison:
 		mode = "comparison"
-	case OrchTeam:
-		mode = "team"
 	case OrchCorpusTable:
 		mode = "corpus_table"
 	case OrchDrift:
@@ -1667,114 +1520,8 @@ func (h *Handler) finishDeepChatAnswer(
 	} else {
 		hops = 0
 	}
-	h.recordAgentDecision(ctx, kbID, mode, outcome, hops, rounds, time.Since(deepChatStart).Milliseconds(), decTeamID, decAgentID, policyRule)
+	h.recordAgentDecision(ctx, kbID, mode, outcome, hops, rounds, time.Since(deepChatStart).Milliseconds(), policyRule)
 
 	writeSSEDone(ctx, w)
 	return true
-}
-
-// ---------------------------------------------------------------------------
-// Explicit team/agent selection
-// ---------------------------------------------------------------------------
-
-// teamSelection is the resolved explicit team/agent pick for one turn.
-type teamSelection struct {
-	team  *agentteams.TeamForChat
-	agent *agentteams.AgentRecord
-}
-
-// attributionIDs derives the team/agent ids to attribute an AI message (and
-// its agent_decisions row) to. The first argument must be true only when the
-// team actually WROTE something on this turn — either as the orchestrator
-// (OrchTeam) or as the author of a comparison turn's summary (since 2026-08;
-// before that, comparison turns always won over the team selection and the
-// pick was resolved-but-unused). A resolved-but-unused pick — Enhance forces
-// the standard path, or a comparison whose team summary failed — must not be
-// written to messages.team_id / agent_decisions.team_id, per the
-// DecisionRecorder contract ("nil otherwise"). Callers should pass
-// teamAuthoredTurn(orch, comparisonTeamAnswered) rather than reimplementing
-// the condition.
-func attributionIDs(willRunTeam bool, teamSel *teamSelection) (teamID, agentID *string) {
-	if !willRunTeam || teamSel == nil {
-		return nil, nil
-	}
-	switch {
-	case teamSel.team != nil:
-		id := teamSel.team.Team.ID
-		teamID = &id
-	case teamSel.agent != nil:
-		id := teamSel.agent.ID
-		agentID = &id
-	}
-	return teamID, agentID
-}
-
-// teamAuthoredTurn reports whether a team/agent actually wrote something on
-// this turn — as the orchestrator, or as the author of a comparison turn's
-// summary. Extracted as a named function (rather than an inline `||` at the
-// attributionIDs call site) so the condition itself is directly testable: a
-// unit test of attributionIDs alone stays green even when the call site's
-// condition regresses, because it never exercises the call site.
-func teamAuthoredTurn(orch Orchestrator, comparisonTeamAnswered bool) bool {
-	return orch == OrchTeam || comparisonTeamAnswered
-}
-
-// resolveTeamSelection loads and authorizes the request's team/agent pick.
-// Fail-soft: any load failure (not attached, disabled, deleted, DB error)
-// logs and returns (nil, reason) so the turn degrades to the standard path
-// instead of erroring the chat. reason is non-empty only when the request
-// explicitly named a team/agent (body.TeamID/AgentID set) and resolution
-// failed — callers use it to surface the degradation instead of silently
-// dropping the pick. The empty (no selection requested) and success cases
-// both return a "" reason.
-func (h *Handler) resolveTeamSelection(ctx context.Context, body sendMessageRequest, kbID string) (*teamSelection, string) {
-	if h.teamLoader == nil {
-		return nil, ""
-	}
-	switch {
-	case body.TeamID != "":
-		tfc, err := h.teamLoader.LoadTeamForChat(ctx, body.TeamID, kbID)
-		if err != nil {
-			logctx.From(ctx).Warn("chat.team_selection.load_failed",
-				"team_id", body.TeamID, "kb_id", kbID, "error", err)
-			return nil, "load_failed"
-		}
-		if len(tfc.Members) == 0 {
-			logctx.From(ctx).Warn("chat.team_selection.empty_team", "team_id", body.TeamID)
-			return nil, "empty_team"
-		}
-		return &teamSelection{team: tfc}, ""
-	case body.AgentID != "":
-		a, err := h.teamLoader.LoadAgentForChat(ctx, body.AgentID, kbID)
-		if err != nil {
-			logctx.From(ctx).Warn("chat.agent_selection.load_failed",
-				"agent_id", body.AgentID, "kb_id", kbID, "error", err)
-			return nil, "load_failed"
-		}
-		return &teamSelection{agent: a}, ""
-	}
-	return nil, ""
-}
-
-// persistChatSelection stores the RESOLVED team/agent pick on the chat row so
-// reopening the chat restores it. Takes the resolved teamSelection (not the
-// raw request body) so a pick that failed to resolve — deleted team,
-// disabled agent, empty team — is persisted as cleared rather than as a
-// stale id the picker would just have to drop on next load. Always runs (a
-// cleared picker, or a resolution failure, must clear the row). Best-effort.
-func (h *Handler) persistChatSelection(ctx context.Context, chatID string, teamSel *teamSelection) {
-	var teamID, agentID *string
-	if teamSel != nil {
-		switch {
-		case teamSel.team != nil:
-			id := teamSel.team.Team.ID
-			teamID = &id
-		case teamSel.agent != nil:
-			id := teamSel.agent.ID
-			agentID = &id
-		}
-	}
-	if err := h.store.UpdateChatAgentSelection(ctx, chatID, teamID, agentID); err != nil {
-		logctx.From(ctx).Warn("chat.selection.persist_failed", "chat_id", chatID, "error", err)
-	}
 }
