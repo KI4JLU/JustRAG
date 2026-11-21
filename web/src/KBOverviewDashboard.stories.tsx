@@ -96,7 +96,6 @@ function authDecorator(role: string): Decorator {
       user={{ id: 'op-fixture', username: 'operator-fixture', role }}
       token="storybook-fixture-not-a-secret"
       logout={() => {}}
-      updateUser={() => {}}
       siteConfigs={{}}
     >
       <Story />

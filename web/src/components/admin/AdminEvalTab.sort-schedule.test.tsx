@@ -1,19 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import axios from 'axios';
 import AdminEvalTab from './AdminEvalTab';
 import { translations } from '../../translations';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
-
-// fetchKbAgents uses authFetch (native fetch), not axios — mock the module
-// directly so the "last team run" hint next to the selector can be tested
-// without wiring a fetch polyfill.
-vi.mock('../agents/api', () => ({
-    fetchKbAgents: vi.fn(),
-}));
 
 // Real translated text (English) so labels/headers actually contain the
 // words the tests match on, mirroring AdminGlobalKbsTab.test.tsx.
@@ -83,10 +75,10 @@ describe('AdminEvalTab', () => {
     });
 
     // -----------------------------------------------------------------
-    // W7-R4: Team + Score columns on the run table; server-side sort.
+    // W7-R4: Score column on the run table; server-side sort.
     // -----------------------------------------------------------------
 
-    it('renders the team name and formatted score, and refetches with sort/order params on Score header clicks', async () => {
+    it('renders the formatted score, and refetches with sort/order params on Score header clicks', async () => {
         const runOne = {
             id: 'r1',
             label: 'Run One',
@@ -98,8 +90,6 @@ describe('AdminEvalTab', () => {
             kb_name: 'Test KB',
             judge_enabled: false,
             aggregate: { count: 10, mean_recall: 0.5, mrr: 0.3 },
-            team_id: 'team-1',
-            team_name: 'Recherche-Team',
         };
         const runTwo = {
             id: 'r2',
@@ -133,12 +123,8 @@ describe('AdminEvalTab', () => {
 
         render(<AdminEvalTab />);
 
-        // Team name for the team run, and the fallback dash-free rendering
-        // for the standard run, both surface.
-        await screen.findByText('Recherche-Team');
-
         // Formatted scores: mean_recall/mrr as percentages with one decimal.
-        expect(screen.getByText('50.0 / 30.0')).toBeInTheDocument();
+        expect(await screen.findByText('50.0 / 30.0')).toBeInTheDocument();
         expect(screen.getByText('90.0 / 80.0')).toBeInTheDocument();
 
         const runsUrls = () =>
@@ -176,57 +162,5 @@ describe('AdminEvalTab', () => {
         const lastUrl = runsUrls().at(-1) as string;
         expect(lastUrl).not.toMatch(/[?&]sort=/);
         expect(lastUrl).not.toMatch(/[?&]order=/);
-    });
-
-    it('shows the last team run recall/MRR next to the team selector', async () => {
-        const { fetchKbAgents } = await import('../agents/api');
-        vi.mocked(fetchKbAgents).mockResolvedValue({
-            agents: [],
-            teams: [{ id: 'team-1', name: 'Recherche-Team', description: '', icon: '', isDefault: false }],
-        });
-
-        const teamRun = {
-            id: 'r1',
-            label: 'Team run',
-            status: 'completed',
-            created_at: '2026-09-01T10:00:00Z',
-            started_at: '2026-09-01T10:00:00Z',
-            finished_at: '2026-09-01T10:01:00Z',
-            kb_id: 'kb-1',
-            kb_name: 'Test KB',
-            judge_enabled: false,
-            aggregate: { count: 8, mean_recall: 0.6, mrr: 0.45 },
-            team_id: 'team-1',
-            team_name: 'Recherche-Team',
-        };
-
-        mockedAxios.get.mockImplementation((url: string) => {
-            if (url.endsWith('/golden-sets')) {
-                return Promise.resolve({ data: { golden_sets: [] } });
-            }
-            if (url.includes('/golden-sets/jobs')) {
-                return Promise.resolve({ data: { jobs: [] } });
-            }
-            if (url.includes('/runs')) {
-                return Promise.resolve({ data: { runs: [teamRun], total: 1 } });
-            }
-            return Promise.resolve({ data: {} });
-        });
-
-        render(<AdminEvalTab kbId="kb-1" />);
-
-        // The team selector is a DS (Radix) Select: its options only exist in
-        // the DOM once the listbox is open.
-        Element.prototype.hasPointerCapture = vi.fn(() => false);
-        Element.prototype.setPointerCapture = vi.fn();
-        Element.prototype.releasePointerCapture = vi.fn();
-        Element.prototype.scrollIntoView = vi.fn();
-        const select = await screen.findByRole('combobox', { name: /Agent team/i });
-        await waitFor(() => expect(mockedAxios.get.mock.calls.some(([u]) => String(u).includes('/runs'))).toBe(true));
-        await userEvent.click(select);
-        const option = await within(await screen.findByRole('listbox')).findByRole('option', { name: /Recherche-Team/ });
-        expect(option.textContent).toContain('last run');
-        expect(option.textContent).toContain('60.0');
-        expect(option.textContent).toContain('45.0');
     });
 });

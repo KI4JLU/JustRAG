@@ -23,6 +23,7 @@ e2e/.auth/
 !/docs/user-error-messages.md
 !/docs/feature-reference.md
 !/docs/kb-access.md
+!/docs/ui-views.md
 !/docs/eval-cli.md
 !/docs/presentation/
 /docs/presentation/*

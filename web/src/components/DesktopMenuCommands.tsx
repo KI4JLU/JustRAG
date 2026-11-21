@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { useKbCore } from '../contexts/KbCoreContext';
 import { useKbChat } from '../contexts/KbChatContext';
 
 /**
@@ -10,15 +9,11 @@ import { useKbChat } from '../contexts/KbChatContext';
  * bridge does not exist and this renders and does nothing.
  */
 export function DesktopMenuCommands() {
-  const { setKbView } = useKbCore();
   const { chat } = useKbChat();
   const { handleNewChat } = chat;
   useEffect(
-    () => window.nativeShell?.onNewChat?.(() => {
-      handleNewChat();
-      setKbView('chat');
-    }),
-    [handleNewChat, setKbView],
+    () => window.nativeShell?.onNewChat?.(handleNewChat),
+    [handleNewChat],
   );
   return null;
 }

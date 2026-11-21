@@ -233,7 +233,7 @@ function kbCardActions({
     items.push({ label: `${t('rename')}…`, icon: <Pencil size={16} aria-hidden="true" />, onSelect: e => onRenameKB(kb, asMouse(e)) });
   }
   // Teilen and Einstellungen open the topic's settings, so they are offered
-  // exactly where that window is: the same predicate as the workspace's gear.
+  // exactly where that window is: the same predicate as the topic view's gear.
   const canSettings = canOpenKbTopicSettings(kb, systemRole, currentUserId);
   if (canSettings) {
     items.push({ label: `${t('share')}…`, icon: <UserPlus size={16} aria-hidden="true" />, onSelect: e => onOpenShare(kb, asMouse(e)) });

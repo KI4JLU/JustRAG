@@ -8,20 +8,16 @@ interface UseKbLifecycleParams {
   fetchAvailableConfigs: () => void;
   fetchFiles: (kbId: string, signal?: AbortSignal) => void;
   fetchChats: (kbId: string, signal?: AbortSignal) => void;
-  fetchGeneratedContent: (kbId: string, signal?: AbortSignal) => void;
   fetchRssFeeds: (kbId: string, signal?: AbortSignal) => void;
   fetchConfluenceSources: (kbId: string, signal?: AbortSignal) => void;
   fetchConfluenceConnectionInfo: () => void;
-  showSettings: boolean;
-  setShowSettings: (val: boolean) => void;
 }
 
 export function useKbLifecycle({
   token, currentKb,
   fetchKBs, fetchAvailableConfigs,
-  fetchFiles, fetchChats, fetchGeneratedContent,
+  fetchFiles, fetchChats,
   fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo,
-  showSettings, setShowSettings,
 }: UseKbLifecycleParams) {
   // Fetch KBs and configs on auth
   useEffect(() => {
@@ -37,24 +33,10 @@ export function useKbLifecycle({
       const controller = new AbortController();
       fetchFiles(currentKb.id, controller.signal);
       fetchChats(currentKb.id, controller.signal);
-      fetchGeneratedContent(currentKb.id, controller.signal);
       fetchRssFeeds(currentKb.id, controller.signal);
       fetchConfluenceSources(currentKb.id, controller.signal);
       fetchConfluenceConnectionInfo();
       return () => controller.abort();
     }
-  }, [currentKb, fetchFiles, fetchChats, fetchGeneratedContent, fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo]);
-
-  // ESC handler. An Escape something inside the modal already handled — an
-  // open Select or ⋮ menu closing itself (Radix marks it defaultPrevented) —
-  // must not close the modal around it as well.
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        if (showSettings) setShowSettings(false);
-      }
-    };
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
-  }, [showSettings, setShowSettings]);
+  }, [currentKb, fetchFiles, fetchChats, fetchRssFeeds, fetchConfluenceSources, fetchConfluenceConnectionInfo]);
 }

@@ -94,7 +94,12 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 
 	overlay := siteconfig.NewKBOverlay(h.global, overrides)
 
-	binding := h.resolveBinding(ctx, kbID)
+	// Web chat sends no agent or team. Apply its selection before Project
+	// derives stage activation, orchestrators and cost from the binding.
+	binding := AgentBindingInfo{Options: []BindingOption{}}
+	if r.URL.Query().Get("binding") != "none" {
+		binding = h.resolveBinding(ctx, kbID)
+	}
 
 	g, err := Project(ctx, overlay, h.global, lane, binding.binding())
 	if err != nil {

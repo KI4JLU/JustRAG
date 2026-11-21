@@ -44,11 +44,6 @@ vi.mock('../../hooks/useReducedMotion', () => ({
     useReducedMotion: () => false,
     getMotionProps: () => ({}),
 }));
-// The team dropdown's data source. It only fetches once a KB is in play, and
-// the teams themselves are another component's concern.
-type KbAgentsResult = { agents: never[]; teams: { id: string; name: string }[] };
-const fetchKbAgentsMock = vi.fn<(kbId: string) => Promise<KbAgentsResult>>();
-vi.mock('../agents/api', () => ({ fetchKbAgents: (kbId: string) => fetchKbAgentsMock(kbId) }));
 
 /**
  * Radix's Select trigger measures and captures pointers; jsdom implements
@@ -112,7 +107,6 @@ const RUNS = [
 
 beforeEach(() => {
     vi.clearAllMocks();
-    fetchKbAgentsMock.mockResolvedValue({ agents: [], teams: [] });
     mockedAxios.get.mockImplementation((url: string) => {
         if (url.includes('/golden-sets/jobs')) return Promise.resolve({ data: { jobs: [] } });
         if (url.includes('/golden-sets')) return Promise.resolve({ data: { golden_sets: GOLDEN_SETS } });
@@ -504,29 +498,16 @@ describe('AdminEvalTab — golden-set upload', () => {
 });
 
 describe('AdminEvalTab — KB-scoped mode', () => {
-    it('hides both kb_id fields and offers the KB\'s teams', async () => {
+    it('hides the kb_id fields', async () => {
         // ORACLE: the component's documented prop contract ("When set, the tab
         // is KB-scoped: kb_id pickers are hidden and kb_id is taken from the
         // path") plus the pre-migration source's `{!kbId && …}` guards. This is
-        // the path KbSettingsPanel renders, and it is the only one that reaches
-        // the team select — whose empty option means "standard, no team" and is
-        // therefore a LISTED item as well as the placeholder.
-        fetchKbAgentsMock.mockResolvedValue({ agents: [], teams: [{ id: 'team-1', name: 'Recht' }] });
+        // the path KbSettingsPanel renders.
         await renderTab({ kbId: 'kb-1111' });
 
-        expect(fetchKbAgentsMock).toHaveBeenCalledWith('kb-1111');
         // All three "KB ID" fields are behind `{!kbId && …}` guards, so none of
         // them renders here.
         expect(screen.queryAllByRole('textbox', { name: tMock('evalKbId') })).toHaveLength(0);
-
-        const teamSelect = await screen.findByRole('combobox', { name: tMock('evalTeamLabel') });
-        expect(teamSelect).toHaveTextContent(tMock('evalTeamStandard'));
-
-        await userEvent.click(teamSelect);
-        expect((await screen.findAllByRole('option')).map(o => o.textContent)).toEqual([
-            tMock('evalTeamStandard'),
-            'Recht',
-        ]);
     });
 });
 

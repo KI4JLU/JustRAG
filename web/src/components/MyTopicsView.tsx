@@ -1,5 +1,5 @@
-import { lazy, Suspense, useMemo } from 'react';
-import type { KnowledgeBase, SafeAIConfig } from '../types';
+import { useMemo } from 'react';
+import type { KnowledgeBase } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
@@ -15,8 +15,6 @@ import { favoritesFirst, useTopicFilters } from '../hooks/useTopicFilters';
 import { useKbOrder } from '../hooks/useKbOrder';
 import { useKbSortable } from '../hooks/useKbSortable';
 import './HomeView.css';
-
-const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ default: module.SettingsModal })));
 
 /* ---------------------------------------------------------------------------
  * „Mein Wissen" — the topics you own. Renamed from `HomeView` (developer
@@ -40,10 +38,6 @@ const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ def
  *     this card's call, and the duplicate is gone.
  * The result is a page that answers exactly one question, which is the one its
  * nav row asks.
- *
- * NO DISCLOSURE STATE. `useSectionOpen('favorites'|'shared'|'mine')` is gone
- * with the sections; see `useSectionOpen.ts` for what happens to the values
- * those keys already hold in users' browsers.
  * ------------------------------------------------------------------------- */
 
 export interface MyTopicsViewProps {
@@ -54,17 +48,12 @@ export interface MyTopicsViewProps {
   /** The first fetch failed: the page says so and offers `onRetryLoad`. */
   loadFailed?: boolean;
   onRetryLoad?: () => void;
-  currentKb: KnowledgeBase | null;
-  availableConfigs: SafeAIConfig[];
   onCreateKB: () => void;
   onSelectKB: (kb: KnowledgeBase) => void;
   onDeleteKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   removingKb: boolean;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onToggleFavorite: (kb: KnowledgeBase, e?: React.MouseEvent) => void;
-  onUpdateKBSettings: (data: Record<string, unknown>) => void;
-  showSettings: boolean;
-  setShowSettings: (v: boolean) => void;
 }
 
 export function MyTopicsView({
@@ -72,17 +61,12 @@ export function MyTopicsView({
   loading = false,
   loadFailed = false,
   onRetryLoad,
-  currentKb,
-  availableConfigs,
   onCreateKB,
   onSelectKB,
   onDeleteKB,
   removingKb,
   onRenameKB,
   onToggleFavorite,
-  onUpdateKBSettings,
-  showSettings,
-  setShowSettings,
 }: MyTopicsViewProps) {
   const { language, t } = useTheme();
   const { user } = useAuth();
@@ -188,21 +172,6 @@ export function MyTopicsView({
         items={rest.map(renderCard)}
       />
 
-      {/* Dormant here, exactly as it was on `HomeView`: nothing on this page
-          sets `showSettings`, and only `useKbLifecycle` ever clears it. Carried
-          over rather than dropped, because removing it is a behaviour change
-          and not a rename.
-          // TODO: unreachable from this view — confirm with the developer
-          // before removing. Recorded on KI-770. */}
-      <Suspense fallback={null}>
-        {showSettings && <SettingsModal
-          show={showSettings}
-          onClose={() => setShowSettings(false)}
-          currentKb={currentKb}
-          availableConfigs={availableConfigs}
-          onUpdateSettings={onUpdateKBSettings}
-        />}
-      </Suspense>
     </AppChrome>
   );
 }

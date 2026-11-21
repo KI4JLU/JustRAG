@@ -30,7 +30,7 @@ export function hasKbAdminRole(kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | '
 /**
  * Whether the caller may open „Thema-Einstellungen" (Verhalten, Rollen &
  * Rechte, Mitglieder) — and with it every entry point into it: the gear in the
- * workspace header and „Teilen" on the topic cards, which opens the Mitglieder
+ * topic header and „Teilen" on the topic cards, which opens the Mitglieder
  * section. All three sections write through admin-gated routes (PATCH
  * /api/kb/{id} and /members on kbAdminChain), so this is hasKbAdminRole plus
  * the legacy owner column for a row that arrives without myRole.

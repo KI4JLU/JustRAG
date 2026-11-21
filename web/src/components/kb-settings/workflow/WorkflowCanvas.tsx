@@ -8,15 +8,14 @@ import type { Edge } from '@xyflow/react';
 import { Alert, AlertDescription } from '@ki4jlu/design-system';
 import { Save, Undo2 } from 'lucide-react';
 import type {
-  AgentBindingOption, NodeActivation, WorkflowGraph, WorkflowLane, WorkflowNodeData,
+  NodeActivation, WorkflowGraph, WorkflowLane, WorkflowNodeData,
 } from '../../../types';
 import { useReducedMotion } from '../../../hooks/useReducedMotion';
-import { fetchWorkflow, saveKbSettings, resetKbSetting, setKbDefaultBinding } from './api';
+import { fetchWorkflow, saveKbSettings, resetKbSetting } from './api';
 import { layoutWorkflow, MIN_ZOOM, type WorkflowRFNode } from './layout';
 import WorkflowNode from './WorkflowNode';
 import { NodeInspector } from './NodeInspector';
 import { PresetPicker } from './PresetPicker';
-import { WF_NODE_AGENT_BINDING } from './constants';
 import './WorkflowCanvas.css';
 
 const LANES: { id: WorkflowLane; label: string }[] = [
@@ -51,12 +50,6 @@ const ACTIVATION_LABEL: Record<NodeActivation, string> = {
  */
 const ORCHESTRATOR_LABEL: Record<string, string> = {
   comparison: 'Dokumentenvergleich',
-  // „Agent oder Team", not „Agenten-Team": this one orchestrator serves both
-  // kinds of binding — a lone agent runs through it as a one-member team — and
-  // naming it after the team half told a librarian who had bound an AGENT that
-  // a team they never created answers their questions. Mirrors the backend's
-  // own rename in orchestratorLabels.
-  team: 'Agent oder Team',
   corpus_table: 'Korpus-Vergleichstabelle',
   drift: 'DRIFT',
   supervisor: 'Supervisor',
@@ -159,11 +152,6 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
   // draft state would make that impossible to express.
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  // The KB default agent/team write in flight. Its own flag, not `saving`:
-  // `saving` drives the savebar's buttons and NodeInspector's readOnlyReason,
-  // and this write is not a settings save — it does not go through the savebar
-  // at all (see onBindingChange below).
-  const [bindingSaving, setBindingSaving] = useState(false);
   // Surfaces both a rejected save and a rejected reset. Deliberately a
   // separate state from `error` above: `error` is reserved for "the initial
   // load failed" (renders instead of the canvas); a save/reset failure must
@@ -357,73 +345,6 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
       setOpError('Zurückgesetzt — die Ansicht konnte nicht aktualisiert werden. Bitte Ansicht neu laden.');
     }
   }, [kbId, refetchGraph]);
-
-  // Why the KB-default dropdown is currently not operable, or undefined when
-  // it is. ONE expression, read by both the control (which shows it and greys
-  // itself out) and by onBindingChange's own re-check below — so the enforced
-  // gate and the displayed gate cannot drift apart.
-  //
-  // The pending-draft arm is the same rule PresetPicker follows, for the same
-  // reason: this write lands immediately and the draft does not, so allowing
-  // both to be in flight against one KB means an admin cannot tell which of
-  // their two pending intentions actually took effect.
-  const bindingDisabledReason = saving
-    ? 'Wird gerade gespeichert.'
-    : draftCount > 0
-      ? 'Speichere oder verwirf deine Änderungen, bevor du die Vorgabe änderst.'
-      : bindingSaving
-        ? 'Vorgabe wird gespeichert…'
-        : undefined;
-
-  // The KB's default agent/team, written to the ATTACH endpoint on change —
-  // deliberately not through the savebar (see setKbDefaultBinding in api.ts:
-  // different endpoint, different payload, and one Save button covering both
-  // would produce a partial failure nobody can recover from).
-  //
-  // Clearing addresses the CURRENTLY BOUND link with isDefault:false, because
-  // that is what the server's ON CONFLICT DO UPDATE actually clears; there is
-  // no "unset the KB's default" endpoint to call instead. With nothing bound
-  // there is nothing to clear, and the call is skipped rather than guessed at.
-  //
-  // The write and the refetch are two separate failures, reported separately —
-  // the same split onSaveDraft/onResetKey make, for the same reason: an admin
-  // who reads "failed" after a write that landed will do it again.
-  const onBindingChange = useCallback(async (next: AgentBindingOption | null) => {
-    // Re-checked here, not only in the control: the canvas behind the panel
-    // stays live, so a draft (or another write) can appear between render and
-    // change event.
-    if (bindingDisabledReason) return;
-    const current = graph?.agentBinding;
-    let write: Promise<unknown>;
-    if (next) {
-      write = setKbDefaultBinding(kbId, next.kind, next.id, true);
-    } else if (current && (current.kind === 'agent' || current.kind === 'team') && current.id) {
-      write = setKbDefaultBinding(kbId, current.kind, current.id, false);
-    } else {
-      // Already "keine Vorgabe" — or a binding the server could not resolve,
-      // whose link we cannot name. Nothing to write either way.
-      return;
-    }
-    setOpError(null);
-    setBindingSaving(true);
-    try {
-      await write;
-    } catch (e) {
-      setOpError(`Die Vorgabe konnte nicht gespeichert werden (${e instanceof Error ? e.message : String(e)}).`);
-      setBindingSaving(false);
-      return;
-    }
-    try {
-      // Refetched, never guessed: the binding changes this node's activation
-      // AND whether chat.OrchTeam is a projected orchestrator candidate, and
-      // only the server knows the resulting projection.
-      await refetchGraph();
-    } catch {
-      setOpError('Vorgabe gespeichert — die Ansicht konnte nicht aktualisiert werden. Bitte Ansicht neu laden.');
-    } finally {
-      setBindingSaving(false);
-    }
-  }, [bindingDisabledReason, graph, kbId, refetchGraph]);
 
   // Warns only on an actual browser navigation away (reload, close, back to
   // another origin) — that loss is unrecoverable from inside the app. It does
@@ -736,13 +657,6 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
                 onRefuse={onFieldRefused}
                 onReset={onResetKey}
                 readOnlyReason={saving ? 'Wird gerade gespeichert.' : undefined}
-                // Handed over ONLY for the node that owns the binding — that
-                // is what selects the non-registry control path. `binding` is
-                // read off the graph the selection was derived from, so a
-                // refetch repaints both together.
-                binding={selected?.id === WF_NODE_AGENT_BINDING ? graph?.agentBinding : undefined}
-                onBindingChange={onBindingChange}
-                bindingDisabledReason={bindingDisabledReason}
               />
             </div>
           </>

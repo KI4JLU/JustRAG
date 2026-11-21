@@ -3,8 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DesktopMenuCommands } from './DesktopMenuCommands';
 
 const handleNewChat = vi.fn();
-const setKbView = vi.fn();
-vi.mock('../contexts/KbCoreContext', () => ({ useKbCore: () => ({ setKbView }) }));
 vi.mock('../contexts/KbChatContext', () => ({ useKbChat: () => ({ chat: { handleNewChat } }) }));
 
 /*
@@ -34,7 +32,6 @@ describe('DesktopMenuCommands', () => {
     expect(handleNewChat).not.toHaveBeenCalled();
     reported?.();
     expect(handleNewChat).toHaveBeenCalledTimes(1);
-    expect(setKbView).toHaveBeenCalledWith('chat');
     unmount();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });

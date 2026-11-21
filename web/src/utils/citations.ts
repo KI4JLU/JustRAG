@@ -57,12 +57,6 @@ export function sourceForCitation(sources: readonly MessageSource[] | undefined,
   return byPosition && byPosition.index == null ? byPosition : undefined;
 }
 
-/** The highest citation number the sources can answer (see sourceForCitation). */
-export function maxCitationNumber(sources: readonly MessageSource[] | undefined): number {
-  if (!sources) return 0;
-  return sources.reduce((m, s, i) => Math.max(m, s.index ?? i + 1), 0);
-}
-
 export function extractCitedSourceIndices(
   content: string,
   sourceCount: number,
@@ -163,9 +157,9 @@ export function stripCitationMarkers(rawContent: string, keep?: ReadonlySet<numb
  * withoutCitations is an answer as a caller without `seeCitations` sees it:
  * no inline markers, no source list, and nothing else that names or quotes
  * the KB's sources — the conflict report (it names two files), the citation
- * validator's per-citation results, the trajectory's retrieved-file lists and
- * a comparison finding's KB quote and files. The rest of the answer, the
- * fact-check verdict included, is unchanged.
+ * validator's per-citation results and the trajectory's retrieved-file
+ * lists. The rest of the answer, the fact-check verdict included, is
+ * unchanged.
  *
  * The copy/export actions read the same object, so they cannot leak what the
  * screen hides.
@@ -186,6 +180,5 @@ export function withoutCitations(message: Message): Message {
       ? { ...message.verification, citations: keptCitations && keptCitations.length > 0 ? keptCitations : undefined }
       : message.verification,
     trajectory: message.trajectory?.map(e => (e.chunks ? { ...e, chunks: undefined } : e)),
-    comparisonFindings: message.comparisonFindings?.map(f => ({ ...f, citedQuote: '', citedFileIds: [] })),
   };
 }

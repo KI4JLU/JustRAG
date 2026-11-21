@@ -1,47 +1,12 @@
 {
-  "src/Profile.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/AbstractGenerationModal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 4
-    }
-  },
-  "src/components/AcademicMode.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/AcademicResearchMode.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 16
-    }
-  },
-  "src/components/AcademicSearchMode.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 9
-    }
-  },
   "src/components/ApiKeys/ApiKeyManager.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 4
     }
   },
-  "src/components/Button.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/ChartModal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
   "src/components/ChatView.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 2
+      "count": 1
     }
   },
   "src/components/ComparisonView.tsx": {
@@ -89,119 +54,14 @@
       "count": 3
     }
   },
-  "src/components/Memory/MemoryManager.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/MindMap/EntityCard.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 3
-    }
-  },
-  "src/components/MindMap/GraphExportPanel.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 4
-    }
-  },
-  "src/components/MindMap/GraphToolbar.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/MindMap/MindMapView.test.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/MindMap/MindMapView.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 3
-    }
-  },
-  "src/components/ResearchMode.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 10
-    }
-  },
-  "src/components/SettingsModal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/Studio/ChartArtifact.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/Studio/ComparisonDialog.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/Studio/FlashcardsArtifact.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 4
-    }
-  },
   "src/components/Studio/MarkdownEditor.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 12
-    }
-  },
-  "src/components/Studio/PodcastArtifact.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
-  "src/components/Studio/PresentationArtifact.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/Studio/QuizView.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/Studio/StudioWorkspace.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 17
-    }
-  },
-  "src/components/Studio/WorkspacePromptDialog.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 3
-    }
-  },
-  "src/components/WebWorkspace.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 8
-    }
-  },
-  "src/components/agents/AgentConfigFields.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/agents/AgentForm.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 5
-    }
-  },
-  "src/components/agents/AgentsView.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 7
     }
   },
-  "src/components/agents/KbAgentsSection.tsx": {
+  "src/components/WebResultsEditor.tsx": {
     "design-system/no-raw-ui-elements": {
-      "count": 1
-    }
-  },
-  "src/components/agents/TeamForm.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 5
+      "count": 8
     }
   },
   "src/components/kb-settings/KbSettingsPanel.tsx": {
@@ -229,11 +89,6 @@
       "count": 3
     }
   },
-  "src/components/sidebar-shell/SidebarShell.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 2
-    }
-  },
   "src/components/sidebar/ConfluenceModal.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 15
@@ -242,11 +97,6 @@
   "src/components/sidebar/CrawlModal.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 4
-    }
-  },
-  "src/components/sidebar/FileUploadModal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 1
     }
   },
   "src/components/sidebar/GitRepoModal.tsx": {
@@ -262,11 +112,6 @@
   "src/components/sidebar/SourcesGrid.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 5
-    }
-  },
-  "src/components/sidebar/WebSearchModal.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 7
     }
   },
   "src/components/sources/SourcesPanel.tsx": {

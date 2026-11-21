@@ -75,10 +75,10 @@ function memoryStorage(): Storage {
 /**
  * The signed-in user, written where `App` reads it.
  *
- * The SYSTEM ROLE became an axis of this file with KI-782: the sidebar's
- * agents row and the user menu's admin entry are gated on it, so a fixture
- * that only ever said `user` could no longer see either control, and one that
- * only ever said `admin` could not tell a gate from an unconditional render.
+ * The SYSTEM ROLE is an axis of this file: the user menu's admin entry is
+ * gated on it, so a fixture that only ever said `user` could not see that
+ * control, and one that only ever said `admin` could not tell a gate from an
+ * unconditional render.
  * Called from `beforeEach` with the ordinary role; the two admin tests
  * re-seed before they render.
  */
@@ -167,7 +167,7 @@ describe('App — the KB overview on the authenticated home route', () => {
      * controls whose handlers stopped being props under KI-770 — profile reads
      * `AppNavContext` and logout reads `AuthContext.logout` instead of an
      * `onLogout` prop. (The copy button, which read the since-deleted
-     * `SharingContext`, and the agents row are gone; see below.) A
+     * `SharingContext`, is gone.) A
      * provider mounted but empty, or a handler wired to the wrong member,
      * still renders a control; what this pins is that the real app supplies
      * both sources on this route.
@@ -218,10 +218,6 @@ describe('App — the KB overview on the authenticated home route', () => {
    * ORACLES, both independent of the code under change: src/translations.ts
    * for every accessible name (`adminSettings`, `adminDashboard`) and
    * WAI-ARIA's button / menuitem / dialog role mappings.
-   *
-   * („shows the agents row to a system admin" sat here and is deleted: the row
-   * was removed from the nav on 18.09.2026. `AgentsView` keeps its route
-   * through the RAG-Settings page, which is not on this route to assert.)
    * -------------------------------------------------------------------- */
   it('reaches the admin console from the user menu', async () => {
     seedUser('admin');

@@ -385,8 +385,7 @@ export const Loading: Story = {
          * is announced".
          *
          * KNOWN-DEFECT PIN: adding a `.loading-spinner` rule, or swapping the
-         * div for the DS `Spinner` (which carries `role="status"`, the way
-         * Dashboard.tsx already does), turns these assertions false. That is
+         * div for the DS `Spinner` (which carries `role="status"`), turns these assertions false. That is
          * the intended signal. */
         const style = getComputedStyle(spinner as HTMLElement);
         await expect(style.height).toBe('0px');

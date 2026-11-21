@@ -31,8 +31,8 @@ import { useKbSortable } from '../hooks/useKbSortable';
  *
  * With one list there is nothing to collapse past, so this page matches
  * `MyTopicsView`: `TopicGridPage`, no disclosure, no count badges. The
- * `sharedview` / `sharedview-global` `useSectionOpen` keys stay unused — see
- * `useSectionOpen.ts`.
+ * former `justrag.home.section.sharedview` / `…sharedview-global` storage
+ * keys stay unused in users' browsers.
  *
  * THE TILE NAVIGATES, IT DOES NOT CREATE. „Thema hinzufügen" goes to
  * „Entdecken". That is deliberate and it is the second tile tried in this slot:

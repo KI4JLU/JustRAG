@@ -33,10 +33,6 @@ vi.mock('../hooks/useReducedMotion', () => ({
   useReducedMotion: () => false,
   getMotionProps: () => ({}),
 }));
-vi.mock('../hooks/useKbAgents', () => ({
-  useKbAgents: () => ({ agents: [], teams: [] }),
-}));
-
 let capabilities: KbCapabilities | undefined;
 let files: Array<{ id: string; selected?: boolean }> = [{ id: 'f1', selected: true }];
 let hasFiles = true;
@@ -52,11 +48,7 @@ vi.mock('../contexts/KbCoreContext', () => ({
   useKbCore: () => ({
     currentKb: currentKb(),
     availableConfigs: [],
-    kbView: 'chat' as const,
-    setKbView: vi.fn(),
-    handleGoHome: vi.fn(),
     handleUpdateKBSettings: vi.fn(),
-    onViewAgents: vi.fn(),
     scopedMindmapMessageId: undefined,
     onViewGraphForMessage: vi.fn(),
     onCloseMindmap: vi.fn(),
@@ -107,18 +99,11 @@ vi.mock('../contexts/KbChatContext', () => ({
       setLoadedResearchSession: vi.fn(),
       loadedAcademicSession: null,
       setLoadedAcademicSession: vi.fn(),
-      startComparison: vi.fn(),
     },
     enhance: null,
     setEnhance: vi.fn(),
     reasoningEnabled: false,
     setReasoningEnabled: vi.fn(),
-    researchRunning: false,
-    academicResearchRunning: false,
-    setResearchRunning: vi.fn(),
-    setAcademicResearchRunning: vi.fn(),
-    agentSelection: {},
-    setAgentSelection: vi.fn(),
   }),
 }));
 
@@ -133,8 +118,6 @@ vi.mock('../contexts/KbDataContext', () => ({
       handlePreviewSource: vi.fn(), handlePdfSourceOpen, setToolTab: vi.fn(),
       toolLoading: false, webResearchRunning: false,
     },
-    content: { handleGenerate: vi.fn(), selectedContent: null, fetchGeneratedContent: vi.fn() },
-    handleSelectContent: vi.fn(),
     rssLoading: false,
     confluenceLoading: false,
     confluenceSources: [],

@@ -48,9 +48,8 @@ Rules that apply to every message:
   unreachable server — every start-up load failing at once — shows S14 a single
   time.
 - **A status that means something else on one endpoint is handled before the
-  mapping.** The comparison upload's 503 means "comparison is switched off"
-  (`comparisonDisabled`), not an outage; the URL fetch's 502 means "the remote
-  page is unreachable" (B09).
+  mapping.** The URL fetch's 502 means "the remote page is unreachable" (B09),
+  not an outage.
 
 ## 2. Shared messages
 
@@ -147,8 +146,7 @@ working tree. **Shown today** is what the user sees in this working tree. A key
 marked *(proposed)* does not exist yet; its text is a proposal. "+ S12–S15" after
 a key means the shared cases apply on top of it (section 1). Language ternaries
 that are not error surfaces are left out (`ChatView.tsx` citation labels,
-`MessageContent.tsx` tooltips, `BranchTreeNav.tsx`, `AcademicMode.tsx`,
-`ReloadPrompt.tsx`, `Login.tsx:236–237`, the research modes' label maps).
+`MessageContent.tsx` tooltips, `BranchTreeNav.tsx`, `Login.tsx:236–237`).
 
 ### A. Every user
 
@@ -162,10 +160,6 @@ Chat, composer, upload, sources sidebar, login, profile pages.
 | A04 | `utils/chatAttachments.ts:41` (chip text via `hooks/useComposerUploads.ts:66`) | Composer attachment refused with a code or status; 503 "attachments not available" is S14 | The case's message for that file | S1–S9, S12–S15 | (section 2) | (section 2) | done |
 | A05 | `utils/chatAttachments.ts:41` | Composer attachment refused without a code (400, 404) | „a.pdf“ konnte nicht hochgeladen werden. | `errorUploadFailed` | „{name}“ konnte nicht hochgeladen werden. | Could not upload “{name}”. | done |
 | A06 | `hooks/useComposerUploads.ts:68` | Upload failed outside the request | „a.pdf“ konnte nicht hochgeladen werden. | `errorUploadFailed` | „{name}“ konnte nicht hochgeladen werden. | Could not upload “{name}”. | done |
-| A07 | `hooks/useChatAttachment.ts:51` (toast at `hooks/useChat.ts:454`) | Comparison upload refused with a code or status | The case's message for that file | S1, S4, S5, S6, S12–S15 | (section 2) | (section 2) | done |
-| A08 | `hooks/useChatAttachment.ts:50` | Comparison upload 503: comparison is switched off | Dokumentenvergleich ist deaktiviert | `comparisonDisabled` | Dokumentenvergleich ist deaktiviert | Document comparison is disabled | done |
-| A09 | `hooks/useChatAttachment.ts:51` | Comparison upload refused without a code (400 `invalid_upload`, 404) | „a.pdf“ konnte nicht hochgeladen werden. | `errorUploadFailed` | „{name}“ konnte nicht hochgeladen werden. | Could not upload “{name}”. | done |
-| A10 | `hooks/useChat.ts:454` | Comparison upload failed without a recorded message (not reached in practice) | Upload fehlgeschlagen | `comparisonUploadFailed` | Upload fehlgeschlagen | Upload failed | done |
 | A11 | `hooks/useChatStream.ts:210` | Send refused, 422 `too_large_for_context` | The S7 send message | `chatAttachmentsTooLongTogether` (S7) | Die angehängten Dateien sind zusammen zu lang für den Chat. Entferne eine Datei und sende erneut. | The attached files are too long for the chat together. Remove a file and send again. | done |
 | A12 | `hooks/useChatStream.ts:215` | Send refused with another file code (415/422 `unsupported_file_type`, `file_unreadable`, `no_text`, `parse_timeout`); the body names the attachment in `fileName` | „a.pdf“ konnte nicht gelesen werden. Die Datei ist möglicherweise beschädigt. Entferne die Datei und sende erneut. | the case's key (S4, S5, S6, S8) + `chatAttachmentRemoveHint` | (case text) + Entferne die Datei und sende erneut. | (case text) + Remove the file and send again. | done |
 | A12a | `hooks/useChatStream.ts:217` | Same, from a backend that does not send `fileName` yet | Ein angehängtes Dokument kann nicht verwendet werden. … | `chatAttachmentsUnusable` | Ein angehängtes Dokument kann nicht verwendet werden. Entferne es und sende erneut. | An attached document cannot be used. Remove it and send again. | done |
@@ -190,7 +184,7 @@ Chat, composer, upload, sources sidebar, login, profile pages.
 | A31 | `components/ErrorBoundary.tsx:57` | Render error caught by the boundary | Raw `error.message`, e.g. `Cannot read properties of undefined …` | none: log only | — | — | open |
 | A32 | `components/ChartRenderer.tsx:35` | A chart cannot be rendered (heading) | Fehler beim Anzeigen des Diagramms (German only) | `chartRenderError` *(proposed)* | Das Diagramm kann nicht angezeigt werden. | The chart cannot be displayed. | open |
 | A33 | `components/ChartRenderer.tsx:60`, `:88` | Chart JSON unparseable or missing fields (detail line) | `Unexpected token } in JSON`, `Invalid chart data: missing required fields` | `chartDataInvalid` *(proposed)* | Die Diagrammdaten sind unvollständig oder fehlerhaft. | The chart data is incomplete or invalid. | open |
-| A34 | `components/ChartRenderer.tsx:94` | Chart has no data | Keine Daten zum Anzeigen verfügbar. (German only) | `noDataAvailable` | Keine Daten verfügbar | No data available | open |
+| A34 | `components/ChartRenderer.tsx:94` | Chart has no data | Keine Daten zum Anzeigen verfügbar. (German only) | `noDataAvailable` *(proposed)* | Keine Daten verfügbar | No data available | open |
 | A35 | `components/DataExplorer/DataExplorer.tsx:53–54`, `:60` | Data Explorer query refused (the routes answer 501) | `Query failed`, `not implemented` | `dataExplorerQueryFailed` *(proposed)* + S12–S15 | Die Daten konnten nicht abgefragt werden. | The data could not be queried. | open |
 | A36 | `components/DataExplorer/DataExplorer.tsx:82`; `DataExplorer/ExportButtons.tsx:28–29` | Data Explorer CSV export refused | `Export failed` | `exportFailed` + S12–S15 | Export fehlgeschlagen | Export failed | open |
 | A37 | `components/agentSteps/buildSteps.ts` (refine_complete) | Verifier failed after a refine step | Faktencheck nach Korrektur nicht prüfbar | `stepRefineVerifierError` | Faktencheck nach Korrektur nicht prüfbar | Fact check could not verify the correction | done |
@@ -206,8 +200,9 @@ Chat, composer, upload, sources sidebar, login, profile pages.
 ### B. Topic editors and topic admins
 
 Ordinary users in their role on one topic (topic role `edit`, `admin` or
-`owner`): source management, topic settings, agents and teams, workflow,
-studio, research modes. Topic admins are users, not system administrators.
+`owner`): source management, topic settings, studio. Topic admins are users, not system administrators.
+
+Exception: the rows on `GlobalKbSettings` (the public-topic editor) and on `kb-settings/` (RAG settings, workflow: B32–B45) reach system admins only — both surfaces require the system role `admin` (`kbAdvancedChain`, `/kb/<id>/admin`).
 
 | ID | Where | When | Shown today | Message key | DE | EN | Status |
 |---|---|---|---|---|---|---|---|
@@ -235,32 +230,18 @@ studio, research modes. Topic admins are users, not system administrators.
 | B21 | `hooks/useWebTools.ts:214` | Web search or crawl request refused | Raw backend text, else Aufgabe fehlgeschlagen | `taskFailed` + S12–S15 | Aufgabe fehlgeschlagen | Task failed | open |
 | B22 | `hooks/useWebTools.ts:268` | Adding selected web pages refused | Raw backend text, else Hinzufügen fehlgeschlagen | `addSourcesFailed` + S12–S15 | Hinzufügen fehlgeschlagen | Failed to add sources | open |
 | B23 | `hooks/useWebTools.ts:73–74`, `:78`, `:109`, `:121–123` | Deep web research refused, no body, SSE error event, or network failure | `HTTP 502`, `No response body`, `Error`, `Failed to fetch` (status line and toast) | `webResearchFailed` *(proposed)* + S12–S15 | Die Webrecherche konnte nicht abgeschlossen werden. Bitte versuche es erneut. | The web research could not be completed. Please try again. | open |
-| B24 | `components/Studio/StudioWorkspace.tsx:116` | Analysis refused | Raw backend text | `analysisError` + S12–S15 | Analyse fehlgeschlagen. Bitte prüfe die Verbindung oder versuche es erneut. | Analysis failed. Please check your network or try again. | open |
-| B25 | `hooks/useGeneratedContent.ts:185` | Studio: creating a chart refused | Raw backend text | `chartGenerateFailed` *(proposed)* + S12–S15 | Das Diagramm konnte nicht erstellt werden. Bitte versuche es erneut. | The chart could not be created. Please try again. | open |
-| B25a | `hooks/useGeneratedContent.ts:208` | Studio: creating a summary (abstract) of a file refused | Raw backend text | `abstractGenerateFailed` *(proposed)* + S12–S15 | Die Zusammenfassung konnte nicht erstellt werden. Bitte versuche es erneut. | The summary could not be created. Please try again. | open |
-| B26 | `hooks/useGeneratedContent.ts:104` | Podcast job ends in `failed` | Worker error text | `podcastFailed` | Podcast-Generierung fehlgeschlagen | Podcast generation failed | open |
-| B27 | `components/ResearchMode.tsx:248`, `:252`, `:302`, `:315`; `components/AcademicResearchMode.tsx:340`, `:344`, `:404`, `:421` | Research run refused, no reader, SSE error event, or network failure | `HTTP error! status: 500`, `No reader available`, `Failed to fetch` | `researchFailed` *(proposed)* + S12–S15 | Die Recherche konnte nicht abgeschlossen werden. Bitte versuche es erneut. | The research could not be completed. Please try again. | open |
-| B28 | `components/AcademicSearchMode.tsx:149`, `:157` | Paper search refused | Raw backend text or `Search failed (HTTP 502)` | `academicSearchFailed` *(proposed)* + S12–S15 | Die Suche nach Fachartikeln ist fehlgeschlagen. Bitte versuche es erneut. | The paper search failed. Please try again. | open |
-| B29 | `components/AcademicSearchMode.tsx:238`, `:243` | Some or all selected papers could not be added (`:238` lists the titles) | Fehler beim Hinzufügen: … (language ternary) | `papersAddFailed` + S12–S15 | Einige Papers konnten nicht hinzugefügt werden | Some papers could not be added | open |
-| B30 | `components/AcademicSearchMode.tsx:271`, `:274` | One paper could not be added | Fehler beim Hinzufügen (language ternary) | `paperAddFailed` *(proposed)* + S12–S15 | Das Paper konnte nicht hinzugefügt werden. | Could not add the paper. | open |
-| B31 | `components/AcademicSearchMode.tsx:315` | BibTeX export failed | BibTeX-Export fehlgeschlagen (language ternary) | `bibtexExportFailed` | BibTeX-Export fehlgeschlagen | BibTeX export failed | open |
 | B32 | `components/kb-settings/KbSettingsPanel.tsx:92` (`kb-settings/api.ts:31`) | Loading topic settings fails (a 403 hides the panel instead) | `Error: fetch settings: 500` | `siteConfigFetchError` + S13–S15 | Fehler beim Laden der Einstellungen | Error loading settings | open |
 | B33 | `components/kb-settings/KbSettingsPanel.tsx:143` (`kb-settings/api.ts:43`); `kb-settings/workflow/WorkflowCanvas.tsx:309` | Saving settings refused | `Error: save settings: 500` or raw backend text | `settingsSaveError` + S12–S15 | Fehler beim Speichern der Einstellungen | Error saving settings | open |
 | B34 | `components/kb-settings/KbSettingsPanel.tsx:143`, `:167`; `kb-settings/workflow/WorkflowCanvas.tsx:309`, `:338` | Save or reset refused, 400: two settings exclude each other (needs a backend code that names the keys) | Raw backend text naming both keys | `kbSettingsConflict` *(proposed)* | Diese Einstellungen schließen sich gegenseitig aus: {keys}. Ändere eine davon und speichere erneut. | These settings exclude each other: {keys}. Change one of them and save again. | open |
 | B35 | `components/kb-settings/KbSettingsPanel.tsx:167` (`kb-settings/api.ts:56`); `kb-settings/workflow/WorkflowCanvas.tsx:338` | Resetting a setting refused (other than B34) | `Error: reset setting: 500` or raw backend text | `settingsResetError` *(proposed)* + S12–S15 | Die Einstellung konnte nicht zurückgesetzt werden. | Could not reset the setting. | open |
 | B36 | `components/kb-settings/KbSettingsPanel.tsx:143` (`kb-settings/api.ts:62`) | Starting the re-ingest refused | `Error: reembed: 403` | `reembedError` + S12–S15 | Fehler beim Starten der Neueinbettung | Failed to trigger re-embedding | open |
-| B37 | `components/kb-settings/workflow/WorkflowCanvas.tsx:203`, `:710` (`workflow/api.ts:15`) | Loading the workflow fails | Der Workflow konnte nicht geladen werden (fetch workflow: 500). (German only) | `workflowLoadError` *(proposed)* + S12–S15 | Der Workflow konnte nicht geladen werden. | Could not load the workflow. | open |
-| B38 | `components/kb-settings/workflow/WorkflowCanvas.tsx:411` | Saving the topic's default agent or team refused | Die Vorgabe konnte nicht gespeichert werden (attach agent: 403). (German only) | `workflowDefaultSaveError` *(proposed)* + S12–S15 | Der Standard-Agent bzw. das Standard-Team für neue Chats in diesem Thema konnte nicht gespeichert werden. | The default agent or team for new chats in this topic could not be saved. | open |
+| B37 | `components/kb-settings/workflow/WorkflowCanvas.tsx:192`, `:633` (`workflow/api.ts:15`) | Loading the workflow fails | Der Workflow konnte nicht geladen werden (fetch workflow: 500). (German only) | `workflowLoadError` *(proposed)* + S12–S15 | Der Workflow konnte nicht geladen werden. | Could not load the workflow. | open |
 | B39 | `components/kb-settings/workflow/WorkflowCanvas.tsx:260` | Template applied, refreshing the view failed | Vorlage angewendet — die Ansicht konnte nicht aktualisiert werden. … (German only) | `workflowPresetAppliedStale` *(proposed)* | Vorlage angewendet – die Ansicht konnte nicht aktualisiert werden. Bitte lade die Ansicht neu. | Template applied – the view could not be refreshed. Please reload the view. | open |
 | B40 | `components/kb-settings/workflow/WorkflowCanvas.tsx:323` | Saved, refreshing the view failed | Gespeichert — die Ansicht konnte nicht aktualisiert werden. … (German only) | `workflowSavedStale` *(proposed)* | Gespeichert – die Ansicht konnte nicht aktualisiert werden. Bitte lade die Ansicht neu. | Saved – the view could not be refreshed. Please reload the view. | open |
 | B41 | `components/kb-settings/workflow/WorkflowCanvas.tsx:356` | Reset, refreshing the view failed | Zurückgesetzt — die Ansicht konnte nicht aktualisiert werden. … (German only) | `workflowResetStale` *(proposed)* | Zurückgesetzt – die Ansicht konnte nicht aktualisiert werden. Bitte lade die Ansicht neu. | Reset – the view could not be refreshed. Please reload the view. | open |
-| B42 | `components/kb-settings/workflow/WorkflowCanvas.tsx:421` | Default saved, refreshing the view failed | Vorgabe gespeichert — die Ansicht konnte nicht aktualisiert werden. … (German only) | `workflowDefaultSavedStale` *(proposed)* | Vorgabe gespeichert – die Ansicht konnte nicht aktualisiert werden. Bitte lade die Ansicht neu. | Default saved – the view could not be refreshed. Please reload the view. | open |
 | B43 | `components/kb-settings/workflow/PresetPicker.tsx:136`, `:275` (`workflow/api.ts:24`) | Loading the templates fails | Vorlagen konnten nicht geladen werden (fetch presets: 500). (German only) | `workflowPresetsLoadError` *(proposed)* + S12–S15 | Die Vorlagen konnten nicht geladen werden. | Could not load the templates. | open |
 | B44 | `components/kb-settings/workflow/PresetPicker.tsx:205` (`workflow/api.ts:39`) | Template preview refused | Raw backend text or `preview preset: 500` | `workflowPresetPreviewError` *(proposed)* + S12–S15 | Die Vorschau der Vorlage konnte nicht geladen werden. | Could not load the template preview. | open |
 | B45 | `components/kb-settings/workflow/PresetPicker.tsx:226` (`workflow/api.ts:58`) | Applying a template refused | Raw backend text or `apply preset: 500` | `workflowPresetApplyError` *(proposed)* + S12–S15 | Die Vorlage konnte nicht angewendet werden. | Could not apply the template. | open |
-| B46 | `components/agents/AgentForm.tsx:42` (`agents/api.ts:68`) | Saving an agent refused | Raw backend text or `create agent: 500` | `agentSaveError` *(proposed)* + S12–S15 | Der Agent konnte nicht gespeichert werden. | Could not save the agent. | open |
-| B47 | `components/agents/TeamForm.tsx:35` (`agents/api.ts:68`) | Saving a team refused | Raw backend text or `create team: 500` | `teamSaveError` *(proposed)* + S12–S15 | Das Team konnte nicht gespeichert werden. | Could not save the team. | open |
-| B48 | `components/agents/AgentsView.tsx:78` (`agents/api.ts:88`, `:99`) | Deleting an agent or team refused | `delete agent: 403` | `deleteFailed` + S12–S15 | Löschen fehlgeschlagen. | Delete failed. | open |
 
 ### C. System administrators only
 
@@ -313,14 +294,10 @@ show nothing.
 | D01 | `hooks/useChatStream.ts:216` | Send refused | Nothing; logs `chat send refused: <status>` (no server text) | none; the user sees A11–A14 | — | — | done |
 | D02 | `hooks/useChatStream.ts:222` | No stream reader; `noReaderError` is thrown | The A17 bubble | none; the user sees `aiGenericError` (A17) | — | — | done |
 | D03 | `utils/sseParser.ts:32` | Idle timeout; the English `SseIdleTimeoutError` text is logged | The A15 bubble | none; the user sees `errorAnswerTimeout` (A15) | — | — | done |
-| D04 | `hooks/useChatAttachment.ts:24` | Former English fallbacks for a missing `t` | Removed; `t` is required | none | — | — | done |
 | D05 | `hooks/useWebTools.ts:199`; `components/GlobalKbSettings.tsx:236` | Crawl job ends in `failed`; the reason is thrown, then lost | Aufgabe fehlgeschlagen / Hinzufügen fehlgeschlagen | `crawlFailed` *(proposed)* | Die Website konnte nicht durchsucht werden. Prüfe die Adresse und versuche es erneut. | The website could not be crawled. Check the address and try again. | open |
 | D06 | `hooks/useWebTools.ts:205`; `components/GlobalKbSettings.tsx:240` | Crawl has no result after 5 minutes | Aufgabe fehlgeschlagen / Hinzufügen fehlgeschlagen | `crawlTimedOut` *(proposed)* | Das Durchsuchen der Website hat zu lange gedauert. Versuche es mit weniger Seiten erneut. | Crawling the website took too long. Try again with fewer pages. | open |
 | D07 | `hooks/useWebTools.ts:172`; `components/GlobalKbSettings.tsx:216` | Crawl start answers without a job id | Aufgabe fehlgeschlagen / Hinzufügen fehlgeschlagen | `errorUnexpected` (S15) | Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es erneut. | An unexpected error occurred. Please try again. | open |
-| D08 | `components/AcademicSearchMode.tsx:224`, `:264`, `:303`; `ResearchMode.tsx:359`, `:388`; `AcademicResearchMode.tsx:458`, `:486`, `:631` | Export or add refused; an English `Error` is thrown, then replaced by the feature's toast | The feature's toast, without S12–S15 | The toast's key (`docxExportFailed`, `bibtexExportFailed`, `papersAddFailed`; B29–B31) + S12–S15 | (per key) | (per key) | open |
 | D09 | `components/ChatView.tsx:124` | Draft enhancement refused | Nothing (logged only) | `enhanceFailed` *(proposed)* + S12–S15 | Der Entwurf konnte nicht verbessert werden. Bitte versuche es erneut. | Could not improve the draft. Please try again. | open |
-| D10 | `hooks/useKBGraphStream.ts:49` | The graph change stream cannot open | Nothing; the loop reconnects | none: stays silent while it reconnects | — | — | open |
-| D11 | `Dashboard.tsx:298` | Dashboard data load fails; the component is mounted nowhere (tests and stories only) | Nothing | none: delete the component, or `metricsFetchError` if it is mounted again | — | — | open |
 | D12 | `components/ConfluenceTokenManager.tsx:115` | The decrypt failure is detected by matching the backend's English text | Drives A41 | needs a machine-readable connection error code; message A41 | — | — | open |
 
 ## 5. Backend sources of free text
@@ -358,10 +335,10 @@ codes. A code in parentheses is the `code` the response now carries.
 | Group | Messages | Done | Open |
 |---|---|---|---|
 | A. Every user | 46 | 22 | 24 |
-| B. Topic editors and topic admins | 50 | 8 | 42 |
+| B. Topic editors and topic admins | 49 | 8 | 41 |
 | C. System administrators only | 32 | 0 | 32 |
 | D. Not user-visible | 12 | 4 | 8 |
-| **Total** | **140** | **34** | **106** |
+| **Total** | **139** | **34** | **105** |
 
 C32 stands for every message of the two policy validators (about 27), counted as
 one row.

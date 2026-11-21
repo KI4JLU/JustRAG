@@ -12,7 +12,7 @@ import { chatEntryFromTarget, type SearchChatTarget, type SearchSourceTarget } f
 import { useKbSourceRights } from '../hooks/useKbSourceRights';
 
 /* ---------------------------------------------------------------------------
- * The workspace header's topic-scoped search (card KI-838).
+ * The topic header's scoped search.
  *
  * THE SAME COMPONENT AS THE SHELL HEADER'S, `GlobalSearch`, with
  * `scopeKbId={currentKb.id}`: every group is limited to this topic, the
@@ -31,12 +31,12 @@ import { useKbSourceRights } from '../hooks/useKbSourceRights';
  *  - A topic hit for THIS topic (widened results can contain it) is a no-op
  *    beyond closing the list: the user is already there.
  *
- * `WorkspaceSearchField` is the part with no context reads, so the geometry
- * story can render the exact markup the bar gets. It sits in the bar's
- * centred `search` slot (KI-844; `AppChrome.tsx`).
+ * `TopicSearchField` is the part with no context reads, so the geometry
+ * story can render it on its own. The app shows it inside `SearchPalette`
+ * (`AppChrome.tsx`).
  * ------------------------------------------------------------------------- */
 
-export interface WorkspaceSearchFieldProps {
+export interface TopicSearchFieldProps {
   kbId: string;
   kbName: string;
   onOpenTopic: (kbId: string) => void;
@@ -50,8 +50,8 @@ export interface WorkspaceSearchFieldProps {
   defaultGroups?: SearchDefaultGroup[];
 }
 
-export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearchFieldProps>(
-  function WorkspaceSearchField(
+export const TopicSearchField = forwardRef<HTMLInputElement, TopicSearchFieldProps>(
+  function TopicSearchField(
     { kbId, kbName, onOpenTopic, onOpenSource, canOpenOwnSources = true, onOpenChat, defaultGroups },
     ref,
   ) {
@@ -60,7 +60,7 @@ export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearch
       /* `w-full` on the wrapper: the field fills the slot, which the design
          system sizes (28rem, shrinking to 8rem) and centres on the bar — the
          same recipe as AppChrome's field. */
-      <div className="w-full" data-testid="workspace-search">
+      <div className="w-full" data-testid="topic-search">
         <GlobalSearch
           // A new topic is a new scope: remount, so no widening or result of
           // the previous topic survives the switch.
@@ -87,8 +87,8 @@ export const WorkspaceSearchField = forwardRef<HTMLInputElement, WorkspaceSearch
   },
 );
 
-export function WorkspaceSearch() {
-  const { currentKb, setKbView } = useKbCore();
+export function TopicSearch() {
+  const { currentKb } = useKbCore();
   const { chat } = useKbChat();
   const { webTools } = useKbData();
   const appNav = useAppNav();
@@ -123,8 +123,7 @@ export function WorkspaceSearch() {
     // Same rule as HistoryPanel.openItem: the chat already on screen is not
     // reloaded (a reload rebuilds the tree under a running answer).
     if (entry.id !== activeChatId) void handleSelectChat(entry);
-    setKbView('chat');
-  }, [kbId, appNav, chats, activeChatId, handleSelectChat, setKbView]);
+  }, [kbId, appNav, chats, activeChatId, handleSelectChat]);
 
   /* The empty field offers a new chat, the topic's three most recent
      conversations — the same entries, opened the same way, as the history
@@ -141,7 +140,7 @@ export function WorkspaceSearch() {
           id: 'new-chat',
           label: t('newChat'),
           icon: <MessageSquarePlus aria-hidden="true" />,
-          onSelect: () => { handleNewChat(); setKbView('chat'); },
+          onSelect: handleNewChat,
         }],
       },
       {
@@ -152,16 +151,15 @@ export function WorkspaceSearch() {
           icon: <MessageSquare aria-hidden="true" />,
           onSelect: () => {
             if (entry.id !== activeChatId) void handleSelectChat(entry);
-            setKbView('chat');
           },
         })),
       },
       accountSearchGroup,
     ];
-  }, [chats, activeChatId, handleSelectChat, handleNewChat, setKbView, t, accountSearchGroup]);
+  }, [chats, activeChatId, handleSelectChat, handleNewChat, t, accountSearchGroup]);
 
   return (
-    <WorkspaceSearchField
+    <TopicSearchField
       defaultGroups={defaultGroups}
       kbId={kbId}
       kbName={currentKb.name}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchWorkflow, saveKbSettings, resetKbSetting, fieldFor } from './api';
+import { fetchWorkflow, saveKbSettings, resetKbSetting, fieldFor, withoutAgentBinding } from './api';
 import type { WorkflowGraph } from '../../../types';
 import * as settingsApi from '../api';
 
@@ -14,7 +14,7 @@ describe('fetchWorkflow', () => {
   beforeEach(() => vi.mocked(authFetch).mockReset());
   afterEach(() => vi.restoreAllMocks());
 
-  it('requests the workflow endpoint with the lane as a query parameter', async () => {
+  it('requests the selected lane without an agent or team binding', async () => {
     vi.mocked(authFetch).mockResolvedValue({
       ok: true,
       json: async () => ({ lane: 'lookup', nodes: [], edges: [], orchestrators: [], estLlmCalls: 0, estLatencyMs: 0 }),
@@ -22,7 +22,7 @@ describe('fetchWorkflow', () => {
 
     const g = await fetchWorkflow('kb-1', 'lookup');
 
-    expect(authFetch).toHaveBeenCalledWith('http://test.local/api/kb/kb-1/workflow?lane=lookup');
+    expect(authFetch).toHaveBeenCalledWith('http://test.local/api/kb/kb-1/workflow?lane=lookup&binding=none');
     expect(g.lane).toBe('lookup');
   });
 
@@ -34,7 +34,7 @@ describe('fetchWorkflow', () => {
 
     await fetchWorkflow('kb/1', 'lookup');
 
-    expect(authFetch).toHaveBeenCalledWith('http://test.local/api/kb/kb%2F1/workflow?lane=lookup');
+    expect(authFetch).toHaveBeenCalledWith('http://test.local/api/kb/kb%2F1/workflow?lane=lookup&binding=none');
   });
 
   it('throws with the status on a non-ok response', async () => {
@@ -110,7 +110,6 @@ describe('fieldFor', () => {
     presetBase: '',
     presetBaseKnown: true,
     deviations: [],
-    agentBinding: { kind: '', id: '', name: '', disabled: false, emptyTeam: false, options: [] },
   };
 
   it('returns the field entry for a registered key', () => {
@@ -125,5 +124,24 @@ describe('fieldFor', () => {
     const field = fieldFor(graph, 'nonexistent_key');
 
     expect(field).toBeUndefined();
+  });
+});
+
+describe('withoutAgentBinding', () => {
+  it('drops the default agent/team node, its edges and the team orchestrator', () => {
+    const graph = {
+      nodes: [{ id: 'agent_binding' }, { id: 'orchestrator' }, { id: 'retrieve' }],
+      edges: [
+        { from: 'agent_binding', to: 'orchestrator' },
+        { from: 'orchestrator', to: 'retrieve' },
+      ],
+      orchestrators: [{ orchestrator: 'team' }, { orchestrator: 'standard' }],
+    } as unknown as WorkflowGraph;
+
+    const out = withoutAgentBinding(graph);
+
+    expect(out.nodes.map((n) => n.id)).toEqual(['orchestrator', 'retrieve']);
+    expect(out.edges).toEqual([{ from: 'orchestrator', to: 'retrieve' }]);
+    expect(out.orchestrators.map((o) => o.orchestrator)).toEqual(['standard']);
   });
 });

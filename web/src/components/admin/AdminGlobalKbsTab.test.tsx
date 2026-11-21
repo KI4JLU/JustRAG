@@ -10,8 +10,7 @@ const mockedAxios = vi.mocked(axios, true);
 
 // Real translated text (English) so button/switch accessible names actually
 // contain the words the tests match on ("make private", "overview") — a
-// plain key-echo mock would not. See KbAgentsSection.test.tsx for the same
-// pattern.
+// plain key-echo mock would not.
 const tMock = (key: string) => {
     const entry = translations[key as keyof typeof translations];
     return entry ? entry.en : key;
@@ -290,7 +289,7 @@ async function chooseOwner(dialog: HTMLElement, optionName: string) {
 }
 
 // renderTab wraps the component in the same context mocks the sibling admin
-// tests use (KbAgentsSection.test.tsx / KbDeleteDialog.test.tsx) — the mocks
+// tests use (KbDeleteDialog.test.tsx) — the mocks
 // above stand in for ThemeProvider/ToastProvider/ModalProvider/AuthProvider.
 function renderTab() {
     return render(<AdminGlobalKbsTab />);

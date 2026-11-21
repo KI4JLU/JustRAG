@@ -4,7 +4,7 @@ import type { TopicSection } from '../utils/topicSection';
 
 /**
  * The sidebar's chat history: the user's chats across all topics, on every
- * view. Its own context rather than part of the topic workspace's, because
+ * view. Its own context rather than part of the topic view's, because
  * the sidebar is there when no topic is open.
  */
 export interface ChatHistoryContextValue {
@@ -41,9 +41,6 @@ export interface ChatHistoryContextValue {
   newChat: (() => void) | null;
   /** Create a topic: the sidebar's primary action while no topic is open. */
   newTopic: (() => void) | null;
-  /** Generated content is being produced in the open topic, with its progress line. */
-  generating?: boolean;
-  generatingMessage?: string;
 }
 
 /* Without a provider the history is empty: a page rendered on its own (a

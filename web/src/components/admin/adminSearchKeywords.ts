@@ -50,7 +50,7 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
     health: ['reembedAllTitle'],
     eval: [
         'evalRunner', 'evalGoldenSets', 'evalGenerateTitle', 'evalGoldenSet', 'evalCompare', 'evalDuration', 'evalHistory',
-        'evalGenLookup', 'evalGenComplex', 'evalGenEnumeration', 'evalGenMultiHop', 'evalLabel', 'evalKbId', 'evalTeamLabel', 'evalTopK', 'evalJudge',
+        'evalGenLookup', 'evalGenComplex', 'evalGenEnumeration', 'evalGenMultiHop', 'evalLabel', 'evalKbId', 'evalTopK', 'evalJudge',
     ],
 };
 

@@ -81,7 +81,6 @@ const NAV = {
   onViewMyTopics: vi.fn(),
   onViewSharedTopics: vi.fn(),
   onViewDiscover: vi.fn(),
-  onViewTools: vi.fn(),
   onViewProfile: vi.fn(),
   onEditGlobalKb: vi.fn(),
   onViewLegal: vi.fn(),
@@ -102,7 +101,6 @@ beforeEach(() => {
   NAV.onViewMyTopics.mockClear();
   NAV.onViewSharedTopics.mockClear();
   NAV.onViewDiscover.mockClear();
-  NAV.onViewTools.mockClear();
   NAV.onViewProfile.mockClear();
   NAV.onOpenTopicSettings.mockClear();
 });
@@ -218,8 +216,6 @@ const noopProps = {
   onRenameKB: vi.fn(),
   onToggleFavorite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
-  showSettings: false,
-  setShowSettings: vi.fn(),
 };
 
 /* `RealRemovalSharedTopicsView` / `renderSharedTopicsView` stood here — the

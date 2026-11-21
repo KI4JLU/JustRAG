@@ -76,10 +76,7 @@ function setup() {
     handleGoHome,
     setCurrentKb,
     setIsPro: vi.fn(),
-    setKbView: vi.fn(),
     navigateTo: vi.fn(),
-    setSelectedContent: vi.fn(),
-    setGeneratedContent: vi.fn(),
   }));
 }
 

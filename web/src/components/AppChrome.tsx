@@ -18,7 +18,7 @@ import {
 import { HistoryControls } from './HistoryControls';
 import {
   Home, Users,
-  LayoutGrid, Menu, Compass, Wrench, FolderOpen, History, Lock, MessageSquare,
+  LayoutGrid, Menu, Compass, FolderOpen, History, Lock, MessageSquare,
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -38,14 +38,14 @@ import {
   DEFAULT_LEFT_SIDEBAR_WIDTH, LEFT_SIDEBAR_BOUNDS, LEFT_SIDEBAR_WIDTH_KEY,
 } from '../hooks/useSidebarResize';
 import { GlobalSearch, type SearchDefaultGroup } from './GlobalSearch';
-import { WorkspaceSearch } from './WorkspaceSearch';
+import { TopicSearch } from './TopicSearch';
 import { DesktopMenuCommands } from './DesktopMenuCommands';
 import { useSystemNoticeBanner } from '../hooks/useSystemNoticeBanner';
 import { useTopicSettingsDiff } from '../hooks/useTopicSettingsDiff';
 import { TopicSettingsButton } from './TopicSettingsButton';
 import { SourcesPanel } from './sources/SourcesPanel';
 import { HistoryPanel, NewChatButton } from './history/HistoryPanel';
-import { deriveActiveMobileTab, type MobileTab } from '../utils/activeMobileTab';
+import type { MobileTab } from '../utils/activeMobileTab';
 import { canOpenKbTopicSettings, kbSourceRights } from '../utils/kbAccess';
 import { topicSection } from '../utils/topicSection';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
@@ -56,7 +56,7 @@ import './HomeView.css';
 
 /* ---------------------------------------------------------------------------
  * The signed-in app shell: ONE `AppShellLayout` for the overview pages and
- * the topic workspace alike.
+ * the topic view alike.
  *
  * `AuthenticatedApp` mounts `AppFrame` once, at one position in the tree, and
  * swaps what is in its slots. The sidebar (logo, primary navigation, user
@@ -78,23 +78,17 @@ import './HomeView.css';
  * ------------------------------------------------------------------------- */
 
 /** Which top-level view is currently on screen. One row, one `aria-current`. */
-export type AppChromeView = 'my-topics' | 'shared-topics' | 'discover' | 'tools';
-
-/* „Werkzeuge" is hidden from the sidebar and the search defaults until the
-   tools section is finished. The view and its `/tools` route stay — flip this
-   to bring the entry back. */
-const SHOW_TOOLS_NAV = false;
+export type AppChromeView = 'my-topics' | 'shared-topics' | 'discover';
 
 /** The skip link's target per overview page; each page puts the id on its content landmark. */
 const CONTENT_IDS: Record<AppChromeView, string> = {
   'my-topics': 'my-topics-content',
   'shared-topics': 'shared-topics-content',
   discover: 'discover-content',
-  tools: 'tools-content',
 };
 
-/** What the frame needs to show a topic: the four workspace contexts and the narrow-screen area. */
-export interface WorkspaceFrame {
+/** What the frame needs to show a topic: the four topic contexts and the narrow-screen area. */
+export interface TopicFrame {
   core: KbCoreContextValue;
   chat: KbChatContextValue;
   data: KbDataContextValue;
@@ -105,11 +99,11 @@ export interface WorkspaceFrame {
 }
 
 /**
- * The topic workspace's contexts. The frame sits above them (it also serves
- * pages with no topic), so each slot it fills with workspace content gets its
+ * The topic view's contexts. The frame sits above them (it also serves
+ * pages with no topic), so each slot it fills with topic content gets its
  * own set of providers over the same values.
  */
-export function WorkspaceProviders({ value, children }: { value: WorkspaceFrame; children: ReactNode }) {
+export function TopicProviders({ value, children }: { value: TopicFrame; children: ReactNode }) {
   return (
     <KbCoreProvider value={value.core}>
       <KbChatProvider value={value.chat}>
@@ -152,23 +146,22 @@ export interface AppFrameProps {
   /** The skip link's target on an overview page; defaults to the page's entry in `CONTENT_IDS`. */
   contentId?: string;
   /** The open topic. Null on the overview pages. */
-  workspace?: WorkspaceFrame | null;
+  topic?: TopicFrame | null;
   children: ReactNode;
 }
 
-export function AppFrame({ active, contentId, workspace = null, children }: AppFrameProps) {
+export function AppFrame({ active, contentId, topic = null, children }: AppFrameProps) {
   const { t } = useTheme();
   const { user, siteConfigs } = useAuth();
   const {
-    onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTools,
+    onViewMyTopics, onViewSharedTopics, onViewDiscover,
     onOpenTopic, onOpenSource, onOpenChat,
   } = useAppNav();
   const accountSearchGroup = useAccountSearchGroup();
   const { query, setQuery, applyCatalogQuery, focusPendingFor, requestFocus, consumeFocus } = useKbSearch();
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const ws = workspace;
-  const inWorkspace = (node: ReactNode) => (ws ? <WorkspaceProviders value={ws}>{node}</WorkspaceProviders> : node);
+  const inTopic = (node: ReactNode) => (topic ? <TopicProviders value={topic}>{node}</TopicProviders> : node);
   const skipTarget = contentId ?? (active ? CONTENT_IDS[active] : undefined);
 
   /* The left column's state, one for every view: minimised or not (remembered,
@@ -185,7 +178,7 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
   // The admin's system notice, under the bar on every view. After a dismiss,
   // focus goes to the chat composer in a topic, else to the start of the content.
   const systemNotice = useSystemNoticeBanner(() => (
-    ws
+    topic
       ? document.querySelector<HTMLElement>('main textarea')
       : skipTarget ? document.getElementById(skipTarget) : null
   ));
@@ -202,10 +195,9 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
     { id: 'page', icon: <LayoutGrid aria-hidden="true" />, label: t('contentTab'), pane: 'main' },
   ], [t]);
 
-  /* ---- Topic workspace ---------------------------------------------------- */
-  const currentKb = ws?.core.currentKb ?? null;
-  const setKbView = ws?.core.setKbView;
-  const setWorkspaceTab = ws?.setMobileTab;
+  /* ---- Topic view --------------------------------------------------------- */
+  const currentKb = topic?.core.currentKb ?? null;
+  const setTopicTab = topic?.setMobileTab;
   const { seeSources, addSources } = kbSourceRights(currentKb, user?.role, user?.id);
 
   // The topic settings gear: owners and KB admins only (same predicate as the
@@ -215,32 +207,31 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
   // reset there shows on the gear without a reload.
   const settingsDiff = useTopicSettingsDiff(
     canEditSystemPrompt ? currentKb?.id : undefined,
-    ws?.layout.systemPromptOpen ?? false,
+    topic?.layout.systemPromptOpen ?? false,
   );
 
-  const handleWorkspaceTabChange = useCallback((tab: string) => {
-    if (tab === 'chat') setKbView?.('chat');
-    setWorkspaceTab?.(tab as MobileTab);
-  }, [setKbView, setWorkspaceTab]);
+  const handleTopicTabChange = useCallback((tab: string) => {
+    setTopicTab?.(tab as MobileTab);
+  }, [setTopicTab]);
 
   // The active area is derived, not a second state. Without seeSources there
   // is no sources column, so a swipe that lands on 'files' shows the chat.
-  const derivedWorkspaceTab: MobileTab = deriveActiveMobileTab(ws?.mobileTab ?? 'chat');
-  const workspaceTab: MobileTab = !seeSources && derivedWorkspaceTab === 'files' ? 'chat' : derivedWorkspaceTab;
+  const mobileTab: MobileTab = topic?.mobileTab ?? 'chat';
+  const topicTab: MobileTab = !seeSources && mobileTab === 'files' ? 'chat' : mobileTab;
 
   // Files dragged into the window bring the sources card up, so its dropzone
   // is there to drop on — also after the card closed by itself on a narrow
   // frame. In the narrow shell the card is the „files" area.
-  const fileDragActive = useWindowFileDrag(ws !== null && addSources);
-  const openSources = ws?.layout.sidebar.setIsRightSidebarOpen;
+  const fileDragActive = useWindowFileDrag(topic !== null && addSources);
+  const openSources = topic?.layout.sidebar.setIsRightSidebarOpen;
   useEffect(() => {
     if (!fileDragActive || !openSources) return;
     if (window.matchMedia('(min-width: 768px)').matches) openSources(true);
-    else handleWorkspaceTabChange('files');
-  }, [fileDragActive, openSources, handleWorkspaceTabChange]);
+    else handleTopicTabChange('files');
+  }, [fileDragActive, openSources, handleTopicTabChange]);
 
   // History is a drawer, sources a sheet from below; the order is the swipe's.
-  const workspaceTabs: MobilePaneTab[] = useMemo(() => [
+  const topicTabs: MobilePaneTab[] = useMemo(() => [
     { id: 'history', icon: <History aria-hidden="true" />, label: t('tabHistory'), pane: 'left' },
     { id: 'chat', icon: <MessageSquare aria-hidden="true" />, label: t('tabChat'), pane: 'main' },
     ...(seeSources ? [{ id: 'files', icon: <FolderOpen aria-hidden="true" />, label: t('tabFiles'), pane: 'right' as const }] : []),
@@ -261,14 +252,14 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
 
   /* The `logo` slot: the design system's wordmark, built from the configured
      app name. Real text on the brand tokens. Inside a topic it is a button to
-     the overview; `handleGoHome` also resets the topic to its chat. */
-  const logo = ws ? (
+     the overview. */
+  const logo = topic ? (
     <Button
       type="button"
       variant="ghost"
       // No hover tint on the brand, only the pointer cursor.
       className="h-auto cursor-pointer p-0 hover:bg-transparent active:bg-transparent"
-      onClick={ws.core.handleGoHome}
+      onClick={onViewMyTopics}
       title={t('goToHome')}
       aria-label={t('goToHome')}
     >
@@ -276,10 +267,8 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
     </Button>
   ) : <AppLogo siteConfigs={siteConfigs} size="sm" />;
 
-  /* Leaving a topic through the sidebar resets it to its chat, as the
-     breadcrumb does, so the topic opens in the chat next time. */
+  /* A nav row jumps and, on a phone, switches back to the content. */
   const go = (jump: () => void) => () => {
-    setKbView?.('chat');
     jump();
     showContent();
   };
@@ -320,17 +309,6 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
         <Compass size={20} aria-hidden="true" />
         <span>{t('discoverTopics')}</span>
       </NavItem>
-      {SHOW_TOOLS_NAV && (
-        <NavItem
-          type="button"
-          label={t('tools')}
-          active={active === 'tools'}
-          onClick={go(onViewTools)}
-        >
-          <Wrench size={20} aria-hidden="true" />
-          <span>{t('tools')}</span>
-        </NavItem>
-      )}
     </>
   );
 
@@ -344,9 +322,6 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
         { id: 'my-topics', label: t('myTopics'), icon: <Home aria-hidden="true" />, onSelect: onViewMyTopics },
         { id: 'shared-topics', label: t('sharedTopics'), icon: <Users aria-hidden="true" />, onSelect: onViewSharedTopics },
         { id: 'discover', label: t('discoverTopics'), icon: <Compass aria-hidden="true" />, onSelect: onViewDiscover },
-        ...(SHOW_TOOLS_NAV
-          ? [{ id: 'tools', label: t('tools'), icon: <Wrench aria-hidden="true" />, onSelect: onViewTools }]
-          : []),
       ].filter((item) => item.id !== active),
     },
     accountSearchGroup,
@@ -387,20 +362,17 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
    * „Geteiltes Wissen" otherwise — and leads back there. Not a heading: the
    * bar is chrome. */
   const isPublic = currentKb?.visibility === 'public' || currentKb?.isGlobal === true;
-  const isSubscribed = isPublic && (ws?.core.kbMgmt.globalKbs.some(kb => kb.id === currentKb?.id) ?? false);
+  const isSubscribed = isPublic && (topic?.core.kbMgmt.globalKbs.some(kb => kb.id === currentKb?.id) ?? false);
   const section = topicSection({ isPublic, isSubscribed, isOwner: currentKb?.myRole === 'owner' });
   const sectionLabel =
     section === 'discover' ? t('discoverTopics') : section === 'my-topics' ? t('myTopics') : t('sharedTopics');
   const sectionPath = section === 'discover' ? '/discover' : section === 'my-topics' ? '/' : '/shared';
   const leaveToSection = () => {
-    if (section === 'my-topics') {
-      ws?.core.handleGoHome();
-      return;
-    }
-    setKbView?.('chat');
-    if (section === 'discover') onViewDiscover(); else onViewSharedTopics();
+    if (section === 'my-topics') onViewMyTopics();
+    else if (section === 'discover') onViewDiscover();
+    else onViewSharedTopics();
   };
-  const pageLabel = ws ? (
+  const pageLabel = topic ? (
     <Breadcrumb aria-label={t('breadcrumbNav')} className="min-w-0">
       <BreadcrumbList className="flex-nowrap">
         <BreadcrumbItem className="shrink-0">
@@ -429,8 +401,8 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
      toggle in its place, locked, with the reason in its tooltip — but gets no
      card and no mobile area: every other source right sits on top of
      seeSources, so nothing in the card could be used. */
-  const rightPanel = !ws ? undefined : seeSources ? {
-    content: inWorkspace(<SourcesPanel />),
+  const rightPanel = !topic ? undefined : seeSources ? {
+    content: inTopic(<SourcesPanel />),
     // The column's title sits in its header row, beside the collapse toggle.
     header: (
       <h2 className="m-0 truncate text-[15px] font-medium text-on-surface">
@@ -438,11 +410,11 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
       </h2>
     ),
     label: t('sources'),
-    isOpen: ws.layout.sidebar.isRightSidebarOpen,
-    onOpenChange: ws.layout.sidebar.setIsRightSidebarOpen,
+    isOpen: topic.layout.sidebar.isRightSidebarOpen,
+    onOpenChange: topic.layout.sidebar.setIsRightSidebarOpen,
     // The card's width, stored per device in `useSidebarResize`. The floating
     // card has no rail and no drag handle.
-    width: ws.layout.sidebar.rightSidebarWidth,
+    width: topic.layout.sidebar.rightSidebarWidth,
     expandLabel: t('expandSourcesSidebar'),
     collapseLabel: t('collapseSourcesSidebar'),
     closeLabel: t('closeSourcesCard'),
@@ -470,12 +442,12 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
     <InsideFrameContext.Provider value={true}>
       {/* Outside the shell so it stays the document's first focusable element;
           it is absolutely positioned until focused, so it occupies no space. */}
-      {ws
+      {topic
         ? <a href="#chat-message-input" className="skip-link">{t('skipToChat')}</a>
         : skipTarget && <a href={`#${skipTarget}`} className="skip-link">{t('skipToContent')}</a>}
 
       <AppShellLayout
-        {...(ws ? ws.swipeHandlers : {})}
+        {...(topic ? topic.swipeHandlers : {})}
         logo={logo}
         // The chat history sits below the primary navigation, in one column,
         // on every view.
@@ -486,7 +458,7 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
         // Below lg: the drawer's bottom button (a new chat in a topic, else a
         // new topic); using it closes the drawer.
         sidebarNarrowAction={(
-          <NewChatButton onStarted={ws ? () => handleWorkspaceTabChange('chat') : showContent} />
+          <NewChatButton onStarted={topic ? () => handleTopicTabChange('chat') : showContent} />
         )}
         navLabel={t('mainNavigation')}
         // `useSidebarCollapse` stores „collapsed"; the shell wants „open". The
@@ -504,27 +476,27 @@ export function AppFrame({ active, contentId, workspace = null, children }: AppF
         // The overview pages have no bar: navigation and search are in the
         // sidebar, and the page brings its own heading. A topic has one, for
         // its breadcrumb and settings.
-        bar={ws !== null}
+        bar={topic !== null}
         pageLabel={pageLabel}
-        headerActions={ws && canEditSystemPrompt
-          ? <TopicSettingsButton diff={settingsDiff} onClick={() => ws.layout.setSystemPromptOpen(true)} />
+        headerActions={topic && canEditSystemPrompt
+          ? <TopicSettingsButton diff={settingsDiff} onClick={() => topic.layout.setSystemPromptOpen(true)} />
           : undefined}
         collapseLabel={t('collapseNavigation')}
         expandLabel={t('expandNavigation')}
         rightPanel={rightPanel}
-        mobileTabs={ws ? workspaceTabs : overviewTabs}
-        activeMobileTab={ws ? workspaceTab : overviewTab}
-        onMobileTabChange={ws ? handleWorkspaceTabChange : setOverviewTab}
+        mobileTabs={topic ? topicTabs : overviewTabs}
+        activeMobileTab={topic ? topicTab : overviewTab}
+        onMobileTabChange={topic ? handleTopicTabChange : setOverviewTab}
         notice={systemNotice.notice}
         status={systemNotice.status}
         statusPosition={systemNotice.statusPosition}
         noticeLabel={t('systemNotice')}
       >
-        {inWorkspace(children)}
+        {inTopic(children)}
         {/* The search is a palette, opened by „Suchen" in the nav or ⌘K: the
             topic's own search inside a topic, the global one elsewhere. */}
-        <SearchPalette>{ws ? inWorkspace(<WorkspaceSearch />) : globalSearch}</SearchPalette>
-        {ws && inWorkspace(<DesktopMenuCommands />)}
+        <SearchPalette>{topic ? inTopic(<TopicSearch />) : globalSearch}</SearchPalette>
+        {topic && inTopic(<DesktopMenuCommands />)}
       </AppShellLayout>
     </InsideFrameContext.Provider>
   );

@@ -16,14 +16,13 @@ import { KbSettingsDialog } from './KbSettingsDialog';
 import { useKbLayout } from '../contexts/KbLayoutContext';
 import { useStarterQuestions } from '../hooks/useStarterQuestions';
 import { useAutoScrollEnabled, useFollowUpsEnabled, usePromptSuggestionsEnabled, useChatWidth } from '../hooks/useChatSuggestionPrefs';
-import { useKbAgents } from '../hooks/useKbAgents';
 import { messageSectionKey, useMessageSections } from '../hooks/useMessageSections';
 import { hasAgentSteps } from './agentSteps/buildSteps';
 import { ComposerUploadSync, useComposerUploads } from '../hooks/useComposerUploads';
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useKbStartPage } from '../hooks/useKbStartPage';
 import { RoleStartCards, START_SKELETON_DELAY, StartBlockSkeleton, StartGlow, TitleCard, UploadStart } from './kbSettings/assistant/StartPageParts';
-import { ROLE_BADGE_KEY, type RoleBadgeKind, activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, soleRoleName, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
+import { activeTaskStart, pageMode, pageQuestions, showsGeneratedQuestions, soleRoleName, startEntries, startOf, suggestionQuestions, taskModeEntry } from './kbSettings/assistant/startPageModel';
 import { toMessageAttachments } from '../utils/chatAttachments';
 import { useComposerNotch } from '../hooks/useComposerNotch';
 import { useToast } from '../contexts/ToastContext';
@@ -50,7 +49,6 @@ import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from 
 import { MessageSkeleton } from './Skeleton';
 import { formatDaySeparator, sameLocalDay } from '../utils/chatDates';
 
-const KbSettingsPanelLazy = lazy(() => import('./kb-settings/KbSettingsPanel').then(m => ({ default: m.KbSettingsPanel })));
 const ComparisonView = lazy(() => import('./ComparisonView').then(module => ({ default: module.ComparisonView })));
 
 // Attaches a DOM element to a ref owned by useChat (textareaRef). Done in a module-level helper so the `.current` write — and
@@ -120,7 +118,6 @@ const ChatViewComp = () => {
   const {
     chat, reasoningEnabled, setReasoningEnabled,
     webSearchEnabled: webSearch, setWebSearchEnabled: setWebSearch,
-    agentSelection, setAgentSelection,
   } = useKbChat();
   const { fileMgmt, webTools } = useKbData();
   const toast = useToast();
@@ -133,21 +130,6 @@ const ChatViewComp = () => {
   const webSearchOn = webSearchAvailable && webSearch;
   const { systemPromptOpen: showSystemPrompt, setSystemPromptOpen: setShowSystemPrompt, systemPromptSection, setSystemPromptSection } = useKbLayout();
 
-  // Agent/team picker options for this KB; refreshes on KB switch.
-  const kbAgentOptions = useKbAgents(currentKb?.id);
-
-  // New chats default to the KB's isDefault team (priority) or agent.
-  // Existing chats have their selection restored from the chat row
-  // (useChat.handleSelectChat), so this is a no-op once activeChatId is set.
-  useEffect(() => {
-    if (chat.activeChatId) return;
-    const defTeam = kbAgentOptions.teams.find(x => x.isDefault);
-    const defAgent = kbAgentOptions.agents.find(x => x.isDefault);
-    if (defTeam) setAgentSelection({ teamId: defTeam.id });
-    else if (defAgent) setAgentSelection({ agentId: defAgent.id });
-  }, [kbAgentOptions, chat.activeChatId, setAgentSelection]);
-
-  const [showKbSettings, setShowKbSettings] = useState(false);
   // Improve the UNSENT draft in place (rewrite / expand / spell) via
   // POST /api/enhance, so the user can revise before sending. The old
   // behaviour — flagging the message and letting the chat stream enhance it
@@ -346,17 +328,11 @@ const ChatViewComp = () => {
     (document.getElementById('chat-composer') as HTMLFormElement | null)?.requestSubmit?.();
   }, [composerFileCount, composerUploadStates, composerReadiness]);
   // What answers in the chat, named in its badge: the role it was started in,
-  // else the agent or team it answers with (chats from before the roles),
   // else the KB's active role.
   const chatRole = chat.chatRoleId ? startPage?.roles.find(r => r.id === chat.chatRoleId) : undefined;
-  const answersAsAgent = !!(agentSelection.teamId || agentSelection.agentId);
-  const agentName = agentSelection.teamId
-    ? kbAgentOptions.teams.find(x => x.id === agentSelection.teamId)?.name
-    : kbAgentOptions.agents.find(x => x.id === agentSelection.agentId)?.name;
-  const chatRoleKind: RoleBadgeKind = chat.chatRoleId || !answersAsAgent ? 'role' : agentSelection.teamId ? 'team' : 'agent';
   const chatRoleName = chat.chatRoleId
     ? chatRole?.name
-    : answersAsAgent ? agentName : startPage?.roles.find(r => r.id === startPage.activeRoleId)?.name;
+    : startPage?.roles.find(r => r.id === startPage.activeRoleId)?.name;
   const examplePrompts = useMemo(() => {
     // A chat started from a role card that opens the input field: that card's suggestions.
     if (chat.roleStart) return chat.roleStart.kind === 'input' ? suggestionQuestions(chat.roleStart.suggestions, generatedPrompts) : [];
@@ -470,11 +446,6 @@ const ChatViewComp = () => {
           selbst, ein zweiter Abzug hier ließe unten 60px leer. */}
       {/* Kein Zwischen-<div> mehr: `.chat-area` ist selbst die Flex-Spalte mit
           `min-height: 0; overflow: hidden`, die den Scroller unten einsperrt. */}
-      {/* Nur der Chat (22.09.2026). Die Zweige für 'research',
-          'academic_research', 'workspace', 'mindmap' und das Dashboard sind
-          hier gestrichen; die Komponenten bleiben im Repo für die spätere
-          Anbindung als Tools. `KbViewType` ist auf 'chat' verengt, also gibt
-          es nichts mehr zu verzweigen. */}
       {
             chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
               <Suspense fallback={chatSuspenseFallback}>
@@ -825,7 +796,7 @@ const ChatViewComp = () => {
                         </Button>
                       )}
                       {chatRoleName ? (
-                        <Badge tone="primary">{t(ROLE_BADGE_KEY[chatRoleKind]).replace('{role}', chatRoleName)}</Badge>
+                        <Badge tone="primary">{t('asstRoleBadge').replace('{role}', chatRoleName)}</Badge>
                       ) : chat.chatRoleId ? (
                         <Notice tone="neutral" className="max-w-xl">{t('asstRoleDeleted')}</Notice>
                       ) : null}
@@ -890,8 +861,7 @@ const ChatViewComp = () => {
                               pending={startPending}
                               title={currentKb?.name ?? ''}
                               category={startPage?.category ?? null}
-                              role={chat.chatRoleId ? undefined : answersAsAgent ? agentName : startPage ? soleRoleName(startPage.page, startPage.activeRoleId, startPage.roles) : undefined}
-                              roleKind={chatRoleKind}
+                              role={chat.chatRoleId ? undefined : startPage ? soleRoleName(startPage.page, startPage.activeRoleId, startPage.roles) : undefined}
                               description={shownDescription}
                               fileCount={currentKb?.fileCount}
                               asOf={currentKb?.lastIngestedAt}
@@ -1073,41 +1043,6 @@ const ChatViewComp = () => {
               </div>
             )
       }
-      {showKbSettings && currentKb && (
-        <div
-          className="modal-overlay"
-          style={{ zIndex: 3000 }}
-          onClick={() => setShowKbSettings(false)}
-          onKeyDown={(e) => { if (e.key === 'Escape') setShowKbSettings(false); }}
-          role="presentation"
-        >
-          {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="KB settings"
-            className="modal-content"
-            style={{ maxWidth: '640px', maxHeight: '80vh', overflowY: 'auto' }}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>KB Settings (RAG Tuning)</h3>
-              <button
-                type="button"
-                onClick={() => setShowKbSettings(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px' }}
-                aria-label="Close"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <Suspense fallback={<div>Loading…</div>}>
-              <KbSettingsPanelLazy kbId={currentKb.id} />
-            </Suspense>
-          </div>
-        </div>
-      )}
       {showSystemPrompt && currentKb && canEditSystemPrompt && (
         // Modal over the chat: the chat stays where it was underneath and the
         // rest of the app is inert until the dialog closes.

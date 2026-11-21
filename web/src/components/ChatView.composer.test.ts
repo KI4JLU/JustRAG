@@ -42,7 +42,7 @@ const sourcesPanel = readFileSync(
   path.join(here, 'sources', 'SourcesPanel.tsx'),
   'utf8',
 );
-const workspaceLayout = readFileSync(
+const appFrameSource = readFileSync(
   path.join(here, 'AppChrome.tsx'),
   'utf8',
 );
@@ -50,21 +50,19 @@ const workspaceLayout = readFileSync(
 describe('Zurück-Knopf in der KB-Kopfleiste', () => {
   it('ist in der Chrome-Leiste der Shell der Pfad „Bereich / Thema" und nicht an isMobile gebunden', () => {
     // Der Weg zurück ist seit dem Pfad kein Pfeil mehr: der Bereich im Pfad
-    // führt zurück. Für „Mein Wissen" über handleGoHome (nicht
-    // handleViewHome — sonst bleibt kbView auf dem zuletzt gewählten Reiter
-    // stehen und die KB öffnet sich beim nächsten Mal nicht im Chat).
-    expect(workspaceLayout).toContain('<BreadcrumbPage');
-    expect(workspaceLayout).toContain('core.handleGoHome()');
-    expect(workspaceLayout).not.toContain('ArrowLeft');
-    expect(workspaceLayout).not.toContain("t('backToOverview')");
+    // führt zurück.
+    expect(appFrameSource).toContain('<BreadcrumbPage');
+    expect(appFrameSource).toContain('leaveToSection()');
+    expect(appFrameSource).not.toContain('ArrowLeft');
+    expect(appFrameSource).not.toContain("t('backToOverview')");
     // Eine Sicht, ein Knopf: die alte Form war ein Ternär — Mobil Zurück ODER
     // Desktop Symbol —, und genau die darf nicht zurückkommen, sie ist der
     // Zustand, in dem der Desktop keinen Zurückknopf hat. In dieser Datei ist
     // die Assertion scharf, weil sie `isMobile` überhaupt nicht mehr kennt:
     // die Fallunterscheidung Desktop/Mobil gehört seit dem Umzug der Shell.
-    expect(workspaceLayout).not.toContain('isMobile');
+    expect(appFrameSource).not.toContain('isMobile');
     // Vakuum-Schutz für DIESE Datei: sie wird wirklich gelesen.
-    expect(workspaceLayout).toContain('export function AppFrame');
+    expect(appFrameSource).toContain('export function AppFrame');
   });
 
   it('ist aus ChatViews eigener Kopfleiste verschwunden', () => {
@@ -81,7 +79,6 @@ describe('Zurück-Knopf in der KB-Kopfleiste', () => {
     // Ein zweiter Knopf an der alten Stelle wäre für Nutzer kein Fehler, den
     // jemand meldet — er sähe nur nach Doppelung aus und bliebe stehen.
     expect(sourcesPanel).not.toContain('backToOverview');
-    expect(sourcesPanel).not.toContain('handleViewHome');
     // Vakuum-Schutz für DIESE Datei: sie wird wirklich gelesen.
     expect(sourcesPanel).toContain('const SourcesPanelComp');
   });

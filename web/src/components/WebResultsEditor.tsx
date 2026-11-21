@@ -19,7 +19,7 @@ interface FoundPage {
     isEdited?: boolean;
 }
 
-interface WebWorkspaceProps {
+interface WebResultsEditorProps {
     type: 'websearch' | 'crawl';
     results: FoundPage[];
     selectedUrls: Set<string>;
@@ -31,7 +31,7 @@ interface WebWorkspaceProps {
     onStartEdit?: (url: string) => Promise<void>;
 }
 
-export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
+export const WebResultsEditor: React.FC<WebResultsEditorProps> = ({
     type,
     results,
     selectedUrls,
@@ -94,7 +94,7 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
 
     return (
         <motion.div
-            className="web-workspace"
+            className="web-results"
             {...getMotionProps(reducedMotion)}
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -102,24 +102,24 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
             transition={{ duration: 0.2, ease: "easeOut" }}
         >
             {/* Header */}
-            <header className="web-workspace-header">
+            <header className="web-results-header">
                 <div className="header-left">
                     <div className="header-icon">
                         <Layout size={20} />
                     </div>
                     <div>
-                        <h2>{type === 'websearch' ? t('websearch') : t('crawl')} - Workspace</h2>
+                        <h2>{t('webResultsTitle').replace('{source}', type === 'websearch' ? t('websearch') : t('crawl'))}</h2>
                         <p className="header-subtitle">Vorschau und Bearbeitung der Ergebnisse</p>
                     </div>
                 </div>
-                <button onClick={onClose} className="web-workspace-close" title={t('close')} aria-label={t('close')}>
+                <button onClick={onClose} className="web-results-close" title={t('close')} aria-label={t('close')}>
                     <X size={24} />
                 </button>
             </header>
 
-            <div className="web-workspace-body" style={isMobile ? { flexDirection: 'column' } : undefined}>
+            <div className="web-results-body" style={isMobile ? { flexDirection: 'column' } : undefined}>
                 {/* Left Sidebar: Results List */}
-                <aside className="web-workspace-sidebar" style={isMobile ? { width: '100%', borderRight: 'none', display: isMobile && mobileView !== 'list' ? 'none' : 'flex' } : undefined}>
+                <aside className="web-results-sidebar" style={isMobile ? { width: '100%', borderRight: 'none', display: isMobile && mobileView !== 'list' ? 'none' : 'flex' } : undefined}>
                     <div className="sidebar-header">
                         <h3>Ergebnisse ({results.length})</h3>
                         <button onClick={onToggleSelectAll} className="text-link">
@@ -194,7 +194,7 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
 
                     <div className="sidebar-footer">
                         <button
-                            className="workspace-add-btn"
+                            className="web-results-add-btn"
                             disabled={selectedUrls.size === 0}
                             onClick={onAddSources}
                         >
@@ -205,7 +205,7 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                 </aside>
 
                 {/* Main Content: Editor */}
-                <main className="web-workspace-main" style={isMobile && mobileView !== 'editor' ? { display: 'none' } : undefined}>
+                <main className="web-results-main" style={isMobile && mobileView !== 'editor' ? { display: 'none' } : undefined}>
                     {activeResult ? (
                         <div className="editor-container">
                             <div className="editor-header">
@@ -232,7 +232,6 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                                 <MarkdownEditor
                                     value={editContent}
                                     onChange={setEditContent}
-                                    isAnalyzing={false}
                                 />
                             </div>
                         </div>
@@ -249,7 +248,7 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
             </div>
 
             <style>{`
-                .web-workspace {
+                .web-results {
                     position: fixed;
                     top: 0;
                     left: 0;
@@ -261,7 +260,7 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                     flex-direction: column;
                 }
 
-                .web-workspace-header {
+                .web-results-header {
                     padding: 1rem 2rem;
                     background: var(--bg-secondary);
                     border-bottom: 1px solid var(--border-color);
@@ -287,7 +286,7 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                     justify-content: center;
                 }
 
-                .web-workspace-header h2 {
+                .web-results-header h2 {
                     margin: 0;
                     font-size: 1.25rem;
                 }
@@ -298,7 +297,7 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                     color: var(--text-secondary);
                 }
 
-                .web-workspace-close {
+                .web-results-close {
                     background: none;
                     border: none;
                     cursor: pointer;
@@ -308,18 +307,18 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                     transition: background 0.2s, color 0.2s;
                 }
 
-                .web-workspace-close:hover {
+                .web-results-close:hover {
                     background: var(--bg-hover);
                     color: var(--text-primary);
                 }
 
-                .web-workspace-body {
+                .web-results-body {
                     flex: 1;
                     display: flex;
                     overflow: hidden;
                 }
 
-                .web-workspace-sidebar {
+                .web-results-sidebar {
                     width: 320px;
                     background: var(--bg-secondary);
                     border-right: 1px solid var(--border-color);
@@ -433,7 +432,7 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                     border-top: 1px solid var(--border-color);
                 }
 
-                .workspace-add-btn {
+                .web-results-add-btn {
                     width: 100%;
                     padding: 0.85rem;
                     background: var(--accent-primary);
@@ -449,18 +448,18 @@ export const WebWorkspace: React.FC<WebWorkspaceProps> = ({
                     transition: background 0.2s, transform 0.2s, box-shadow 0.2s;
                 }
 
-                .workspace-add-btn:hover:not(:disabled) {
+                .web-results-add-btn:hover:not(:disabled) {
                     background: var(--accent-secondary);
                     transform: translateY(-1px);
                     box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-primary) 30%, transparent);
                 }
 
-                .workspace-add-btn:disabled {
+                .web-results-add-btn:disabled {
                     opacity: 0.5;
                     cursor: not-allowed;
                 }
 
-                .web-workspace-main {
+                .web-results-main {
                     flex: 1;
                     background: var(--bg-primary);
                     position: relative;

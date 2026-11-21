@@ -20,16 +20,9 @@ import { ModalProvider } from '../../contexts/ModalContext';
  * reaches them.
  *
  * The interception is at axios's adapter — see .storybook/mockApi.ts for what
- * that does and does not exercise. Two consequences worth naming:
- *   - one URL pattern serves BOTH `basePath` modes, because the admin prefix
- *     (/api/admin/eval) and the KB-scoped one (/api/kb/{id}/eval) share the
- *     same three path tails;
- *   - the team select's data source is NOT axios. `fetchKbAgents`
- *     (src/components/agents/api.ts:104) goes through `authFetch`, i.e. the
- *     browser's own `window.fetch`, which an axios adapter cannot see. It is
- *     answered at the fetch boundary, and only in the KB-scoped story — the
- *     admin-scope stories never put a KB in play, so the component never calls
- *     it and its `parameters.api.kbAgents` is deliberately absent.
+ * that does and does not exercise. One URL pattern serves BOTH `basePath`
+ * modes, because the admin prefix (/api/admin/eval) and the KB-scoped one
+ * (/api/kb/{id}/eval) share the same three path tails.
  *
  * Endpoints deliberately left unmocked (upload, generate, download, delete)
  * fall through to the Storybook origin and 404, which the component surfaces
@@ -154,15 +147,6 @@ const RUNS_IN_FLIGHT = {
         },
     ],
     total: 2,
-};
-
-/** GET /api/kb/{id}/agents — the KB's attached teams, via authFetch. */
-const KB_AGENTS = {
-    agents: [],
-    teams: [
-        { id: 'team-1', name: 'Prüfungsamt-Team', description: '', icon: '', isDefault: true },
-        { id: 'team-2', name: 'Recherche-Team', description: '', icon: '', isDefault: false },
-    ],
 };
 
 const meta = {
@@ -392,12 +376,10 @@ export const GoldenSetNotSelected: Story = {
  * The tab as `KbSettingsPanel` mounts it (KbSettingsPanel.tsx:326):
  * `basePath="/api/kb/{id}/eval"` and `kbId` set. A whole branch of the
  * component that no reviewer has looked at — three kb_id inputs disappear
- * because the KB comes from the path, and the team select appears because a KB
- * is now in play.
+ * because the KB comes from the path.
  */
 export const KbScoped: Story = {
     args: { basePath: '/api/kb/kb-1111-2222/eval', kbId: 'kb-1111-2222' },
-    parameters: { api: { kbAgents: KB_AGENTS } },
     play: async ({ canvas }) => {
         await canvas.findByText('pruefungsordnungen-baseline');
 
@@ -408,14 +390,5 @@ export const KbScoped: Story = {
          * what makes this a real branch check rather than a query that never
          * matched. */
         await expect(canvas.queryAllByLabelText('KB-ID')).toHaveLength(0);
-
-        /* ORACLE: the KB_AGENTS fixture, delivered over the SECOND network
-         * boundary (window.fetch, not axios). The team select only renders
-         * when `kbTeams.length > 0`, so its presence proves the authFetch mock
-         * was reached and the response was consumed — and its trigger text is
-         * Radix's placeholder for the '' value, i.e. the German
-         * `evalTeamStandard` wording. */
-        const team = await canvas.findByLabelText('Agenten-Team');
-        await expect(team).toHaveTextContent('Standard (kein Team)');
     },
 };

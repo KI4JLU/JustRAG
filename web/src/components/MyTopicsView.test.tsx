@@ -89,7 +89,6 @@ const NAV = {
   onViewMyTopics: vi.fn(),
   onViewSharedTopics: vi.fn(),
   onViewDiscover: vi.fn(),
-  onViewTools: vi.fn(),
   onViewProfile: vi.fn(),
   onEditGlobalKb: vi.fn(),
   onViewLegal: vi.fn(),
@@ -110,7 +109,6 @@ beforeEach(() => {
   NAV.onViewMyTopics.mockClear();
   NAV.onViewSharedTopics.mockClear();
   NAV.onViewDiscover.mockClear();
-  NAV.onViewTools.mockClear();
   NAV.onViewProfile.mockClear();
   setAdminDialogOpen(false);
   NAV.onOpenTopicSettings.mockClear();
@@ -227,8 +225,6 @@ const noopProps = {
   onRenameKB: vi.fn(),
   onToggleFavorite: vi.fn(),
   onUpdateKBSettings: vi.fn(),
-  showSettings: false,
-  setShowSettings: vi.fn(),
 };
 
 // RealRemovalMyTopicsView wires onDeleteKB to the real useKbRemoval hook (rather
@@ -467,14 +463,9 @@ describe('AppChrome, through the view that mounts it', () => {
     renderView(<MyTopicsView kbs={[]} {...noopProps} />);
 
     /* ORACLE: the module-level spies in NAV. One mount per node since
-       design-system 0.30.0, so an unscoped query reaches the only row there is.
-       („Meine Agenten" was the third row asserted here; it was removed from the
-       nav on 18.09.2026 and `AppNavContext.onViewAgents` with it.) */
+       design-system 0.30.0, so an unscoped query reaches the only row there is. */
     await userEvent.click(screen.getByRole('button', { name: translations.discoverTopics.en }));
     expect(NAV.onViewDiscover).toHaveBeenCalledTimes(1);
-
-    // „Werkzeuge" is hidden until the tools section is finished (AppChrome's SHOW_TOOLS_NAV).
-    expect(screen.queryByRole('button', { name: translations.tools.en })).toBeNull();
 
     /* KI-783's new destination, asserted the same way: the row has to reach
        the jump, not merely exist. This is what makes „the sidebar row has a

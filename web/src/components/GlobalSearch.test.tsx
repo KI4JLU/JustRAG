@@ -252,14 +252,14 @@ describe('GlobalSearch', () => {
     mockedGet.mockResolvedValue(response({ chats: [CHAT] }));
     render(<Harness scopeKbId="kb-42" scopeLabel="Statistik" />);
     const scoped = screen.getByRole('combobox', {
-      name: de('workspaceSearchPlaceholder').replace('{topic}', 'Statistik'),
+      name: de('topicSearchPlaceholder').replace('{topic}', 'Statistik'),
     });
     await userEvent.type(scoped, 'Prüf');
-    await userEvent.click(await screen.findByRole('option', { name: de('workspaceSearchAllTopics') }));
+    await userEvent.click(await screen.findByRole('option', { name: de('topicSearchAllTopics') }));
     await waitFor(() => expect(searchCalls().map(([u]) => String(u)).at(-1)).toMatch(/q=Pr%C3%BCf$/));
     await userEvent.type(scoped, 'u');
     await waitFor(() => expect(searchCalls().map(([u]) => String(u)).at(-1)).toMatch(/q=Pr%C3%BCfu&kb_id=kb-42$/));
-    expect(scoped).toHaveAccessibleName(de('workspaceSearchPlaceholder').replace('{topic}', 'Statistik'));
+    expect(scoped).toHaveAccessibleName(de('topicSearchPlaceholder').replace('{topic}', 'Statistik'));
   });
 
   it('keeps an unscoped 404 as the generic error line', async () => {
@@ -268,7 +268,7 @@ describe('GlobalSearch', () => {
     render(<Harness />);
     await userEvent.type(field(), 'Prüf');
     expect(await screen.findByRole('status')).toHaveTextContent(de('globalSearchError'));
-    expect(screen.queryByText(de('workspaceSearchTopicUnavailable'))).toBeNull();
+    expect(screen.queryByText(de('topicSearchTopicUnavailable'))).toBeNull();
   });
 
   it('scopes the request to one topic when scopeKbId is set', async () => {
@@ -353,7 +353,7 @@ describe('GlobalSearch', () => {
 });
 
 // ORACLE: the UI rule of 2026-10-16 — a row that opens nothing is not offered.
-// The caller decides which source hits can be opened (WorkspaceSearch: hits
+// The caller decides which source hits can be opened (TopicSearch: hits
 // of its own topic only with downloadSources); rejected hits are not listed.
 describe('GlobalSearch canOpenSource', () => {
   const OTHER = { ...SOURCE, id: 'f-2', name: 'Andere.pdf', kbId: 'kb-2', kbName: 'Andere' };

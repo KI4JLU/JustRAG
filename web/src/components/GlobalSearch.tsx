@@ -38,7 +38,7 @@ import type { SearchChatHit, SearchMessageHit, SearchSourceHit, SearchTopicHit }
  * swaps the whole view branch — see `KbSearchContext`), and every `onOpen…`
  * is a prop so this component knows nothing about views, hooks or ordering:
  * `useSearchNavigation` does the sequencing. That keeps it reusable as-is for
- * the workspace search (KI-838) through `scopeKbId`.
+ * the topic search through `scopeKbId`.
  *
  * STRINGS. Every label goes through `t()`, including the ones the DS would
  * otherwise default to in German (`ComboboxList`'s and `ComboboxLoading`'s
@@ -68,7 +68,7 @@ export interface GlobalSearchProps {
   query: string;
   onQueryChange: (next: string) => void;
   /**
-   * Restrict every group to one topic (KI-838's workspace search). The
+   * Restrict every group to one topic (the topic search). The
    * Topics group is then omitted, and a „search all topics" row at the end of
    * the list repeats the same text without the scope — for the current query
    * only: typing again, or reopening the list, searches scoped again.
@@ -150,7 +150,7 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
   const { state, search, hasSearched } = useGlobalSearch();
 
   /* ⌘K / Ctrl+K focuses the field from anywhere on the page. The shell header
-     and a topic workspace each mount their own instance, in different views,
+     and a topic view each mount their own instance, in different views,
      so only one is mounted at a time; a field inside a hidden or inert
      subtree ignores the key all the same. */
   const fieldRef = useRef<HTMLInputElement | null>(null);
@@ -252,7 +252,7 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
   // an empty topic and a vanished one are exactly when it helps most.
   const offerWiden = !showDefaults && scoped && (state.status === 'done' || state.status === 'not-found');
   const fieldLabel = scoped && scopeLabel
-    ? t('workspaceSearchPlaceholder').replace('{topic}', scopeLabel)
+    ? t('topicSearchPlaceholder').replace('{topic}', scopeLabel)
     : t('globalSearchPlaceholder');
 
   return (
@@ -289,14 +289,14 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
         ) : null}
         {!showDefaults && state.status === 'not-found' ? (
           <p role="status" className="m-0 px-3 py-6 text-center text-sm text-on-surface-variant">
-            {t('workspaceSearchTopicUnavailable')}
+            {t('topicSearchTopicUnavailable')}
           </p>
         ) : null}
         {/* Scoped and empty: the widen row is still an option, so the DS
             `ComboboxEmpty` (which renders only for zero options) cannot say it. */}
         {offerWiden && nothingFound ? (
           <p role="status" className="m-0 px-3 py-6 text-center text-sm text-on-surface-variant">
-            {t('workspaceSearchNoResults').replace('{query}', trimmed)}
+            {t('topicSearchNoResults').replace('{query}', trimmed)}
           </p>
         ) : null}
         {!showDefaults && state.status === 'error' ? (
@@ -392,7 +392,7 @@ export const GlobalSearch = forwardRef<HTMLInputElement, GlobalSearchProps>(func
               {!nothingFound ? <ComboboxSeparator alwaysRender /> : null}
               <ComboboxItem value="scope:all-topics" onSelect={widen}>
                 <Globe aria-hidden="true" />
-                <HitText primary={t('workspaceSearchAllTopics')} />
+                <HitText primary={t('topicSearchAllTopics')} />
               </ComboboxItem>
             </>
           ) : null}
