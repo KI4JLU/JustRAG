@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import {
   Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@ki4jlu/design-system';
-import { useAuth } from '../contexts/AuthContext';
-import { useTheme } from '../contexts/ThemeContext';
-import { useUploadStorageNoticeDialog } from '../hooks/useUploadStorageNotice';
+import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useUploadStorageNoticeDialog } from '../../hooks/useUploadStorageNotice';
 
 /**
  * How long uploaded files are kept, asked before an upload until the user

@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useReducedMotion, getMotionProps } from '../hooks/useReducedMotion';
+import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import {
     X, Eye, Pencil, Plus,
     Save, Layout, Check, ArrowLeft
 } from 'lucide-react';
-import { MarkdownEditor } from './editor/MarkdownEditor';
+import { MarkdownEditor } from '../editor/MarkdownEditor';
 import { Badge } from '@ki4jlu/design-system';
-import { useTheme } from '../contexts/ThemeContext';
-import { useIsMobileContext } from '../contexts/MobileContext';
-import { openExternal } from '../utils/openExternal';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useIsMobileContext } from '../../contexts/MobileContext';
+import { openExternal } from '../../utils/openExternal';
 
 interface FoundPage {
     url: string;

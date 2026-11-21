@@ -20,7 +20,7 @@ import { useSidebarResize } from '../hooks/useSidebarResize';
 import { useChat } from '../hooks/useChat';
 import { useFileManagement } from '../hooks/useFileManagement';
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
-import { UploadStorageNoticeDialog } from '../components/UploadStorageNoticeDialog';
+import { UploadStorageNoticeDialog } from '../components/sources/UploadStorageNoticeDialog';
 import { useWebTools } from '../hooks/useWebTools';
 import { useKnowledgeBases } from '../hooks/useKnowledgeBases';
 import { useJoinRedeem } from '../hooks/useJoinRedeem';

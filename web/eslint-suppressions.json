@@ -44,7 +44,7 @@
       "count": 3
     }
   },
-  "src/components/WebResultsEditor.tsx": {
+  "src/components/sources/WebResultsEditor.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 8
     }

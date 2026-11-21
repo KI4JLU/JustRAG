@@ -2,11 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Button } from '@ki4jlu/design-system';
 import { UploadStorageNoticeDialog } from './UploadStorageNoticeDialog';
-import { uploadStorageNoticeKey, useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
+import { uploadStorageNoticeKey, useUploadStorageNotice } from '../../hooks/useUploadStorageNotice';
 
 let userId = 'u1';
-vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: userId } }) }));
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: userId } }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 
 // jsdom's localStorage is unreliable on Node 25; the flags live in this one.
 class MemoryStorage implements Storage {

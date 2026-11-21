@@ -7,7 +7,7 @@ const TextSourceViewer = lazy(() => import('./sidebar/TextSourceModal').then(mod
 const PdfPreviewModal = lazy(() => import('./preview/PdfPreviewModal').then(module => ({ default: module.PdfPreviewModal })));
 const MediaPreviewModal = lazy(() => import('./preview/MediaPreviewModal').then(module => ({ default: module.MediaPreviewModal })));
 const TablePreviewDialog = lazy(() => import('./tablePreview/TablePreviewDialog').then(module => ({ default: module.TablePreviewDialog })));
-const WebResultsEditor = lazy(() => import('./WebResultsEditor').then(module => ({ default: module.WebResultsEditor })));
+const WebResultsEditor = lazy(() => import('./sources/WebResultsEditor').then(module => ({ default: module.WebResultsEditor })));
 
 export function TopicModals() {
   const { currentKb } = useKbCore();

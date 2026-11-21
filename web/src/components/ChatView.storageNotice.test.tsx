@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChatView } from './ChatView';
 import type { Message, KnowledgeBase, KbCapabilities } from '../types';
-import { UploadStorageNoticeDialog } from './UploadStorageNoticeDialog';
+import { UploadStorageNoticeDialog } from './sources/UploadStorageNoticeDialog';
 import { uploadChatAttachment } from '../utils/chatAttachments';
 
 // The real ChatView with the real composer, mocked to the minimum — the same
