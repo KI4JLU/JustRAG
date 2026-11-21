@@ -4,7 +4,7 @@ import type { DataExplorerConfig, FileSchema, DataExplorerQueryResult } from '..
 import DataExplorerToolbar from './DataExplorerToolbar';
 import { exportCsv, exportPng } from './ExportButtons';
 
-const ChartRenderer = lazy(() => import('../chat/ChartRenderer'));
+const ChartRenderer = lazy(() => import('../ui/ChartRenderer'));
 
 interface DataExplorerProps {
     initialConfig: DataExplorerConfig;

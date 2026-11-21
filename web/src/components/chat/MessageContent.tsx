@@ -25,7 +25,7 @@ import {
 import { MarkdownTable } from './MarkdownTable';
 
 // Lazy load ChartRenderer
-const ChartRenderer = lazy(() => import('./ChartRenderer'));
+const ChartRenderer = lazy(() => import('../ui/ChartRenderer'));
 
 interface MessageContentProps {
     content: string;
