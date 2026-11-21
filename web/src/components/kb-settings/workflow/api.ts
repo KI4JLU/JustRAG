@@ -8,7 +8,7 @@ import { API_BASE_URL, authFetch } from '../../../api';
 // API_BASE_URL is required because there is no dev proxy for /api.
 export async function fetchWorkflow(kbId: string, lane: WorkflowLane): Promise<WorkflowGraph> {
   const res = await authFetch(
-    `${API_BASE_URL}/api/kb/${encodeURIComponent(kbId)}/workflow?lane=${lane}`,
+    `${API_BASE_URL}/api/kb/${encodeURIComponent(kbId)}/workflow?lane=${lane}&binding=none`,
   );
   if (!res.ok) throw new Error(`fetch workflow: ${res.status}`);
   return withoutAgentBinding(await res.json());
