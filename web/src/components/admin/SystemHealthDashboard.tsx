@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useId } from 'react';
 import axios from 'axios';
-import { getApiErrorMessage } from '../utils/apiError';
+import { getApiErrorMessage } from '../../utils/apiError';
 import {
     AreaChart, Area, BarChart, Bar, LineChart, Line,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -14,8 +14,8 @@ import {
     Button, Card, CardContent, CardHeader, Checkbox, DashboardLayout, Grid, Label,
     SegmentedControl, Spinner, Stack, cn,
 } from '@ki4jlu/design-system';
-import { API_BASE_URL } from '../api';
-import { useTheme } from '../contexts/ThemeContext';
+import { API_BASE_URL } from '../../api';
+import { useTheme } from '../../contexts/ThemeContext';
 
 /* ---------------------------------------------------------------------------
  * Shell: the design system's `DashboardLayout` template (card KI-714,

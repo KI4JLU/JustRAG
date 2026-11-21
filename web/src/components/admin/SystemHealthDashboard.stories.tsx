@@ -132,7 +132,7 @@ const HISTORY = {
 const EMPTY_HISTORY = { metric: 'fixture', data: [] };
 
 const meta = {
-  title: 'Pages/Admin System Health',
+  title: 'Admin/System Health',
   component: SystemHealthDashboard,
   parameters: { layout: 'fullscreen' },
 } satisfies Meta<typeof SystemHealthDashboard>;

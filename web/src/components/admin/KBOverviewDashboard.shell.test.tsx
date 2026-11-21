@@ -38,9 +38,9 @@ const mockedAxios = axios as unknown as { get: ReturnType<typeof vi.fn> };
 // re-runs the fetch on every render. Measured on the sibling suite for this
 // card: 3168 requests before a `waitFor` timed out.
 const themeMock = { t: (k: string) => k, language: 'en' as const };
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 const authMock = { user: { id: 'op-1', role: 'superadmin' } };
-vi.mock('../contexts/AuthContext', () => ({ useAuth: () => authMock }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => authMock }));
 
 const OVERVIEW = {
     rows: [

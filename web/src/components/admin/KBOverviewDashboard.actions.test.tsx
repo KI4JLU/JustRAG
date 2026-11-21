@@ -12,11 +12,11 @@ const mockedAxios = axios as unknown as {
     post: ReturnType<typeof vi.fn>;
 };
 
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k, language: 'en' }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k, language: 'en' }) }));
 
 // Role drives the actions column; each test sets it before rendering.
 let mockRole = 'superadmin';
-vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'op-1', role: mockRole } }) }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'op-1', role: mockRole } }) }));
 
 /** Opens a row's ⋯ menu (named after its KB; `t` is the identity here) and returns the item labels. */
 async function rowMenu(kbName: string) {

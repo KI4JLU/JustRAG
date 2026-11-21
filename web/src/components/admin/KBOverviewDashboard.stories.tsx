@@ -1,7 +1,7 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor, within } from 'storybook/test';
-import { AuthProvider } from '../contexts/AuthContext';
-import { translations } from '../translations';
+import { AuthProvider } from '../../contexts/AuthContext';
+import { translations } from '../../translations';
 import KBOverviewDashboard from './KBOverviewDashboard';
 
 /* ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ function authDecorator(role: string): Decorator {
 }
 
 const meta = {
-  title: 'Pages/Admin KB Overview',
+  title: 'Admin/KB Overview',
   component: KBOverviewDashboard,
   parameters: { layout: 'fullscreen' },
 } satisfies Meta<typeof KBOverviewDashboard>;

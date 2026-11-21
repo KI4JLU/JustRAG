@@ -6,16 +6,16 @@ import {
     PopoverContent, PopoverTrigger, Spinner, Stack, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn,
     useSettingsSearch, type ActionMenuItem,
 } from '@ki4jlu/design-system';
-import { getApiErrorMessage } from '../utils/apiError';
-import { COMPACT_INPUT } from '../components/form/SettingsFieldRow';
-import { formatRelative } from '../utils/dates';
-import { translations } from '../translations';
-import { API_BASE_URL } from '../api';
-import { useTheme } from '../contexts/ThemeContext';
-import { useAuth } from '../contexts/AuthContext';
-import { KbDeleteDialog } from '../components/admin/KbDeleteDialog';
-import { KbPublishDialog } from '../components/admin/KbPublishDialog';
-import { KbTransferOwnerDialog } from '../components/admin/KbTransferOwnerDialog';
+import { getApiErrorMessage } from '../../utils/apiError';
+import { COMPACT_INPUT } from '../form/SettingsFieldRow';
+import { formatRelative } from '../../utils/dates';
+import { translations } from '../../translations';
+import { API_BASE_URL } from '../../api';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { KbDeleteDialog } from './KbDeleteDialog';
+import { KbPublishDialog } from './KbPublishDialog';
+import { KbTransferOwnerDialog } from './KbTransferOwnerDialog';
 
 /* ---------------------------------------------------------------------------
  * Shell: the design system's `DashboardLayout` template (card KI-714,
