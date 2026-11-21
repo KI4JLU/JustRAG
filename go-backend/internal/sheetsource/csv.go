@@ -91,7 +91,7 @@ type CSVSource struct {
 // local storage live under an opaque blob path. Empty fileName falls back to
 // path.
 func OpenCSVNamed(path, fileName string) (src *CSVSource, err error) {
-	defer recoverToErr(&err, "OpenCSV")
+	defer recoverToErr(&err, "OpenCSVNamed")
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

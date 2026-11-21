@@ -23,6 +23,12 @@ func TestShouldIngestPath(t *testing.T) {
 		{"png extension rejected", "assets/logo.png", 100, false},
 		{"unknown ext rejected", "data.bin", 100, false},
 		{"dotfile rejected", ".gitignore", 50, false},
+		{"git dir rejected", ".git/config", 100, false},
+		{"dist rejected", "dist/app.js", 100, false},
+		{"yaml accepted", "ci/build.yaml", 100, true},
+		// Skip dirs match whole path segments, not substrings.
+		{"node_modules prefix accepted", "src/node_modules_helper/x.go", 100, true},
+		{"vendor prefix accepted", "src/vendor_copy/main.go", 100, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
