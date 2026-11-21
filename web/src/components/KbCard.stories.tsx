@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, waitFor } from 'storybook/test';
 import { Grid } from '@ki4jlu/design-system';
 import { PrivateKbCard } from './KbCard';
-import { TopicGridPage } from '../pages/TopicGridPage';
+import { TopicGridPage } from './TopicGridPage';
 import { translations } from '../translations';
 import { expectFooterInsideCard, expectUniformCardHeights } from '../test/kbCardGeometry';
 import type { KnowledgeBase } from '../types';

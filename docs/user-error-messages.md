@@ -251,8 +251,8 @@ providers, dashboards, evaluation, MCP servers, configurations. A topic admin
 
 | ID | Where | When | Shown today | Message key | DE | EN | Status |
 |---|---|---|---|---|---|---|---|
-| C01 | `pages/AdminUI.tsx:335`, `:365` | Saving an AI provider or auth provider refused | Raw backend text | `saveFailed` + S12–S15 | Speichern fehlgeschlagen | Save failed | open |
-| C02 | `pages/AdminUI.tsx:322` → `components/admin/AdminConfigsTab.tsx:214` | Provider connection test reports unhealthy | Provider error text | `connectionFailed` | Verbindung fehlgeschlagen | Connection failed | open |
+| C01 | `components/admin/AdminUI.tsx:335`, `:365` | Saving an AI provider or auth provider refused | Raw backend text | `saveFailed` + S12–S15 | Speichern fehlgeschlagen | Save failed | open |
+| C02 | `components/admin/AdminUI.tsx:322` → `components/admin/AdminConfigsTab.tsx:214` | Provider connection test reports unhealthy | Provider error text | `connectionFailed` | Verbindung fehlgeschlagen | Connection failed | open |
 | C03 | `components/admin/AdminConfigsTab.tsx:135` | Context-window detection refused | Raw backend text | `contextWindowDetectFailed` + S12–S15 | Kontextfenster konnten nicht ermittelt werden. | Could not detect the context windows. | open |
 | C04 | `components/admin/AdminEvalTab.tsx:158`, `:225` | Loading golden sets fails | Raw backend text | `evalGoldenSetsFetchFailed` + S12–S15 | Laden der Golden-Sets fehlgeschlagen. | Failed to load golden sets. | open |
 | C05 | `components/admin/AdminEvalTab.tsx:211` | Starting golden-set generation refused | Raw backend text | `evalGenFailed` + S12–S15 | Generierung fehlgeschlagen | Generation failed | open |

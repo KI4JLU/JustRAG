@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
-import { AdminHarness } from '../test/AdminHarness';
+import { AdminHarness } from '../../test/AdminHarness';
 
 /* ---------------------------------------------------------------------------
  * Adding or editing an AI configuration or an auth provider is a sub-screen of
@@ -22,12 +22,12 @@ vi.mock('axios', () => ({
 }));
 
 const themeMock = { t: (k: string) => k, language: 'en' as const };
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 const toastMock = { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() };
-vi.mock('../contexts/ToastContext', () => ({ useToast: () => toastMock }));
+vi.mock('../../contexts/ToastContext', () => ({ useToast: () => toastMock }));
 const modalMock = { showConfirm: vi.fn(), showAlert: vi.fn(), showPrompt: vi.fn() };
-vi.mock('../contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
-vi.mock('../hooks/useReducedMotion', () => ({
+vi.mock('../../contexts/ModalContext', () => ({ useModalContext: () => modalMock }));
+vi.mock('../../hooks/useReducedMotion', () => ({
     useReducedMotion: () => false,
     getMotionProps: () => ({}),
 }));

@@ -40,7 +40,7 @@ import { KbTransferOwnerDialog } from './KbTransferOwnerDialog';
  * and only means something once a KB is public (docs/kb-access.md, staged publishing).
  *
  * That open question is closed: design-system v0.24.0 added `headingLevel`,
- * this call site passes 2 (card KI-743), and `src/pages/AdminUI.headings.test.tsx`
+ * this call site passes 2 (card KI-743), and `src/components/admin/AdminUI.headings.test.tsx`
  * pins the count in the composition where it matters.
  * TODO: no visual confirmation in this pass; the stories exist for the
  * developer's both-theme pass.

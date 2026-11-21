@@ -210,7 +210,7 @@ failure.
 
 ### `?admin=` — admin console
 
-`pages/AdminUI.tsx`. Roles `admin` and `superadmin`; for anyone else the shell removes the parameter.
+`components/admin/AdminUI.tsx`. Roles `admin` and `superadmin`; for anyone else the shell removes the parameter.
 A section the user may not see falls back to `configs`.
 
 | Section | Component | Visible to | Sub-screens |
