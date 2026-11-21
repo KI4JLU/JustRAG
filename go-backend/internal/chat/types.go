@@ -196,7 +196,7 @@ type BranchResult struct {
 // Both fields preserve the existing wire format — Sources and Verification
 // emit `null` (not omitted) when their underlying JSONB column was NULL or
 // the message hasn't run through the corresponding pipeline stage. The
-// frontend's `Message` interface depends on that shape (see web/src/types.ts).
+// frontend's `Message` interface depends on that shape (see web/src/types).
 type MessageRow struct {
 	ID              string  `json:"id" db:"id"`
 	ChatID          string  `json:"chatId" db:"chat_id"`
