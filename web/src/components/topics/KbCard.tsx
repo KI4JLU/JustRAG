@@ -5,14 +5,14 @@ import {
   ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardTitle, ScrollingText,
   SortableItemHandle, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem,
 } from '@ki4jlu/design-system';
-import { visibilityState } from '../utils/kbVisibility';
-import type { KnowledgeBase } from '../types';
-import type { Language } from '../translations';
-import { formatRelativeCoarse } from '../utils/dates';
+import { visibilityState } from '../../utils/kbVisibility';
+import type { KnowledgeBase } from '../../types';
+import type { Language } from '../../translations';
+import { formatRelativeCoarse } from '../../utils/dates';
 import { CategoryPill } from './CategoryPill';
-import { categoryDotColor } from './kbSettings/assistant/startPageModel';
-import { canOpenKbTopicSettings, canRenameKb } from '../utils/kbAccess';
-import { useFittingLineClamp } from '../hooks/useFittingLineClamp';
+import { categoryDotColor } from '../kbSettings/assistant/startPageModel';
+import { canOpenKbTopicSettings, canRenameKb } from '../../utils/kbAccess';
+import { useFittingLineClamp } from '../../hooks/useFittingLineClamp';
 import './HomeView.css';
 
 /* ---------------------------------------------------------------------------

@@ -42,7 +42,7 @@ import { TopicSearch } from '../search/TopicSearch';
 import { DesktopMenuCommands } from './DesktopMenuCommands';
 import { useSystemNoticeBanner } from '../../hooks/useSystemNoticeBanner';
 import { useTopicSettingsDiff } from '../../hooks/useTopicSettingsDiff';
-import { TopicSettingsButton } from '../TopicSettingsButton';
+import { TopicSettingsButton } from '../topics/TopicSettingsButton';
 import { SourcesPanel } from '../sources/SourcesPanel';
 import { HistoryPanel, NewChatButton } from '../history/HistoryPanel';
 import type { MobileTab } from '../../utils/activeMobileTab';
@@ -52,7 +52,7 @@ import { topicSection } from '../../utils/topicSection';
 // with `KbCard.tsx` and `MyTopicsView.tsx` rather than split —
 // see KbCard.tsx's header for why the `home-view__` block name outlived the
 // component.
-import '../HomeView.css';
+import '../topics/HomeView.css';
 
 
 /* ---------------------------------------------------------------------------

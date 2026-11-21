@@ -2,19 +2,19 @@ import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { KbSettingsDialog } from './KbSettingsDialog';
-import { SOURCE_FLAG_DEFAULTS } from '../utils/kbRoleRights';
-import type { KnowledgeBase } from '../types';
+import { SOURCE_FLAG_DEFAULTS } from '../../utils/kbRoleRights';
+import type { KnowledgeBase } from '../../types';
 import axios from 'axios';
 import { createPortal } from 'react-dom';
 
 const showConfirm = vi.fn<(message: string, title?: string) => Promise<boolean>>();
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k, language: 'de' }) }));
-vi.mock('../contexts/ModalContext', () => ({ useModalContext: () => ({ showConfirm }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k, language: 'de' }) }));
+vi.mock('../../contexts/ModalContext', () => ({ useModalContext: () => ({ showConfirm }) }));
 vi.mock('axios', () => ({ default: { get: vi.fn(() => Promise.resolve({ data: { prompt: '' } })), put: vi.fn() } }));
 // Startseite + Verhalten load their own settings; they have their own suite
 // (kbSettings/assistant/AssistantSettings.test.tsx). Here a clean, loaded state.
-vi.mock('./kbSettings/assistant/api', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('./kbSettings/assistant/api')>();
+vi.mock('../kbSettings/assistant/api', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../kbSettings/assistant/api')>();
     const behavior = { version: 1, activeRoleId: 'research', customRoles: [], roleRules: {} };
     const startPage = {
         version: 1, roleEntries: [], roleEntriesOn: true, questionsOn: true, questionMode: 'dynamic', dynamicCount: 4,
@@ -36,7 +36,7 @@ vi.mock('./kbSettings/assistant/api', async (importOriginal) => {
     };
 });
 // The members panel has its own suite (kbSettings/KbMembersPanel.test.tsx); here only where it shows.
-vi.mock('./kbSettings/KbMembersPanel', () => ({
+vi.mock('../kbSettings/KbMembersPanel', () => ({
     KbMembersPanel: ({ kb, roleDrafts, onRoleDraftChange, revision, view, onViewChange, footerSlot }: {
         kb: { id: string }; roleDrafts: Record<string, string>;
         onRoleDraftChange: (userId: string, role: string | null) => void; revision: number;

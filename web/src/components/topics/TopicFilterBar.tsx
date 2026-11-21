@@ -1,13 +1,13 @@
 import { FilterChips, SegmentedControl } from '@ki4jlu/design-system';
 import { LayoutGrid, List, Star } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useState } from 'react';
 import { CategoryManagerModal } from './CategoryManagerModal';
-import { categoryDotColor } from './kbSettings/assistant/startPageModel';
+import { categoryDotColor } from '../kbSettings/assistant/startPageModel';
 import {
   FILTER_ALL, FILTER_FAVORITES, FILTER_PERSONAL, FILTER_SHARED,
   type TopicFilterState,
-} from '../hooks/useTopicFilters';
+} from '../../hooks/useTopicFilters';
 
 /* ---------------------------------------------------------------------------
  * The chip row every shell view mounts: „Alle · Favoriten · <Kategorien> · +".

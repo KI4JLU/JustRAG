@@ -6,8 +6,8 @@ import {
   DialogTitle,
   Switch,
 } from '@ki4jlu/design-system';
-import type { KbCategory } from '../types';
-import { useTheme } from '../contexts/ThemeContext';
+import type { KbCategory } from '../../types';
+import { useTheme } from '../../contexts/ThemeContext';
 import { CategoryDot } from './CategoryPill';
 
 /* ---------------------------------------------------------------------------

@@ -156,7 +156,7 @@ action needs the site flag `chat_web_search_enabled`.
 
 | Dialog | Component | Opened from |
 |---|---|---|
-| Topic settings | `components/KbSettingsDialog.tsx` | The gear, the first-source prompt, a topic card; `?topic=` |
+| Topic settings | `components/topics/KbSettingsDialog.tsx` | The gear, the first-source prompt, a topic card; `?topic=` |
 | Add source | `TextSourceModal`, `CrawlModal`, `RssModal`, `ConfluenceModal` (connection, space, scope, options, confirmation), `GitRepoModal` | The sources column, with `addSources`. Confluence, git and web search need their site flags. Upload opens the system file picker or takes a drop. |
 | Source details | `SourceDetailsModal` | An RSS, Confluence or git source row |
 | Hover preview | `sidebar/SourceHoverPreview` | A file or synced-source row |
@@ -194,7 +194,7 @@ text, Markdown, image, audio or video; Word files and spreadsheets do not.
 
 ### `?topic=` — topic settings
 
-`components/KbSettingsDialog.tsx`. Works on `/kb/<id>` and `/c/<id>` once the topic is resolved
+`components/topics/KbSettingsDialog.tsx`. Works on `/kb/<id>` and `/c/<id>` once the topic is resolved
 and the user has topic-settings rights. Navigating to another topic drops the parameter.
 
 | Section | Component | Sub-screens |

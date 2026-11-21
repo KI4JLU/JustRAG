@@ -2,15 +2,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { Check, FileText, Loader2, Plus } from 'lucide-react';
 import { Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardDescription, CardFooter, CardHairline, CardMeta, CardTitle } from '@ki4jlu/design-system';
 import axios from 'axios';
-import { API_BASE_URL } from '../api';
-import { useTheme } from '../contexts/ThemeContext';
-import { useToast } from '../contexts/ToastContext';
-import { useKbSearch } from '../contexts/KbSearchContext';
-import { FILTER_ALL } from '../hooks/useTopicFilters';
-import type { KbCatalogEntry, KbCategory } from '../types';
+import { API_BASE_URL } from '../../api';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useToast } from '../../contexts/ToastContext';
+import { useKbSearch } from '../../contexts/KbSearchContext';
+import { FILTER_ALL } from '../../hooks/useTopicFilters';
+import type { KbCatalogEntry, KbCategory } from '../../types';
 import { CategoryPill } from './CategoryPill';
-import { TitleCardMeta } from './kbSettings/assistant/StartPageParts';
-import { categoryDotColor } from './kbSettings/assistant/startPageModel';
+import { TitleCardMeta } from '../kbSettings/assistant/StartPageParts';
+import { categoryDotColor } from '../kbSettings/assistant/startPageModel';
 
 interface KbCatalogPanelProps {
     /** Called after every successful subscribe/unsubscribe toggle, so the

@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { TopicSettingsButton } from './TopicSettingsButton';
-import type { TopicSettingsDiff } from '../utils/topicSettingsDiff';
+import type { TopicSettingsDiff } from '../../utils/topicSettingsDiff';
 
 /*
  * ORACLE: the card's acceptance — no dot in the default state, a dot when
@@ -14,7 +14,7 @@ const DE: Record<string, string> = {
   topicSettingsButton: 'Einstellungen des Themas',
   topicSettingsCustomized: 'angepasst',
 };
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => DE[k] ?? k }) }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => DE[k] ?? k }) }));
 
 const diffOf = (labels: string[]): TopicSettingsDiff => ({
   isCustomized: labels.length > 0, changedKeys: labels.map((_, i) => `k${i}`), labels, count: labels.length,

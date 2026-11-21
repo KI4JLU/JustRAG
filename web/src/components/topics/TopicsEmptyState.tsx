@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Button } from '@ki4jlu/design-system';
 import { CloudOff, RotateCw, SearchX } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
-import { FILTER_ALL, type TopicFilterState } from '../hooks/useTopicFilters';
+import { useTheme } from '../../contexts/ThemeContext';
+import { FILTER_ALL, type TopicFilterState } from '../../hooks/useTopicFilters';
 
 export interface TopicsEmptyStateProps {
   icon: ReactNode;

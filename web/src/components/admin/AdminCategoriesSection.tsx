@@ -7,7 +7,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useModalContext } from '../../contexts/ModalContext';
 import type { KbCategory } from '../../types';
-import { CategoryPill } from '../CategoryPill';
+import { CategoryPill } from '../topics/CategoryPill';
 
 /**
  * CRUD section for the shared category taxonomy (GET/POST /api/admin/kb-categories,

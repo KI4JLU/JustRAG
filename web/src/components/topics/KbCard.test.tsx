@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PrivateKbCard } from './KbCard';
-import { translations, type Language } from '../translations';
-import type { KnowledgeBase } from '../types';
+import { translations, type Language } from '../../translations';
+import type { KnowledgeBase } from '../../types';
 
 /* ---------------------------------------------------------------------------
  * The KB card's meta lines (card KI-848, developer mockup).

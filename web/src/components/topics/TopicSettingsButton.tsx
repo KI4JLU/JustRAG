@@ -1,8 +1,8 @@
 import { useId } from 'react';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@ki4jlu/design-system';
 import { Settings } from 'lucide-react';
-import { useTheme } from '../contexts/ThemeContext';
-import type { TopicSettingsDiff } from '../utils/topicSettingsDiff';
+import { useTheme } from '../../contexts/ThemeContext';
+import type { TopicSettingsDiff } from '../../utils/topicSettingsDiff';
 
 export interface TopicSettingsButtonProps {
   diff: TopicSettingsDiff;

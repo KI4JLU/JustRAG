@@ -4,9 +4,9 @@ import { expect, fn, waitFor } from 'storybook/test';
 import { Grid } from '@ki4jlu/design-system';
 import { PrivateKbCard } from './KbCard';
 import { TopicGridPage } from './TopicGridPage';
-import { translations } from '../translations';
-import { expectFooterInsideCard, expectUniformCardHeights } from '../test/kbCardGeometry';
-import type { KnowledgeBase } from '../types';
+import { translations } from '../../translations';
+import { expectFooterInsideCard, expectUniformCardHeights } from '../../test/kbCardGeometry';
+import type { KnowledgeBase } from '../../types';
 
 /* ---------------------------------------------------------------------------
  * GEOMETRY stories for the KB card's footer (bug card KI-843).

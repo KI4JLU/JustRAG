@@ -44,7 +44,7 @@ import { SharedTopicsView } from '../pages/SharedTopicsView';
 import { DiscoverView } from '../pages/DiscoverView';
 import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from '../components/shell/AppChrome';
 import { ChatView } from '../components/ChatView';
-import { TopicModals } from '../components/TopicModals';
+import { TopicModals } from '../components/topics/TopicModals';
 
 // Lazy load heavy components
 const GlobalKbSettings = lazy(() => import('../pages/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));

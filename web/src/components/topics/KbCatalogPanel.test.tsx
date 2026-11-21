@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import { legibleColor } from '@ki4jlu/design-system';
 import KbCatalogPanel from './KbCatalogPanel';
-import { KbSearchProvider } from '../contexts/KbSearchContext';
+import { KbSearchProvider } from '../../contexts/KbSearchContext';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
@@ -19,8 +19,8 @@ const mockedAxios = vi.mocked(axios, true);
 const tMock = (k: string) => k;
 const themeMock = { t: tMock };
 const toastMock = { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() };
-vi.mock('../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
-vi.mock('../contexts/ToastContext', () => ({ useToast: () => toastMock }));
+vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
+vi.mock('../../contexts/ToastContext', () => ({ useToast: () => toastMock }));
 
 /**
  * The query is driven through the CONTEXT, not through an input (card KI-787).

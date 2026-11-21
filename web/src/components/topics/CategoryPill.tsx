@@ -1,6 +1,6 @@
 import { cn } from '@ki4jlu/design-system';
-import type { KbCategory } from '../types';
-import { categoryDotColor } from './kbSettings/assistant/startPageModel';
+import type { KbCategory } from '../../types';
+import { categoryDotColor } from '../kbSettings/assistant/startPageModel';
 
 /*
  * A catalog category as the app shows it everywhere — the topic's title card,
