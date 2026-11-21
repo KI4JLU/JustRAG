@@ -180,7 +180,7 @@ describe('AppFrame, topic open — was die Shell bekommt', () => {
     expect(shellProps.rightPanel?.collapsedPreview).toBeUndefined();
   });
 
-  it('gibt der Shell drei Reiter mit ihrer Bereichszuordnung — kein vierter Reiter mehr', () => {
+  it('gibt der Shell drei Reiter mit ihrer Bereichszuordnung', () => {
     renderLayout();
     expect(shellProps.mobileTabs?.map(tab => [tab.id, tab.pane])).toEqual([
       ['history', 'left'],
@@ -220,10 +220,8 @@ describe('AppFrame, topic open — Systemmeldung (KI-936)', () => {
 });
 
 describe('AppFrame, topic open Quellen-Sichtbarkeit', () => {
-  it('nimmt die Quellenspalte nie heraus — seit dem 22.09.2026', () => {
-    // Bis zum 22.09.2026 blendete `showRight={false}` die Spalte im alten Werkzeug-Reiter
-    // aus. Die Ansicht gibt es nicht mehr, also keinen Zustand, in dem die
-    // Spalte fehlen dürfte.
+  it('nimmt die Quellenspalte nie heraus', () => {
+    // Es gibt keinen Zustand, in dem die Spalte fehlen dürfte.
     renderLayout();
     expect(screen.getByTestId('sources-panel')).toBeInTheDocument();
     expect(shellProps.showRight).toBeUndefined();
@@ -264,7 +262,7 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     expect(label.getByText('TEST')).toHaveAttribute('aria-current', 'page');
     // The back arrow it replaces is gone.
     expect(screen.queryByRole('button', { name: 'backToOverview' })).toBeNull();
-    // Der alte Reiter-Block (Chat / Bericht / Mindmap / Werkzeuge) und die
+    // Der alte Reiter-Block (Chat / Bericht / Mindmap) und die
     // rechte Knopfgruppe (Sprache, Teilen, KB-Einstellungen) sind mit der
     // `chat-header` gegangen und haben hier keinen Ersatz — das ist Absicht
     // und Aufgabe der Folgekarte. Rechts steht seit dem 22.09.2026 nur das

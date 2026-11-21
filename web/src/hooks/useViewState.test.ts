@@ -51,7 +51,7 @@ describe('useViewState swipe navigation', () => {
     expect(result.current.mobileTab).toBe('history');
   });
 
-  it('Swipe links von chat landet direkt auf files (kein Werkzeug-Reiter mehr)', () => {
+  it('Swipe links von chat landet direkt auf files', () => {
     const { result } = setup();
     swipeLeft(result);
     expect(result.current.mobileTab).toBe('files');
