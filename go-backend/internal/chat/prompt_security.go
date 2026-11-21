@@ -321,11 +321,6 @@ func ValidatePromptInput(input, context string) PromptValidationResult {
 // Convenience wrappers
 // ---------------------------------------------------------------------------
 
-// ValidateMessage validates a chat message.
-func ValidateMessage(msg string) PromptValidationResult {
-	return ValidatePromptInput(msg, "message")
-}
-
 // ValidateQuery validates a search query.
 func ValidateQuery(query string) PromptValidationResult {
 	return ValidatePromptInput(query, "query")

@@ -51,50 +51,6 @@ func TestCheckRedirectHonoursConfigMaxRedirects(t *testing.T) {
 	}
 }
 
-func TestApplyDefaultHeaders(t *testing.T) {
-	t.Parallel()
-	req, err := http.NewRequest("GET", "https://example.com/", nil)
-	if err != nil {
-		t.Fatalf("http.NewRequest: %v", err)
-	}
-	applyDefaultHeaders(req, "TestUA/1.0", "en-US")
-	if got := req.Header.Get("User-Agent"); got != "TestUA/1.0" {
-		t.Errorf("UA = %q", got)
-	}
-	if got := req.Header.Get("Accept-Language"); got != "en-US" {
-		t.Errorf("Accept-Language = %q", got)
-	}
-	if got := req.Header.Get("Accept"); !strings.Contains(got, "text/html") {
-		t.Errorf("Accept = %q", got)
-	}
-	if got := req.Header.Get("Accept-Encoding"); !strings.Contains(got, "br") {
-		t.Errorf("Accept-Encoding = %q", got)
-	}
-	// Chrome Client Hints
-	if got := req.Header.Get("Sec-Ch-Ua"); got == "" {
-		t.Error("missing Sec-Ch-Ua header")
-	}
-	if got := req.Header.Get("Sec-Ch-Ua-Mobile"); got != "?0" {
-		t.Errorf("Sec-Ch-Ua-Mobile = %q, want ?0", got)
-	}
-	if got := req.Header.Get("Sec-Ch-Ua-Platform"); got == "" {
-		t.Error("missing Sec-Ch-Ua-Platform header")
-	}
-	// Sec-Fetch navigation headers
-	if got := req.Header.Get("Sec-Fetch-Dest"); got != "document" {
-		t.Errorf("Sec-Fetch-Dest = %q, want document", got)
-	}
-	if got := req.Header.Get("Sec-Fetch-Mode"); got != "navigate" {
-		t.Errorf("Sec-Fetch-Mode = %q, want navigate", got)
-	}
-	if got := req.Header.Get("Sec-Fetch-Site"); got != "none" {
-		t.Errorf("Sec-Fetch-Site = %q, want none", got)
-	}
-	if got := req.Header.Get("Sec-Fetch-User"); got != "?1" {
-		t.Errorf("Sec-Fetch-User = %q, want ?1", got)
-	}
-}
-
 func mustURL(s string) *url.URL {
 	u, err := url.Parse(s)
 	if err != nil {

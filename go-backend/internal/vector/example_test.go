@@ -6,12 +6,12 @@ import (
 	"github.com/justrag/go-backend/internal/vector"
 )
 
-// ExampleFuseRRF demonstrates Reciprocal Rank Fusion of two retrieval
+// ExampleFuseRRFWeighted demonstrates Reciprocal Rank Fusion of two retrieval
 // passes. A document that appears in both lists outranks documents that
 // appear in only one — that's the whole point of RRF as a hybrid-search
 // fusion, and the example pins it in executable docs so `go doc -all
 // github.com/justrag/go-backend/internal/vector` shows the behaviour.
-func ExampleFuseRRF() {
+func ExampleFuseRRFWeighted() {
 	// Vector-pass results.
 	vec := []vector.RankedDoc{
 		{ID: "a", VectorScore: 0.92},
@@ -25,7 +25,7 @@ func ExampleFuseRRF() {
 		{ID: "b", KeywordRank: 3},
 	}
 
-	fused := vector.FuseRRF(60, vec, bm25)
+	fused := vector.FuseRRFWeighted(60, nil, vec, bm25)
 	fmt.Println(fused[0].ID) // shared between both lists → highest fused score
 	// Output: a
 }

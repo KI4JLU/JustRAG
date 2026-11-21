@@ -125,7 +125,13 @@ func SearchJustFind(ctx context.Context, f *fetcher.Fetcher, baseURL, query stri
 		return nil, fmt.Errorf("justfind: upstream HTTP %d", res.StatusCode)
 	}
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(res.HTML))
+	return parseResultsHTML(res.HTML, baseURL)
+}
+
+// parseResultsHTML parses a JustFind search-result page and returns the
+// extracted papers. baseURL is used to resolve relative hrefs.
+func parseResultsHTML(html, baseURL string) ([]AcademicPaper, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return nil, fmt.Errorf("justfind: parse html: %w", err)
 	}
@@ -167,21 +173,6 @@ func hasJustFindMarker(doc *goquery.Document) bool {
 		}
 	}
 	return false
-}
-
-// ParseResultsHTML parses a JustFind search-result HTML string and returns the
-// extracted papers. baseURL is used to resolve relative hrefs. This is the
-// exported counterpart of parseResults, available for testing and alternative
-// callers that have already obtained the HTML by other means.
-func ParseResultsHTML(html, baseURL string) ([]AcademicPaper, error) {
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
-	if err != nil {
-		return nil, fmt.Errorf("justfind: parse html: %w", err)
-	}
-	if !hasJustFindMarker(doc) {
-		return nil, fmt.Errorf("justfind: unexpected page content (no VuFind markers — upstream error or challenge page)")
-	}
-	return parseResults(doc, baseURL), nil
 }
 
 // parseResults walks the parsed HTML document and extracts AcademicPaper entries.

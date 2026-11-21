@@ -78,7 +78,7 @@ func TestClassifyLongmemConflict_SendsStructuredOutputContract(t *testing.T) {
 func TestGenerateSubQueries_SendsStructuredOutputContract(t *testing.T) {
 	resolver, captured := captureStructuredRequest(t, `["who leads X?","what budget?"]`)
 
-	queries, err := GenerateSubQueries(context.Background(), resolver, "complex q", "", "en")
+	queries, err := GenerateSubQueriesWithModel(context.Background(), resolver, "complex q", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

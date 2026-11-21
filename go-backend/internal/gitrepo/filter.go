@@ -78,18 +78,3 @@ func IsBinaryContent(content []byte) bool {
 	}
 	return bytes.IndexByte(sniff, 0) >= 0
 }
-
-// ShouldIngest decides whether a repo file is pulled into the KB and the mime
-// type to record. content is the file's first bytes (≤8 KiB suffices) for the
-// binary sniff; it may be the full content for small files.
-// This is a thin wrapper around ShouldIngestPath + IsBinaryContent.
-func ShouldIngest(p string, size int, content []byte) (bool, string) {
-	ok, mime := ShouldIngestPath(p, size)
-	if !ok {
-		return false, ""
-	}
-	if IsBinaryContent(content) {
-		return false, ""
-	}
-	return true, mime
-}

@@ -31,16 +31,6 @@ type IPExtractor struct {
 	trustedProxyHops atomic.Int32
 }
 
-// NewIPExtractor returns an extractor configured with hops trusted
-// proxies in front of this server. n ≤ 0 disables XFF/X-Real-IP trust.
-// Behind a single reverse proxy (nginx, ALB, Cloudflare → server),
-// pass 1.
-func NewIPExtractor(hops int) *IPExtractor {
-	e := &IPExtractor{}
-	e.SetHops(hops)
-	return e
-}
-
 // SetHops updates the trusted-proxy hop count. Safe to call at any time
 // but typically invoked once at startup.
 func (e *IPExtractor) SetHops(n int) {
@@ -52,9 +42,7 @@ func (e *IPExtractor) SetHops(n int) {
 
 // defaultIPExtractor is the package-wide extractor that the in-memory
 // and Redis rate limiters consult by default. Operators configure it
-// once at server startup via SetTrustedProxyHops; future code that
-// needs a private hop policy can construct its own IPExtractor via
-// NewIPExtractor without touching this global.
+// once at server startup via SetTrustedProxyHops.
 var defaultIPExtractor = &IPExtractor{}
 
 // SetTrustedProxyHops configures the package-wide default extractor.
@@ -324,8 +312,7 @@ func (rl *RateLimiter) MiddlewareForPrefix(prefix string, next http.Handler) htt
 }
 
 // extractIP returns the client IP for r using the package-wide default
-// extractor. Code paths that need a private hop policy should construct
-// their own IPExtractor via NewIPExtractor and call ExtractIP directly.
+// extractor.
 func extractIP(r *http.Request) string {
 	return defaultIPExtractor.ExtractIP(r)
 }

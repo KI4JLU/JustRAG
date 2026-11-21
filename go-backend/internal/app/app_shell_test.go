@@ -250,3 +250,8 @@ func TestStaticServing_AppNameIsReadPerRequest(t *testing.T) {
 		t.Error("a changed name kept the ETag")
 	}
 }
+
+// staticAppName is an appNameReader that always answers prefix and product.
+func staticAppName(prefix, product string) appNameReader {
+	return func(context.Context) (string, string) { return prefix, product }
+}

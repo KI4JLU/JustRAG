@@ -1,10 +1,6 @@
 package vector
 
 import (
-	"encoding/json"
-	"fmt"
-	"strings"
-
 	"github.com/jackc/pgx/v5"
 )
 
@@ -74,40 +70,6 @@ func toRankedDocs(rows []rawRow, isVector bool) []RankedDoc {
 	}
 	return docs
 }
-
-// buildMetadataFilterClause appends metadata filter conditions to an existing
-// WHERE clause fragment. Each key/value pair becomes a JSONB containment check:
-//
-//	metadata @> '{"key":"value"}'::jsonb
-//
-// Returns the updated clause and args slice; paramN is the next available
-// positional parameter index.
-//
-// Currently reserved for future use — not wired into the main pipeline yet.
-func buildMetadataFilterClause(
-	baseClause string,
-	args []any,
-	paramN int,
-	filters map[string]string,
-) (clause string, outArgs []any, nextParam int) {
-	clause = baseClause
-	outArgs = args
-	nextParam = paramN
-
-	for k, v := range filters {
-		jsonSnippet, err := json.Marshal(map[string]string{k: v})
-		if err != nil {
-			continue
-		}
-		clause += fmt.Sprintf(" AND metadata @> $%d::jsonb", nextParam)
-		outArgs = append(outArgs, string(jsonSnippet))
-		nextParam++
-	}
-	return clause, outArgs, nextParam
-}
-
-// joinStrings is a local alias used in tests; not part of the public API.
-func joinStrings(ss []string) string { return strings.Join(ss, ",") }
 
 // topScore returns the score of the first (highest-ranked) chunk, or 0 if empty.
 func topScore(chunks []SearchChunk) float64 {

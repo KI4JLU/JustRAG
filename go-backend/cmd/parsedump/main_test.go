@@ -21,7 +21,7 @@ func TestMimeForMatchesUploadcheck(t *testing.T) {
 }
 
 func TestDumpBuiltinDocx(t *testing.T) {
-	f, err := buildFactory("builtin", "")
+	f, err := buildFactoryWith("builtin", "", "de,en", "accurate")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestDumpBuiltinDocx(t *testing.T) {
 }
 
 func TestDumpErrorIsInField(t *testing.T) {
-	f, err := buildFactory("builtin", "")
+	f, err := buildFactoryWith("builtin", "", "de,en", "accurate")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,10 +62,10 @@ func TestDumpJSONFieldNames(t *testing.T) {
 }
 
 func TestBuildFactoryRejectsUnknownParser(t *testing.T) {
-	if _, err := buildFactory("nope", ""); err == nil {
+	if _, err := buildFactoryWith("nope", "", "de,en", "accurate"); err == nil {
 		t.Fatal("expected error")
 	}
-	if _, err := buildFactory("docling", ""); err == nil {
+	if _, err := buildFactoryWith("docling", "", "de,en", "accurate"); err == nil {
 		t.Fatal("docling without url must error")
 	}
 }
@@ -103,7 +103,7 @@ func doclingURL(t *testing.T) string {
 // docling sidecar is reachable.
 func TestDumpStructureFieldNames(t *testing.T) {
 	url := doclingURL(t)
-	f, err := buildFactory("docling", url)
+	f, err := buildFactoryWith("docling", url, "de,en", "accurate")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestDumpStructureFieldNames(t *testing.T) {
 // from the dump (not an empty object): goldset treats an absent structure
 // as "parser does not produce structure" (n/a), which is what builtin is.
 func TestDumpBuiltinOmitsStructure(t *testing.T) {
-	f, err := buildFactory("builtin", "")
+	f, err := buildFactoryWith("builtin", "", "de,en", "accurate")
 	if err != nil {
 		t.Fatal(err)
 	}

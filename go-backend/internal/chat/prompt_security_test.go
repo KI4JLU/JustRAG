@@ -180,16 +180,8 @@ func TestValidatePromptInput_Sanitization(t *testing.T) {
 	})
 }
 
-// The following three tests are thin sanity checks for the public wrapper
+// The following two tests are thin sanity checks for the public wrapper
 // functions. Kept flat — a shared table buys nothing here.
-
-func TestValidateMessage(t *testing.T) {
-	t.Parallel()
-	result := ValidateMessage("Hello world")
-	if !result.IsValid {
-		t.Error("expected valid")
-	}
-}
 
 func TestValidateQuery(t *testing.T) {
 	t.Parallel()

@@ -38,7 +38,8 @@ type CloneOptions struct {
 	Transport http.RoundTripper // SSRF-safe; nil => go-git default (tests/local file://)
 }
 
-// RepoFile is a file from the cloned repo that passed ShouldIngest.
+// RepoFile is a file from the cloned repo that passed ShouldIngestPath and
+// IsBinaryContent.
 type RepoFile struct {
 	Path     string
 	BlobSHA  string
@@ -138,7 +139,8 @@ func requireSafeTransport(scheme string, transportProvided, installed bool) erro
 }
 
 // CloneAndCollect shallow-clones the repo to a temp dir, walks the HEAD tree,
-// applies ShouldIngest, and returns the surviving files with content.
+// applies ShouldIngestPath and IsBinaryContent, and returns the surviving
+// files with content.
 func CloneAndCollect(ctx context.Context, opts CloneOptions) (*CloneResult, error) {
 	if opts.Transport != nil {
 		InstallSafeGitTransport(opts.Transport)

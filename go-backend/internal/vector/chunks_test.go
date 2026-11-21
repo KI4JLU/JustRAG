@@ -48,50 +48,6 @@ func TestFormatEmbeddingEmpty(t *testing.T) {
 	}
 }
 
-// TestParseEmbeddingLiteralRoundTrip verifies that parseEmbeddingLiteral
-// inverts formatEmbedding for canonical and edge-case shapes. formatEmbedding
-// emits float32-precision text (e.g. 0.1 not 0.10000000149011612), so the
-// stable round-trip is format → parse → format equals the first format.
-func TestParseEmbeddingLiteralRoundTrip(t *testing.T) {
-	t.Parallel()
-	cases := [][]float64{
-		{},
-		{0.1, 0.2, 0.3},
-		{-1.5, 0, 1.5},
-		{1e-7, -2.5e3, 0.0001},
-		{42},
-	}
-	for _, in := range cases {
-		first := formatEmbedding(in)
-		parsed, err := parseEmbeddingLiteral(first)
-		if err != nil {
-			t.Fatalf("parseEmbeddingLiteral(%q): %v", first, err)
-		}
-		if len(parsed) != len(in) {
-			t.Fatalf("length mismatch for %q: got %d, want %d", first, len(parsed), len(in))
-		}
-		if second := formatEmbedding(parsed); second != first {
-			t.Errorf("round-trip diverged: first=%q second=%q", first, second)
-		}
-	}
-}
-
-// TestParseEmbeddingLiteralErrors verifies rejection of malformed literals.
-func TestParseEmbeddingLiteralErrors(t *testing.T) {
-	t.Parallel()
-	bad := []string{
-		"",        // too short
-		"1,2,3",   // missing brackets
-		"[1,abc]", // non-numeric component
-		"[",       // truncated
-	}
-	for _, in := range bad {
-		if _, err := parseEmbeddingLiteral(in); err == nil {
-			t.Errorf("expected error for %q, got nil", in)
-		}
-	}
-}
-
 // TestDeleteQueryConstruction verifies the SQL strings built by the delete helpers.
 func TestDeleteQueryConstruction(t *testing.T) {
 	t.Parallel()

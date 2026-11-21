@@ -199,7 +199,7 @@ func agentRetrieveRoute(ctx context.Context, r *AgentRetriever, files FileCounte
 	}
 	// The node dispatches kb_search itself, outside the bridge's tool
 	// policy, so it enforces kb_search's role floor (fails closed on an
-	// empty or unknown role) — as adkbridge.RetrieveNode does.
+	// empty or unknown role).
 	if need := adkbridge.PolicyFor("kb_search").RequiresRole; !adkbridge.RoleAtLeast(sc.Role, need) {
 		return "", q, fmt.Errorf("%w: kb_search requires role %s", adkbridge.ErrForbiddenTool, need)
 	}

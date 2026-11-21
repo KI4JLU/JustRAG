@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -241,17 +240,3 @@ func codeExecHandler(cfg CodeExecConfig, runner CodeExecRunner, enabled func(ctx
 		}, nil
 	}
 }
-
-// readAtMost is unused in production (dockerRunner uses the buffer
-// approach above) but kept as a stable utility for future stream-
-// mode runners that want to terminate child processes early when
-// output exceeds the cap. The buffer approach is simpler for a
-// 10-second wall clock; the stream approach matters for longer
-// budgets that need early-kill on runaway output.
-func readAtMost(r io.Reader, n int) (string, error) {
-	limited := io.LimitReader(r, int64(n))
-	b, err := io.ReadAll(limited)
-	return string(b), err
-}
-
-var _ = readAtMost // pin the symbol so lint doesn't drop it

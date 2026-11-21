@@ -127,26 +127,3 @@ func kbSearchHandler(svc SearchService) mcp.ToolHandlerFunc {
 		return out, nil
 	}
 }
-
-// VectorChunksFromResult is the orchestrator-side helper that converts
-// kb_search's protocol-shaped chunks back into vector.SearchChunk so the
-// existing dedup/sandwich/MMR helpers continue to work without a parallel
-// implementation. Score and Content are sufficient for the downstream
-// pipeline; fields the registry doesn't expose (RerankScore, Grade,
-// ParentChunkID) are zero-valued.
-func VectorChunksFromResult(r mcp.ToolResult) []vector.SearchChunk {
-	if len(r.Chunks) == 0 {
-		return nil
-	}
-	out := make([]vector.SearchChunk, len(r.Chunks))
-	for i, c := range r.Chunks {
-		out[i] = vector.SearchChunk{
-			ID:       c.ID,
-			FileID:   c.FileID,
-			FileName: c.FileName,
-			Content:  c.Content,
-			Score:    c.Score,
-		}
-	}
-	return out
-}

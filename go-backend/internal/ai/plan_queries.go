@@ -94,21 +94,6 @@ type Plan struct {
 	Rationale string     `json:"rationale"`
 }
 
-// FlattenToFlatPlan converts a flat sub-query list (the legacy
-// PlanQueries shape) into a no-edges DAG. Used when the DAG planner
-// is disabled or has degraded to fallback — the executor still gets a
-// uniform Plan input.
-func FlattenToFlatPlan(queries []string, rationale string) Plan {
-	nodes := make([]PlanNode, len(queries))
-	for i, q := range queries {
-		nodes[i] = PlanNode{
-			ID:    fmt.Sprintf("n%d", i+1),
-			Query: q,
-		}
-	}
-	return Plan{Nodes: nodes, Rationale: rationale}
-}
-
 // PlanQueriesDAG decomposes a complex_reasoning question into a DAG of
 // sub-queries via a single LLM call. The returned Plan may have:
 //   - independent nodes (DependsOn empty) the executor runs in parallel;
@@ -118,7 +103,7 @@ func FlattenToFlatPlan(queries []string, rationale string) Plan {
 // Cycle detection is the executor's job — this function does NOT
 // validate the graph; LLM output may emit cycles (rare in practice but
 // observed). The caller's expected behavior is: log
-// `rag_plan_dag_invalid_total` and fall back to FlattenToFlatPlan.
+// `rag_plan_dag_invalid_total` and fall back to the flat planner.
 //
 // modelOverride empty → resolver default. Token usage from the
 // completion is recorded against aibudget.Add(ctx, ...) when an

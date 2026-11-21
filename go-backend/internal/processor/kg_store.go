@@ -174,22 +174,3 @@ func (s *kgStore) persistKGExtraction(ctx context.Context, kbID, fileID, chunkID
 	}
 	return created, deduped, edges, nil
 }
-
-// deleteKGForKB removes all kg_entities and kg_edges for a KB. The
-// FK cascade from kg_entities → kg_edges on DELETE handles the
-// edge side; we only have to delete the entity rows. Called when a
-// KB is deleted (cascade-deleter wires this in alongside the chunk
-// table cleanup) and when the operator opts to nuke the graph after
-// a re-ingestion that materially changed the corpus.
-//
-//nolint:unused // kept for KB-delete cascade cleanup and operator-initiated graph nuke (see doc comment); not wired in yet
-func (s *kgStore) deleteKGForKB(ctx context.Context, kbID string) error {
-	if s == nil || s.pool == nil {
-		return errors.New("kg_store: no DB pool configured")
-	}
-	_, err := s.pool.Exec(ctx, `DELETE FROM kg_entities WHERE kb_id = $1::uuid`, kbID)
-	if err != nil {
-		return fmt.Errorf("kg_store: delete by kb: %w", err)
-	}
-	return nil
-}

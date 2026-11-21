@@ -35,9 +35,7 @@ const (
 	rerankPerDocTokenCap = 8_000
 )
 
-// estimateRerankTokens is a cheap chars/4 token approximation, matching the
-// ingestion-side parser.EstimateTokens heuristic. Deliberately local to avoid
-// importing the parser package into the low-level ai package.
+// estimateRerankTokens is a cheap chars/4 token approximation.
 func estimateRerankTokens(s string) int { return len(s) / 4 }
 
 // capRerankDocuments truncates documents so a single rerank request stays

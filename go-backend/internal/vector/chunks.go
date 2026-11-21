@@ -726,42 +726,6 @@ func (s *ChunkService) GetRaptorDescendantLeafContentsAcrossDims(ctx context.Con
 	return merged, nil
 }
 
-// parseEmbeddingLiteral is the inverse of formatEmbedding: it parses
-// pgvector's text format `[1.0,2.0,...]` into a []float64. Retained as the
-// inverse of formatEmbedding and exercised by the round-trip test that guards
-// formatEmbedding's text encoding (still used on the search / query-cache /
-// longmem / HyPE paths). The RAPTOR reload now scans vectors as binary
-// pgvector values directly (see ListLeafEmbeddingsForRaptor).
-//
-// Byte-scanning via strings.IndexByte instead of strings.Split avoids
-// allocating an N-element string slice per vector.
-func parseEmbeddingLiteral(s string) ([]float64, error) {
-	if len(s) < 2 || s[0] != '[' || s[len(s)-1] != ']' {
-		return nil, fmt.Errorf("not a pgvector literal: %q", s)
-	}
-	inner := s[1 : len(s)-1]
-	if inner == "" {
-		return []float64{}, nil
-	}
-	out := make([]float64, 0, 4096)
-	for i := 0; len(inner) > 0; i++ {
-		var part string
-		if j := strings.IndexByte(inner, ','); j >= 0 {
-			part = inner[:j]
-			inner = inner[j+1:]
-		} else {
-			part = inner
-			inner = ""
-		}
-		v, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
-		if err != nil {
-			return nil, fmt.Errorf("parse component %d: %w", i, err)
-		}
-		out = append(out, v)
-	}
-	return out, nil
-}
-
 // DeleteChunksByKbID deletes all chunks belonging to a knowledge base from the given dimension table.
 func (s *ChunkService) DeleteChunksByKbID(ctx context.Context, kbID string, dimensions int) error {
 	table := GetVectorTableName(dimensions)

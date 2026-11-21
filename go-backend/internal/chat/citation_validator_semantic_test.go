@@ -76,7 +76,7 @@ func TestRunCitationValidation_SemanticFlipsNoOverlap(t *testing.T) {
 			"the notice period is three months": unitVec([]float64{1, 0, 0}),
 		},
 	}
-	for _, w := range citationWindows(answer) {
+	for _, w := range windowsByN(answer) {
 		embedder.vecs[w] = unitVec([]float64{1, 0, 0})
 	}
 	cfg := &SemanticConfig{Embed: embedder.embed, Threshold: 0.85}
@@ -104,7 +104,7 @@ func TestRunCitationValidation_SemanticBelowThreshold(t *testing.T) {
 			"the notice period is three months": unitVec([]float64{0.6, 0.8, 0}),
 		},
 	}
-	for _, w := range citationWindows(answer) {
+	for _, w := range windowsByN(answer) {
 		embedder.vecs[w] = unitVec([]float64{1, 0, 0})
 	}
 	cfg := &SemanticConfig{Embed: embedder.embed, Threshold: 0.85}
@@ -192,7 +192,7 @@ func TestRunCitationValidation_WindowCachedAcrossNs(t *testing.T) {
 			"source two content": unitVec([]float64{1, 0, 0}),
 		},
 	}
-	for _, w := range citationWindows(answer) {
+	for _, w := range windowsByN(answer) {
 		embedder.vecs[w] = unitVec([]float64{1, 0, 0})
 	}
 	cfg := &SemanticConfig{Embed: embedder.embed, Threshold: 0.85}

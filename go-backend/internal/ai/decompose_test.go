@@ -22,7 +22,7 @@ func TestGenerateSubQueries_HappyPath(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	subQ, err := GenerateSubQueries(context.Background(), resolver, "Which of Alice's projects has the highest budget and who leads it?", "", "en")
+	subQ, err := GenerateSubQueriesWithModel(context.Background(), resolver, "Which of Alice's projects has the highest budget and who leads it?", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestGenerateSubQueries_CapsAtFour(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	subQ, err := GenerateSubQueries(context.Background(), resolver, "topic", "", "en")
+	subQ, err := GenerateSubQueriesWithModel(context.Background(), resolver, "topic", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestGenerateSubQueries_EmptyArrayMeansSingleAspect(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	subQ, err := GenerateSubQueries(context.Background(), resolver, "What is the project ID of the Stud.IP update?", "", "en")
+	subQ, err := GenerateSubQueriesWithModel(context.Background(), resolver, "What is the project ID of the Stud.IP update?", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestGenerateSubQueries_DropsEmptyEntries(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	subQ, err := GenerateSubQueries(context.Background(), resolver, "topic", "", "en")
+	subQ, err := GenerateSubQueriesWithModel(context.Background(), resolver, "topic", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestGenerateSubQueries_ParseFailureIsNotError(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	subQ, err := GenerateSubQueries(context.Background(), resolver, "topic", "", "en")
+	subQ, err := GenerateSubQueriesWithModel(context.Background(), resolver, "topic", "", "en", "")
 	if err != nil {
 		t.Fatalf("parse failure should not propagate as error: %v", err)
 	}

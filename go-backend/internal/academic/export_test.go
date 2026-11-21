@@ -9,3 +9,9 @@ func AllowAllURLsForTest() (restore func()) {
 	validateURL = func(context.Context, string) error { return nil }
 	return func() { validateURL = old }
 }
+
+// ParseResultsHTMLForTest parses a JustFind result page without the fetch,
+// so tests need no loopback server past the SSRF guard.
+func ParseResultsHTMLForTest(html, baseURL string) ([]AcademicPaper, error) {
+	return parseResultsHTML(html, baseURL)
+}

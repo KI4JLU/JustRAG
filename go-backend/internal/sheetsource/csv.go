@@ -86,11 +86,10 @@ type CSVSource struct {
 	enc   string // reflects only the 64 KiB sniff sample; ReadSheet re-decides on the full file
 }
 
-func OpenCSV(path string) (src *CSVSource, err error) { return OpenCSVNamed(path, "") }
-
-// OpenCSVNamed is OpenCSV with the sheet named after fileName (the original
-// upload name) instead of path's basename: library-backed files on local
-// storage live under an opaque blob path. Empty fileName falls back to path.
+// OpenCSVNamed opens the CSV at path with the sheet named after fileName (the
+// original upload name) instead of path's basename: library-backed files on
+// local storage live under an opaque blob path. Empty fileName falls back to
+// path.
 func OpenCSVNamed(path, fileName string) (src *CSVSource, err error) {
 	defer recoverToErr(&err, "OpenCSV")
 	f, err := os.Open(path)

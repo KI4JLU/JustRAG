@@ -106,8 +106,3 @@ const (
 	TextMaxChars = 5_000_000
 	PDFMaxPages  = 500
 )
-
-// EstimateTokens returns a rough token count estimate (4 chars per token).
-func EstimateTokens(text string) int {
-	return len(text) / 4
-}

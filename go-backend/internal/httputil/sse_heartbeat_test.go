@@ -64,7 +64,7 @@ func TestSSEStream_PingsAfterIdleInterval(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rec := newSyncRecorder()
-	s := StartSSEWithInterval(ctx, rec, 10*time.Millisecond)
+	s := startSSE(ctx, rec, 10*time.Millisecond)
 	defer s.Stop()
 
 	waitForPings(t, rec)
@@ -77,7 +77,7 @@ func TestSSEStream_QuietWhileFramesFlow(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rec := newSyncRecorder()
-	s := StartSSEWithInterval(ctx, rec, 10*time.Millisecond)
+	s := startSSE(ctx, rec, 10*time.Millisecond)
 	defer s.Stop()
 
 	for i := range 50 {
@@ -98,7 +98,7 @@ func TestSSEStream_PingNeverSplitsFrame(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rec := newSyncRecorder()
-	s := StartSSEWithInterval(ctx, rec, 2*time.Millisecond)
+	s := startSSE(ctx, rec, 2*time.Millisecond)
 	defer s.Stop()
 
 	const (
@@ -166,7 +166,7 @@ func TestSSEStream_PingNeverSplitsFrame(t *testing.T) {
 func TestSSEStream_StopsWhenContextCancels(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	rec := newSyncRecorder()
-	s := StartSSEWithInterval(ctx, rec, 5*time.Millisecond)
+	s := startSSE(ctx, rec, 5*time.Millisecond)
 	defer s.Stop()
 
 	waitForPings(t, rec)
@@ -186,7 +186,7 @@ func TestSSEStream_StopIsDeterministic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rec := newSyncRecorder()
-	s := StartSSEWithInterval(ctx, rec, 5*time.Millisecond)
+	s := startSSE(ctx, rec, 5*time.Millisecond)
 
 	waitForPings(t, rec)
 	s.Stop()
@@ -228,7 +228,7 @@ func TestSSEStream_StopWaitsForInFlightPing(t *testing.T) {
 		inFlight:         make(chan struct{}),
 		release:          make(chan struct{}),
 	}
-	s := StartSSEWithInterval(ctx, bw, 5*time.Millisecond)
+	s := startSSE(ctx, bw, 5*time.Millisecond)
 
 	select {
 	case <-bw.inFlight: // a ping's Write has entered and holds the stream mutex
@@ -266,7 +266,7 @@ func TestSSEStream_InFlightTickHonoursStopFlag(t *testing.T) {
 	defer cancel()
 	rec := newSyncRecorder()
 	const interval = time.Hour // no tick can fire during the test
-	s := StartSSEWithInterval(ctx, rec, interval)
+	s := startSSE(ctx, rec, interval)
 
 	s.Stop()
 	// Make the stream count as silent, so the stopped flag is the only
@@ -287,14 +287,14 @@ func TestStartSSE_IsIdempotent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rec := newSyncRecorder()
-	s1 := StartSSEWithInterval(ctx, rec, time.Hour)
+	s1 := startSSE(ctx, rec, time.Hour)
 	defer s1.Stop()
 	s2 := StartSSE(ctx, s1)
 	if s2 != s1 {
 		t.Fatal("StartSSE on an SSEStream did not return the existing stream")
 	}
-	if s3 := StartSSEWithInterval(ctx, s1, time.Hour); s3 != s1 {
-		t.Fatal("StartSSEWithInterval on an SSEStream did not return the existing stream")
+	if s3 := startSSE(ctx, s1, time.Hour); s3 != s1 {
+		t.Fatal("startSSE on an SSEStream did not return the existing stream")
 	}
 }
 

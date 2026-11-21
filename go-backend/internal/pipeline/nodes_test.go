@@ -25,10 +25,10 @@ func TestNodesHaveLabelAndGroup(t *testing.T) {
 
 func TestEdgesReferenceKnownNodes(t *testing.T) {
 	for _, e := range Edges() {
-		if _, ok := NodeByID(e.From); !ok {
+		if _, ok := nodeByID(e.From); !ok {
 			t.Errorf("edge from unknown node %q", e.From)
 		}
-		if _, ok := NodeByID(e.To); !ok {
+		if _, ok := nodeByID(e.To); !ok {
 			t.Errorf("edge to unknown node %q", e.To)
 		}
 	}
@@ -41,12 +41,6 @@ func TestLoopEdgesDeclareMaxIterations(t *testing.T) {
 		if e.Loop && e.MaxIterations == 0 {
 			t.Errorf("loop edge %s->%s has no MaxIterations", e.From, e.To)
 		}
-	}
-}
-
-func TestNodeByIDMissing(t *testing.T) {
-	if _, ok := NodeByID("does_not_exist"); ok {
-		t.Fatal("NodeByID returned ok for an unknown id")
 	}
 }
 
@@ -124,4 +118,14 @@ func TestKeylessNodesAreDeliberate(t *testing.T) {
 			"(see the comment on keylessUnconditionalNodes) and update this literal",
 			seen, wantKeyless)
 	}
+}
+
+// nodeByID looks up a node in the vocabulary Nodes returns.
+func nodeByID(id NodeID) (NodeSpec, bool) {
+	for _, n := range Nodes() {
+		if n.ID == id {
+			return n, true
+		}
+	}
+	return NodeSpec{}, false
 }

@@ -1,6 +1,9 @@
 package eval
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestGenJobParamsJSON(t *testing.T) {
 	p := GenJobParams{
@@ -14,8 +17,8 @@ func TestGenJobParamsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toJSON: %v", err)
 	}
-	got, err := parseGenJobParams(b)
-	if err != nil {
+	var got GenJobParams
+	if err := json.Unmarshal(b, &got); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if got != p {

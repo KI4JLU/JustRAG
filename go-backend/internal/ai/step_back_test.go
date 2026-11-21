@@ -12,7 +12,7 @@ func TestGenerateStepBackQuery_ReturnsTrimmedSingleLine(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	got, err := GenerateStepBackQuery(context.Background(), resolver, "How do A and B differ?", "", "en")
+	got, err := GenerateStepBackQueryWithModel(context.Background(), resolver, "How do A and B differ?", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestGenerateStepBackQuery_TrimsToFirstLine(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	got, err := GenerateStepBackQuery(context.Background(), resolver, "Original?", "", "en")
+	got, err := GenerateStepBackQueryWithModel(context.Background(), resolver, "Original?", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestGenerateStepBackQuery_EmptyOutputReturnsEmpty(t *testing.T) {
 	})
 
 	resolver := resolverForServer(srv, "gpt-4o")
-	got, err := GenerateStepBackQuery(context.Background(), resolver, "q", "", "en")
+	got, err := GenerateStepBackQueryWithModel(context.Background(), resolver, "q", "", "en", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

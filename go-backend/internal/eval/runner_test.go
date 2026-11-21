@@ -3,7 +3,6 @@ package eval
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 )
 
@@ -170,85 +169,6 @@ func TestRunEval_TruncatesToK(t *testing.T) {
 	}
 	if rep.Questions[0].Metrics.RecallAtK != 0.0 {
 		t.Fatalf("expected recall 0 (relevant beyond k=10), got %v", rep.Questions[0].Metrics.RecallAtK)
-	}
-}
-
-func TestRunEvalWithJudge_OptInProducesJudgeMetrics(t *testing.T) {
-	qs := []Question{{ID: "q1", Question: "why?", KbID: "k", Language: "en", MustCiteFileIDs: []string{"f1"}}}
-	searcher := &fixedSearcher{chunks: []RetrievedChunk{{FileID: "f1", Score: 0.9}}}
-
-	answerCompleter := &fakeCompleter{returnAnswer: "an answer"}
-	judgeCompleter := &scriptedCompleter{responses: []string{
-		`{"claims":[{"text":"c1","supported":true}]}`,
-		`{"score":5,"reasoning":"perfect"}`,
-		`{"relevant":[true]}`,
-	}}
-
-	cfg := JudgeConfig{
-		Enabled:         true,
-		Judge:           NewJudge(judgeCompleter),
-		AnswerCompleter: answerCompleter,
-		ContentLoader: func(_ context.Context, chunks []RetrievedChunk) ([]string, []string, error) {
-			return []string{"content"}, []string{"file.pdf"}, nil
-		},
-	}
-	rep, err := RunEvalWithJudge(context.Background(), searcher, qs, 10, 1, cfg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	qr := rep.Questions[0]
-	if qr.Judge == nil {
-		t.Fatal("expected judge metrics")
-	}
-	if qr.Judge.Faithfulness == nil || *qr.Judge.Faithfulness != 1.0 {
-		t.Errorf("faithfulness unexpected: %+v", qr.Judge.Faithfulness)
-	}
-	if qr.Judge.AnswerRelevance == nil || *qr.Judge.AnswerRelevance != 1.0 {
-		t.Errorf("relevance unexpected: %+v", qr.Judge.AnswerRelevance)
-	}
-	if qr.Judge.Answer != "an answer" {
-		t.Errorf("answer unexpected: %q", qr.Judge.Answer)
-	}
-	if rep.Aggregate.JudgedCount != 1 {
-		t.Errorf("expected judged count 1, got %d", rep.Aggregate.JudgedCount)
-	}
-}
-
-func TestRunEvalWithJudge_DisabledMatchesPhase21(t *testing.T) {
-	qs := []Question{{ID: "q1", Question: "q", KbID: "k", Language: "en", MustCiteFileIDs: []string{"f1"}}}
-	searcher := &fixedSearcher{chunks: []RetrievedChunk{{FileID: "f1", Score: 0.9}}}
-
-	rep, err := RunEvalWithJudge(context.Background(), searcher, qs, 10, 1, JudgeConfig{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if rep.Questions[0].Judge != nil {
-		t.Errorf("expected no judge metrics when disabled, got %+v", rep.Questions[0].Judge)
-	}
-}
-
-func TestRunEvalWithJudge_AnswerErrorCaptured(t *testing.T) {
-	qs := []Question{{ID: "q1", Question: "q", KbID: "k", Language: "en", MustCiteFileIDs: []string{"f1"}}}
-	searcher := &fixedSearcher{chunks: []RetrievedChunk{{FileID: "f1", Score: 0.9}}}
-
-	cfg := JudgeConfig{
-		Enabled:         true,
-		Judge:           NewJudge(&scriptedCompleter{}),
-		AnswerCompleter: &fakeCompleter{returnErr: errorsNew("llm down")},
-		ContentLoader: func(_ context.Context, _ []RetrievedChunk) ([]string, []string, error) {
-			return []string{"c"}, []string{"f"}, nil
-		},
-	}
-	rep, err := RunEvalWithJudge(context.Background(), searcher, qs, 10, 1, cfg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	qr := rep.Questions[0]
-	if qr.Judge == nil || len(qr.Judge.JudgeErrors) != 1 {
-		t.Fatalf("expected one captured judge error, got %+v", qr.Judge)
-	}
-	if !strings.Contains(qr.Judge.JudgeErrors[0], "answer") {
-		t.Errorf("expected error to mention answer, got %q", qr.Judge.JudgeErrors[0])
 	}
 }
 

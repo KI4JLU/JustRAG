@@ -685,41 +685,6 @@ func TestCitationValidationEnabled_GarbageValueDefaultsOn(t *testing.T) {
 	}
 }
 
-func TestAdaptiveRoutingEnabled_DefaultOffWhenUnset(t *testing.T) {
-	r := &fakeSiteConfigReader{values: map[string]*string{}}
-	if AdaptiveRoutingEnabled(context.Background(), r) {
-		t.Error("missing key should default to false (no behavior change for existing deployments)")
-	}
-}
-
-func TestAdaptiveRoutingEnabled_ExplicitTrue(t *testing.T) {
-	for _, raw := range []string{"true", "TRUE", "1"} {
-		r := &fakeSiteConfigReader{values: map[string]*string{
-			"adaptive_routing_enabled": strPtr(raw),
-		}}
-		if !AdaptiveRoutingEnabled(context.Background(), r) {
-			t.Errorf("explicit %q should enable adaptive routing", raw)
-		}
-	}
-}
-
-func TestAdaptiveRoutingEnabled_ExplicitFalse(t *testing.T) {
-	for _, raw := range []string{"false", "FALSE", "0", "anything else"} {
-		r := &fakeSiteConfigReader{values: map[string]*string{
-			"adaptive_routing_enabled": strPtr(raw),
-		}}
-		if AdaptiveRoutingEnabled(context.Background(), r) {
-			t.Errorf("non-truthy %q should keep adaptive routing off", raw)
-		}
-	}
-}
-
-func TestAdaptiveRoutingEnabled_NilReader(t *testing.T) {
-	if AdaptiveRoutingEnabled(context.Background(), nil) {
-		t.Error("nil reader should default to false")
-	}
-}
-
 func TestRAGASSamplingEnabled_DefaultOff(t *testing.T) {
 	r := &fakeSiteConfigReader{values: map[string]*string{}}
 	if RAGASSamplingEnabled(context.Background(), r) {
@@ -1165,24 +1130,6 @@ func TestChatAnswerToolsMaxRounds_DefaultAndOutOfRange(t *testing.T) {
 		if got := ChatAnswerToolsMaxRounds(context.Background(), r); got != tc.want {
 			t.Errorf("val=%q: got %d, want %d", tc.val, got, tc.want)
 		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Retrieval feedback boost config readers (online user feedback loop)
-// ---------------------------------------------------------------------------
-
-func TestFeedbackBoostConfig(t *testing.T) {
-	r := &fakeSiteConfigReader{values: map[string]*string{
-		"chat_feedback_boost_enabled": strPtr("true"),
-		"feedback_boost_weight":       strPtr("0.08"),
-	}}
-	ctx := context.Background()
-	if !ChatFeedbackBoostEnabled(ctx, r) {
-		t.Fatal("expected enabled")
-	}
-	if got := FeedbackBoostWeight(ctx, r); got != 0.08 {
-		t.Fatalf("got %v", got)
 	}
 }
 
