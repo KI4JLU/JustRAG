@@ -5,9 +5,9 @@ The frontend is a React 19 + Vite 7 application in `web/`.
 ## Structure
 
 - `src/components/`: feature components, studio UI, admin UI, sidebars, API key UI
-- `src/contexts/`: auth, theme, modal, toast, mobile, and KB workspace state
+- `src/contexts/`: auth, theme, modal, toast, mobile, and topic view state
 - `src/hooks/`: chat, file management, RSS, Confluence, sharing, version checks, and UI behavior
-- `src/routes/`: route-level UI composition
+- `src/routing/`: the route table, URL helpers and dialog URL parameters
 - `src/utils/`: SSE parsing, message tree helpers, error handling, clipboard, viewport
 
 ## Commands

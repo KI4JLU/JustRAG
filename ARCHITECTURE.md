@@ -121,7 +121,7 @@ Current storage split:
 The frontend lives in `web/src/` and is organized around:
 
 - `components/`: feature UI, admin screens, studio, sidebars, API key UI
-- `contexts/`: auth, theme, modal, toast, KB workspace state
+- `contexts/`: auth, theme, modal, toast, topic view state
 - `hooks/`: chat, file management, RSS, Confluence, sharing, version checks, UI behavior
 - `routes/`: route-level composition
 - `utils/`: SSE parsing, message tree helpers, clipboard, viewport, error handling

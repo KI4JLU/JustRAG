@@ -60,7 +60,6 @@ const graph = (lane: WorkflowGraph['lane'], over: Partial<WorkflowGraph> = {}): 
   presetBase: '',
   presetBaseKnown: true,
   deviations: [],
-  agentBinding: { kind: '', id: '', name: '', disabled: false, emptyTeam: false, options: [] },
   ...over,
 });
 

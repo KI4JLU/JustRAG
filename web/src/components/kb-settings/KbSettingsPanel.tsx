@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { SlidersHorizontal, FlaskConical, Workflow, Bot, ChevronDown, ChevronRight, Search, Save, RotateCcw, Copy, Check } from 'lucide-react';
+import { SlidersHorizontal, FlaskConical, Workflow, ChevronDown, ChevronRight, Search, Save, RotateCcw, Copy, Check } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@ki4jlu/design-system';
 import type { KbConfigField, KbSettingsResponse } from '../../types';
 import { fetchKbSettings, saveKbSettings, resetKbSetting, reembedKb, KbSettingsHttpError } from './api';
@@ -8,27 +8,19 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useModalContext } from '../../contexts/ModalContext';
 import { copyToClipboard } from '../../utils/clipboard';
 import AdminEvalTab from '../admin/AdminEvalTab';
-import KbAgentsSection from '../agents/KbAgentsSection';
 import { WorkflowCanvas } from './workflow/WorkflowCanvas';
 
 interface Props {
   kbId: string;
-  /**
-   * Navigate to the "My Agents" screen. Optional because the panel works
-   * without it — the Agenten tab then shows its list and its attach controls
-   * and only the "create one" shortcut is inert.
-   */
-  onCreateAgent?: () => void;
 }
 
-// All four tabs are the KB "advanced settings" surface. Every endpoint they
+// All three tabs are the KB "advanced settings" surface. Every endpoint they
 // call sits on kbAdvancedChain (system admins only, on any KB). The panel's one
 // entry point is „RAG-Settings" in the row menu of the admin console's
 // KB-Übersicht; a caller who arrives without the right gets the explicit
-// "Keine Berechtigung" state below rather than four tabs that each 403.
+// "Keine Berechtigung" state below rather than three tabs that each 403.
 const TABS = [
   { id: 'settings', label: 'RAG Settings', Icon: SlidersHorizontal },
-  { id: 'agents', label: 'Agenten & Teams', Icon: Bot },
   { id: 'evals', label: 'Evals', Icon: FlaskConical },
   { id: 'workflow', label: 'Workflow', Icon: Workflow },
 ] as const;
@@ -37,15 +29,15 @@ const STORAGE_KEY = 'kb-settings-sections-open-v1';
 
 // draft maps key -> string value being edited. Only keys whose draft differs
 // from the effective value are sent on Save.
-export function KbSettingsPanel({ kbId, onCreateAgent }: Props) {
+export function KbSettingsPanel({ kbId }: Props) {
   const reducedMotion = useReducedMotion();
   const { showConfirm, showAlert } = useModalContext();
-  const [tab, setTab] = useState<'settings' | 'agents' | 'evals' | 'workflow'>('settings');
+  const [tab, setTab] = useState<'settings' | 'evals' | 'workflow'>('settings');
   const [data, setData] = useState<KbSettingsResponse | null>(null);
   // Set when the very first load came back 403. Kept apart from `error`
   // because it is not a fault to report but a permission to explain, and
-  // because it suppresses the tab bar: every one of the four tabs talks to
-  // kbAdvancedChain, so all four would fail the same way.
+  // because it suppresses the tab bar: every one of the three tabs talks to
+  // kbAdvancedChain, so all three would fail the same way.
   const [forbidden, setForbidden] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -192,7 +184,7 @@ export function KbSettingsPanel({ kbId, onCreateAgent }: Props) {
 
   // A 403 on the initial load: the caller reached the panel without the
   // permission the server requires. Say so plainly, in place of the tabs —
-  // rendering them would offer four controls that each fail the same way, and
+  // rendering them would offer three controls that each fail the same way, and
   // rendering nothing would look like a stuck spinner.
   if (forbidden) {
     return (
@@ -310,8 +302,6 @@ export function KbSettingsPanel({ kbId, onCreateAgent }: Props) {
             </button>
           </div>
         </>
-      ) : tab === 'agents' ? (
-        <KbAgentsSection kbId={kbId} onCreateAgent={onCreateAgent} />
       ) : tab === 'evals' ? (
         <AdminEvalTab basePath={`/api/kb/${kbId}/eval`} kbId={kbId} />
       ) : (

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractCitedSourceIndices, maxCitationNumber, sourceForCitation, stripCitationMarkers, withoutCitations } from './citations';
+import { extractCitedSourceIndices, sourceForCitation, stripCitationMarkers, withoutCitations } from './citations';
 import type { Message } from '../types';
 
 describe('extractCitedSourceIndices', () => {
@@ -100,7 +100,6 @@ describe('withoutCitations', () => {
     conflicts: [{ claim: 'c', sourceA: 1, sourceB: 2, kind: 'contradiction', newer: 'a', fileA: 'a.pdf', fileB: 'b.pdf' }],
     verification: { verified: true, score: 80, issues: ['i'], citations: [{ index: 1, verified: true } as never] },
     trajectory: [{ stage: 'hop', chunks: [{ idx: 1, file_name: 'a.pdf', score: 1 }], findings: 2 }],
-    comparisonFindings: [{ mode: 'formal', severity: 'low', sectionIdx: 0, uploadQuote: 'u', issue: 'i', citedFileIds: ['f1'], citedQuote: 'q' }],
   };
 
   it('drops markers, sources, conflicts, citation results, retrieved files and KB quotes', () => {
@@ -110,7 +109,6 @@ describe('withoutCitations', () => {
     expect(out.conflicts).toBeUndefined();
     expect(out.verification?.citations).toBeUndefined();
     expect(out.trajectory?.[0].chunks).toBeUndefined();
-    expect(out.comparisonFindings?.[0]).toMatchObject({ citedQuote: '', citedFileIds: [], uploadQuote: 'u', issue: 'i' });
   });
 
   it('keeps the fact-check verdict and the rest of the trajectory', () => {
@@ -144,13 +142,11 @@ describe('sourceForCitation', () => {
     const sources = [src(5, 'mine.pdf')];
     expect(sourceForCitation(sources, 5)?.fileName).toBe('mine.pdf');
     expect(sourceForCitation(sources, 1)).toBeUndefined();
-    expect(maxCitationNumber(sources)).toBe(5);
   });
 
   it('numbers index-less sources by position', () => {
     const sources = [src(undefined, 'a.pdf'), src(undefined, 'b.pdf')];
     expect(sourceForCitation(sources, 2)?.fileName).toBe('b.pdf');
     expect(sourceForCitation(sources, 3)).toBeUndefined();
-    expect(maxCitationNumber(sources)).toBe(2);
   });
 });

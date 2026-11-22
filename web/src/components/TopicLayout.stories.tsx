@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, waitFor, within } from 'storybook/test';
 import { AppShellLayout, Button, SidebarPanel, Logo, type MobilePaneTab } from '@ki4jlu/design-system';
 import { ArrowLeft, History, MessageSquare, Settings } from 'lucide-react';
-import { WorkspaceSearchField } from './WorkspaceSearch';
+import { TopicSearchField } from './TopicSearch';
 import { apiMockHistory } from '../../.storybook/mockApi';
 import './sidebar-primitives.css';
 import './history/HistoryPanel.css';
@@ -75,7 +75,7 @@ const Harness = () => {
         label: 'Quellen',
         isOpen: rightOpen,
         onOpenChange: setRightOpen,
-        // Keine Breite — wie in KbWorkspaceLayout.tsx, damit beide Spalten die
+        // Keine Breite — wie in AppFrame (AppChrome.tsx), damit beide Spalten die
         // des Design-Systems nehmen.
         expandLabel: 'Quellenleiste ausklappen',
         collapseLabel: 'Quellenleiste einklappen',
@@ -88,7 +88,7 @@ const Harness = () => {
 };
 
 const meta: Meta<typeof Harness> = {
-  title: 'KB/KbWorkspaceLayout',
+  title: 'KB/TopicLayout',
   component: Harness,
   parameters: { layout: 'fullscreen' },
 };
@@ -167,7 +167,7 @@ export const KbColumnHeadingBaseline: Story = {
 };
 
 /* ---------------------------------------------------------------------------
- * ACCEPTANCE: the workspace bar WITH the topic-scoped search, CENTRED
+ * ACCEPTANCE: the topic bar WITH the topic-scoped search, CENTRED
  * (cards KI-838, KI-844; design-system 0.44.1).
  *
  * WHAT IT GUARDS. The bar carries three things — the back button
@@ -188,11 +188,12 @@ export const KbColumnHeadingBaseline: Story = {
  * both side regions keep an 11rem floor. For this case that is
  * 560 − 2×24 gutter − 2×16 gap − 2×176 floor = 128px of search.
  *
- * WHAT IS REAL: the shell, the stylesheets, `WorkspaceSearchField` — the exact
- * markup `KbWorkspaceLayout` puts in the `search` slot, minus the context
- * reads — `GlobalSearch`, the DS Combobox, and `GET /api/search` through the
- * story API mock. The pageLabel (back button only) and gear are rebuilt from
- * the same DS `Button`s `KbWorkspaceLayout.tsx` uses; the topic name is a
+ * WHAT IS REAL: the shell, the stylesheets, `TopicSearchField` — the markup
+ * `TopicSearch` renders, minus the context reads — `GlobalSearch`, the DS
+ * Combobox, and `GET /api/search` through the story API mock. The story puts
+ * the field into the DS `search` slot itself; the app opens it through
+ * `SearchPalette`, which this story does not cover. The pageLabel (back button only) and gear are rebuilt from
+ * the same DS `Button`s `AppFrame` uses; the topic name is a
  * deliberately LONG one, the worst case for the search field's accessible
  * name.
  *
@@ -210,7 +211,7 @@ export const KbColumnHeadingBaseline: Story = {
 
 const LONG_TOPIC = 'Prüfungs- und Studienordnungen des Fachbereichs Wirtschaftswissenschaften';
 
-const WorkspaceBarHarness = () => {
+const TopicBarHarness = () => {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   return (
@@ -226,7 +227,7 @@ const WorkspaceBarHarness = () => {
         </span>
       }
       search={
-        <WorkspaceSearchField
+        <TopicSearchField
           kbId="kb-1"
           kbName={LONG_TOPIC}
           onOpenTopic={fn()}
@@ -258,8 +259,8 @@ const WorkspaceBarHarness = () => {
   );
 };
 
-export const WorkspaceBarWithScopedSearch: StoryObj<typeof WorkspaceBarHarness> = {
-  render: () => <WorkspaceBarHarness />,
+export const TopicBarWithScopedSearch: StoryObj<typeof TopicBarHarness> = {
+  render: () => <TopicBarHarness />,
   beforeEach: () => {
     localStorage.setItem('language', 'de');
   },
@@ -276,7 +277,7 @@ export const WorkspaceBarWithScopedSearch: StoryObj<typeof WorkspaceBarHarness> 
   play: async ({ canvas, canvasElement, userEvent }) => {
     const doc = canvasElement.ownerDocument;
     const body = within(doc.body);
-    const wrapper = canvas.getByTestId('workspace-search');
+    const wrapper = canvas.getByTestId('topic-search');
     const bar = wrapper.closest('header') as HTMLElement;
     await expect(bar).not.toBeNull();
     await expect(bar.getBoundingClientRect().height).toBe(56);

@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useState } from 'react';
-import type { Dispatch, SetStateAction, TouchEvent as ReactTouchEvent } from 'react';
-import { useViewState, type KbViewType } from './useViewState';
+import type { TouchEvent as ReactTouchEvent } from 'react';
+import { useViewState } from './useViewState';
 
 // Minimal fake touch events matching what useSwipeGesture reads
 // (touches[0].clientX/clientY on start, changedTouches[0].clientX/clientY on
@@ -14,32 +13,15 @@ function touchEnd(x: number): ReactTouchEvent {
   return { changedTouches: [{ clientX: x, clientY: 0 }] } as unknown as ReactTouchEvent;
 }
 
-// Backs `kbView` with real React state (like AuthenticatedApp does), not a
-// bare vi.fn() spy — useViewState's swipe handlers now read `kbView` on every
-// render to derive the swipe's starting tab (see `deriveActiveMobileTab`), so
-// a call to `setKbView` has to actually feed back into the next render for
-// the multi-swipe tests below to track real app behavior. `setKbViewSpy`
-// still lets tests assert on individual calls the way the plain vi.fn() did.
-function setup(initialKbView: KbViewType = 'chat', showFilesTab = true) {
-  const navigateTo = vi.fn();
-  const setKbViewSpy = vi.fn();
-  const setShowSettings = vi.fn();
-  const { result } = renderHook(() => {
-    const [kbView, setKbViewState] = useState<KbViewType>(initialKbView);
-    const setKbView: Dispatch<SetStateAction<KbViewType>> = (v) => {
-      setKbViewSpy(v);
-      setKbViewState(v);
-    };
-    void kbView;
-    return useViewState({ navigateTo, setKbView, setShowSettings, showFilesTab });
-  });
-  return { result, setKbView: setKbViewSpy, navigateTo, setShowSettings };
+function setup(showFilesTab = true) {
+  const { result } = renderHook(() => useViewState({ showFilesTab }));
+  return { result };
 }
 
 // dx = end.x - start.x. dx < 0 (drag left) triggers onSwipeLeft, which in
 // useViewState advances TAB_ORDER forward. dx > 0 (drag right) triggers
 // onSwipeRight, which moves backward. TAB_ORDER = [history, chat, files] (no
-// workspace tab since 22.09.2026 — the KB has one main-area view, the chat).
+// tools tab since 22.09.2026 — the KB has one main-area view, the chat).
 function swipeLeft(result: ReturnType<typeof setup>['result']) {
   act(() => {
     result.current.swipeHandlers.onTouchStart(touchStart(200));
@@ -63,51 +45,43 @@ describe('useViewState swipe navigation', () => {
     expect(result.current.mobileTab).toBe('chat');
   });
 
-  it('Swipe rechts von chat landet auf history (kein setKbView-Aufruf)', () => {
-    const { result, setKbView } = setup();
+  it('Swipe rechts von chat landet auf history', () => {
+    const { result } = setup();
     swipeRight(result);
     expect(result.current.mobileTab).toBe('history');
-    expect(setKbView).not.toHaveBeenCalled();
   });
 
-  it('Swipe links von chat landet direkt auf files (kein Workspace-Reiter mehr), ohne setKbView', () => {
-    const { result, setKbView } = setup();
+  it('Swipe links von chat landet direkt auf files', () => {
+    const { result } = setup();
     swipeLeft(result);
     expect(result.current.mobileTab).toBe('files');
-    expect(setKbView).not.toHaveBeenCalled();
   });
 
-  it('Swipe rechts von files kehrt zu chat zurück und ruft setKbView("chat")', () => {
-    const { result, setKbView } = setup();
+  it('Swipe rechts von files kehrt zu chat zurück', () => {
+    const { result } = setup();
     swipeLeft(result); // chat -> files
     expect(result.current.mobileTab).toBe('files');
 
-    setKbView.mockClear();
     swipeRight(result); // files -> chat
     expect(result.current.mobileTab).toBe('chat');
-    expect(setKbView).toHaveBeenCalledWith('chat');
   });
 
   it('Swipe rechts an der Grenze "history" ist ein No-op', () => {
-    const { result, setKbView } = setup();
+    const { result } = setup();
     swipeRight(result); // chat -> history
     expect(result.current.mobileTab).toBe('history');
 
-    setKbView.mockClear();
     swipeRight(result); // history -> history (Grenze)
     expect(result.current.mobileTab).toBe('history');
-    expect(setKbView).not.toHaveBeenCalled();
   });
 
   it('Swipe links an der Grenze "files" ist ein No-op', () => {
-    const { result, setKbView } = setup();
+    const { result } = setup();
     swipeLeft(result); // chat -> files
     expect(result.current.mobileTab).toBe('files');
 
-    setKbView.mockClear();
     swipeLeft(result); // files -> files (Grenze)
     expect(result.current.mobileTab).toBe('files');
-    expect(setKbView).not.toHaveBeenCalled();
   });
 });
 
@@ -116,34 +90,15 @@ describe('useViewState swipe navigation', () => {
 // and one swipe right from chat opens history.
 describe('useViewState swipe without the files tab', () => {
   it('Swipe links von chat ist ein No-op', () => {
-    const { result } = setup('chat', false);
+    const { result } = setup(false);
     swipeLeft(result);
     expect(result.current.mobileTab).toBe('chat');
   });
 
   it('ein Swipe rechts von chat landet auf history', () => {
-    const { result } = setup('chat', false);
+    const { result } = setup(false);
     swipeLeft(result);
     swipeRight(result);
     expect(result.current.mobileTab).toBe('history');
-  });
-});
-
-// Oracle: leaving a topic is a navigation to the overview's URL, plus the two
-// resets the workspace needs on the way out.
-describe('useViewState home navigation', () => {
-  it('handleGoHome navigates to my-topics and closes the settings', () => {
-    const { result, navigateTo, setShowSettings, setKbView } = setup('chat');
-    act(() => result.current.handleGoHome());
-    expect(navigateTo).toHaveBeenCalledWith({ view: 'my-topics' });
-    expect(setShowSettings).toHaveBeenCalledWith(false);
-    expect(setKbView).toHaveBeenCalledWith('chat');
-  });
-
-  it('handleViewHome only navigates', () => {
-    const { result, navigateTo, setShowSettings } = setup('chat');
-    act(() => result.current.handleViewHome());
-    expect(navigateTo).toHaveBeenCalledWith({ view: 'my-topics' });
-    expect(setShowSettings).not.toHaveBeenCalled();
   });
 });

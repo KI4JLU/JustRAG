@@ -3,8 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
     Bold, Italic, List, Heading1, Heading2,
-    Sparkles, Columns, Maximize2, Save,
-    Check, Loader, FileText, Eye, Pencil
+    Columns, Maximize2, Eye, Pencil
 } from 'lucide-react';
 import { useIsMobileContext } from '../../contexts/MobileContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -12,30 +11,9 @@ import { useTheme } from '../../contexts/ThemeContext';
 interface MarkdownEditorProps {
     value: string;
     onChange: (value: string) => void;
-    onAnalyze?: () => void;
-    onSave?: () => void;
-    isAnalyzing?: boolean;
-    saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
-    onCopy?: () => void;
-    onExportDocx?: () => void;
-    onDownloadPdf?: () => void;
-    isCopied?: boolean;
-    isGeneratingPdf?: boolean;
 }
 
-export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
-    value,
-    onChange,
-    onAnalyze,
-    onSave,
-    isAnalyzing = false,
-    saveStatus = 'idle',
-    onCopy,
-    onExportDocx,
-    onDownloadPdf,
-    isCopied = false,
-    isGeneratingPdf = false
-}) => {
+export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({ value, onChange }) => {
 
     const isMobile = useIsMobileContext();
     const { t } = useTheme();
@@ -171,113 +149,23 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
                 flexWrap: 'wrap'
             }}>
                 {viewMode !== 'preview' && (
-                    <>
-                        <div style={{ display: 'flex', gap: '0.25rem' }}>
-                            <button className="editor-btn" onClick={() => insertSyntax('**', '**')} title={t('bold')} aria-label={t('bold')}>
-                                <Bold size={16} />
-                            </button>
-                            <button className="editor-btn" onClick={() => insertSyntax('*', '*')} title={t('italic')} aria-label={t('italic')}>
-                                <Italic size={16} />
-                            </button>
-                            <button className="editor-btn" onClick={() => insertSyntax('# ')} title={t('heading1')} aria-label={t('heading1')}>
-                                <Heading1 size={16} />
-                            </button>
-                            <button className="editor-btn" onClick={() => insertSyntax('## ')} title={t('heading2')} aria-label={t('heading2')}>
-                                <Heading2 size={16} />
-                            </button>
-                            <button className="editor-btn" onClick={() => insertSyntax('- ')} title={t('list')} aria-label={t('list')}>
-                                <List size={16} />
-                            </button>
-                        </div>
-
-                        <div style={{ width: '1px', background: 'var(--border-color)', height: '20px', margin: '0 0.5rem' }} />
-                    </>
-                )}
-
-                {onCopy && (
-                    <button
-                        className="editor-btn"
-                        onClick={onCopy}
-                        title={t('copyToClipboard')}
-                        aria-label={t('copyToClipboard')}
-                        style={isCopied ? { color: 'var(--success-color, green)' } : undefined}
-                    >
-                        <span className="icon-swap" key={isCopied ? 'check' : 'file'}>{isCopied ? <Check size={16} /> : <FileText size={16} />}</span>
-                    </button>
-                )}
-
-                {onExportDocx && (
-                    <button
-                        className="editor-btn"
-                        onClick={onExportDocx}
-                        title={t('exportDocx')}
-                        aria-label={t('exportDocx')}
-                    >
-                        <FileText size={16} /> <span style={{ fontSize: '0.7em', marginLeft: -2 }}>DOC</span>
-                    </button>
-                )}
-
-                {onDownloadPdf && (
-                    <button
-                        className="editor-btn"
-                        onClick={onDownloadPdf}
-                        title={t('downloadPdf')}
-                        aria-label={t('downloadPdf')}
-                        disabled={isGeneratingPdf}
-                        style={{ opacity: isGeneratingPdf ? 0.5 : 1 }}
-                    >
-                        <FileText size={16} /> <span style={{ fontSize: '0.7em', marginLeft: -2 }}>PDF</span>
-                    </button>
-                )}
-
-                {(onCopy || onExportDocx || onDownloadPdf) && (
-                    <div style={{ width: '1px', background: 'var(--border-color)', height: '20px', margin: '0 0.5rem' }} />
-                )}
-
-                {onAnalyze && (
-                    <button
-                        className="editor-btn primary"
-                        onClick={onAnalyze}
-                        disabled={isAnalyzing}
-                        title={t('analyzeWithAi')}
-                        aria-label={t('analyzeWithAi')}
-                        style={{
-                            color: 'var(--accent-primary)',
-                            background: 'color-mix(in srgb, var(--accent-primary) 10%, transparent)',
-                            borderColor: 'var(--accent-primary)'
-                        }}
-                    >
-                        <Sparkles size={16} className={isAnalyzing ? 'spin' : ''} />
-                        <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
-                            {isAnalyzing ? 'Analyzing...' : 'Analyze'}
-                        </span>
-                    </button>
-                )}
-
-                {onSave && (
-                    <button
-                        className={`editor-btn ${saveStatus === 'saved' ? 'success' : ''}`}
-                        onClick={onSave}
-                        title={t('saveChanges')}
-                        aria-label={t('saveChanges')}
-                        disabled={saveStatus === 'saving'}
-                        style={saveStatus === 'saved' ? {
-                            color: 'var(--success-text)',
-                            borderColor: 'var(--success-text)',
-                            background: 'rgba(24, 128, 56, 0.05)'
-                        } : undefined}
-                    >
-                        {saveStatus === 'saving' ? (
-                            <Loader size={16} className="spin" />
-                        ) : saveStatus === 'saved' ? (
-                            <Check size={16} />
-                        ) : (
-                            <Save size={16} />
-                        )}
-                        <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
-                            {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved' : 'Save'}
-                        </span>
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+                        <button className="editor-btn" onClick={() => insertSyntax('**', '**')} title={t('bold')} aria-label={t('bold')}>
+                            <Bold size={16} />
+                        </button>
+                        <button className="editor-btn" onClick={() => insertSyntax('*', '*')} title={t('italic')} aria-label={t('italic')}>
+                            <Italic size={16} />
+                        </button>
+                        <button className="editor-btn" onClick={() => insertSyntax('# ')} title={t('heading1')} aria-label={t('heading1')}>
+                            <Heading1 size={16} />
+                        </button>
+                        <button className="editor-btn" onClick={() => insertSyntax('## ')} title={t('heading2')} aria-label={t('heading2')}>
+                            <Heading2 size={16} />
+                        </button>
+                        <button className="editor-btn" onClick={() => insertSyntax('- ')} title={t('list')} aria-label={t('list')}>
+                            <List size={16} />
+                        </button>
+                    </div>
                 )}
             </div>
 

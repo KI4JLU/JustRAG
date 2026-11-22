@@ -15,7 +15,7 @@ import { SEARCH_KEYSHORTCUT, isSearchShortcut } from '../utils/searchShortcut';
  * closed by Escape, a click outside, or opening a hit — the field reports the
  * last two through `onClose` (see `GlobalSearch`).
  *
- * `children` is the view's search field (`GlobalSearch`, `WorkspaceSearch`),
+ * `children` is the view's search field (`GlobalSearch`, `TopicSearch`),
  * mounted only while the palette is open, so it takes focus on open.
  */
 export function SearchPalette({ children }: { children: ReactNode }) {

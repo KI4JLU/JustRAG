@@ -1,61 +1,20 @@
 import { lazy, Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useKbCore } from '../contexts/KbCoreContext';
-import { useKbChat } from '../contexts/KbChatContext';
 import { useKbData } from '../contexts/KbDataContext';
 
-const SettingsModal = lazy(() => import('./SettingsModal').then(module => ({ default: module.SettingsModal })));
-const ChartModal = lazy(() => import('./ChartModal').then(module => ({ default: module.ChartModal })));
-const AbstractGenerationModal = lazy(() => import('./AbstractGenerationModal').then(module => ({ default: module.AbstractGenerationModal })));
 const TextSourceViewer = lazy(() => import('./sidebar/TextSourceModal').then(module => ({ default: module.TextSourceViewer })));
 const PdfPreviewModal = lazy(() => import('./PdfPreviewModal').then(module => ({ default: module.PdfPreviewModal })));
 const MediaPreviewModal = lazy(() => import('./MediaPreviewModal').then(module => ({ default: module.MediaPreviewModal })));
 const TablePreviewDialog = lazy(() => import('./tablePreview/TablePreviewDialog').then(module => ({ default: module.TablePreviewDialog })));
-const WebWorkspace = lazy(() => import('./WebWorkspace').then(module => ({ default: module.WebWorkspace })));
+const WebResultsEditor = lazy(() => import('./WebResultsEditor').then(module => ({ default: module.WebResultsEditor })));
 
-export function KbWorkspaceModals() {
-  const { currentKb, availableConfigs, handleUpdateKBSettings } = useKbCore();
-  const { showSettings, setShowSettings } = useKbChat();
-  const { content, fileMgmt, webTools } = useKbData();
+export function TopicModals() {
+  const { currentKb } = useKbCore();
+  const { fileMgmt, webTools } = useKbData();
 
   return (
     <>
-      <Suspense fallback={null}>
-        {showSettings && <SettingsModal
-          show={showSettings}
-          onClose={() => setShowSettings(false)}
-          currentKb={currentKb}
-          availableConfigs={availableConfigs}
-          onUpdateSettings={handleUpdateKBSettings}
-        />}
-      </Suspense>
-
-      <Suspense fallback={null}>
-        {content.showChartGenerationModal && <ChartModal
-          show={content.showChartGenerationModal}
-          onClose={() => content.setShowChartGenerationModal(false)}
-          chartPrompt={content.chartPrompt}
-          setChartPrompt={content.setChartPrompt}
-          selectedFileId={content.selectedFileId}
-          setSelectedFileId={content.setSelectedFileId}
-          files={fileMgmt.files}
-          onSubmit={content.submitChartGeneration}
-        />}
-      </Suspense>
-
-      <Suspense fallback={null}>
-        {content.showAbstractModal && <AbstractGenerationModal
-          show={content.showAbstractModal}
-          onClose={() => content.setShowAbstractModal(false)}
-          abstractFileId={content.abstractFileId}
-          setAbstractFileId={content.setAbstractFileId}
-          abstractType={content.abstractType}
-          setAbstractType={content.setAbstractType}
-          files={fileMgmt.files}
-          onSubmit={content.submitAbstractGeneration}
-        />}
-      </Suspense>
-
       <Suspense fallback={null}>
         {/* A text source — and a document's extracted text — opens read-only in
             the text editor's window, the PDF preview's twin (TextSourceModal.tsx). */}
@@ -74,9 +33,9 @@ export function KbWorkspaceModals() {
         />}
       </Suspense>
 
-      {webTools.showWebWorkspace && currentKb && (
+      {webTools.showWebResults && currentKb && (
         <Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50"><Loader2 className="animate-spin text-white" /></div>}>
-          <WebWorkspace
+          <WebResultsEditor
             type={webTools.toolTab === 'websearch' ? 'websearch' : 'crawl'}
             results={(webTools.toolTab === 'websearch' ? webTools.searchResults.map(r => ({ ...r, content: r.content ?? '' })) : webTools.crawlResults)}
             selectedUrls={webTools.selectedPages}
@@ -95,7 +54,7 @@ export function KbWorkspaceModals() {
               }
             }}
             onAddSources={webTools.handleAddSources}
-            onClose={() => webTools.setShowWebWorkspace(false)}
+            onClose={() => webTools.setShowWebResults(false)}
             onUpdateResult={webTools.handleUpdateWebResult}
             onStartEdit={webTools.handleStartEditWebResult}
           />

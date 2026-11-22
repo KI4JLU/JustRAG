@@ -1,7 +1,7 @@
 import { ShortcutHint } from '../ShortcutHint';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    GitBranch, Loader2, SquarePen, Trash2, Pencil, FolderPlus, ArrowUp, ArrowDown, ChevronsDownUp,
+    GitBranch, SquarePen, Trash2, Pencil, FolderPlus, ArrowUp, ArrowDown, ChevronsDownUp,
 } from 'lucide-react';
 import {
     Button, HoverPreview, HoverPreviewGroup, SidebarAction, SidebarCardGroup, SidebarCardList, SidebarCardPreview,
@@ -12,7 +12,6 @@ import type { ChatListEntry, ChatSection } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useIsMobileContext } from '../../contexts/MobileContext';
 import { useChatHistory } from '../../contexts/ChatHistoryContext';
-import { ContentRowSkeleton } from '../Skeleton';
 import { buildHistoryItems, type HistoryItem } from './historyItems';
 import { filterHistory, groupHistory } from './historyFilters';
 import { HistoryFilterMenu } from './HistoryFilterMenu';
@@ -75,14 +74,13 @@ const HistoryPanelComp: React.FC<HistoryPanelProps> = ({ nav }) => {
     const {
         chats, activeChatId, openTopicId, sectionOf, openChat, deleteChats, renameChat, pinChat, reorderPinned, fileChat,
         sections, createSection, renameSection, reorderSections, deleteSection,
-        generating, generatingMessage,
     } = useChatHistory();
     const primary = usePrimaryAction();
     const { filters, set: setFilter, reset: resetFilters } = useHistoryFilters();
 
-    // Chats only: research and academic entries opened report views that are
-    // not reachable (KbViewType = 'chat'), and loading one as a chat does
-    // nothing. The data stays on the server.
+    // Chats only: research and academic entries opened report views that no
+    // longer exist, and loading one as a chat does nothing. The data stays on
+    // the server.
     const allItems = useMemo(
         () => buildHistoryItems({ chats, generatedContent: [] }).filter(item => item.kind === 'chat'),
         [chats],
@@ -380,18 +378,6 @@ const HistoryPanelComp: React.FC<HistoryPanelProps> = ({ nav }) => {
                     </>
                 )}
             >
-                {generating && (
-                    <>
-                        <div className="source-card history-panel__generating-card sidebar-ui__item-card">
-                            <div className="history-panel__generating-row">
-                                <Loader2 className="animate-spin" size={16} />
-                                <span>{generatingMessage ?? t('generatingContent')}</span>
-                            </div>
-                        </div>
-                        <ContentRowSkeleton />
-                    </>
-                )}
-
                 {/* One Tab stop for the whole history: ↑/↓ run through the chats
                     of every day, →/← reach a chat's ⋯ menu (the design
                     system's `data-sidebar-card-groups`). */}
@@ -473,7 +459,7 @@ const HistoryPanelComp: React.FC<HistoryPanelProps> = ({ nav }) => {
                             ))}
                             {/* Nothing below the pinned section: no chats at all, or the
                                 filter hides the rest. Pinned chats alone need no line. */}
-                            {items.length === 0 && !generating && (allItems.length === 0 || unpinnedItems.length > 0) && (
+                            {items.length === 0 && (allItems.length === 0 || unpinnedItems.length > 0) && (
                                 <p className="sidebar-ui__empty">
                                     {allItems.length === 0 ? t('noHistory') : t('historyFilterEmpty')}
                                 </p>

@@ -5,7 +5,6 @@ interface AuthContextValue {
   user: UserType;
   token: string;
   logout: () => void;
-  updateUser: (user: UserType) => void;
   siteConfigs: Record<string, string>;
 }
 
@@ -15,15 +14,14 @@ interface AuthProviderProps {
   user: UserType;
   token: string;
   logout: () => void;
-  updateUser: (user: UserType) => void;
   siteConfigs: Record<string, string>;
   children: ReactNode;
 }
 
-export function AuthProvider({ user, token, logout, updateUser, siteConfigs, children }: AuthProviderProps) {
+export function AuthProvider({ user, token, logout, siteConfigs, children }: AuthProviderProps) {
   const value = useMemo(
-    () => ({ user, token, logout, updateUser, siteConfigs }),
-    [user, token, logout, updateUser, siteConfigs]
+    () => ({ user, token, logout, siteConfigs }),
+    [user, token, logout, siteConfigs]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

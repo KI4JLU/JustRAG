@@ -252,8 +252,6 @@ export const assistantTranslations = {
     // A chat started from a role card (settings preview and the chat itself)
     asstBackToStart: { de: 'Zurück zur Startseite', en: 'Back to the start page' },
     asstRoleBadge: { de: 'Rolle: {role}', en: 'Role: {role}' },
-    asstAgentBadge: { de: 'Agent: {role}', en: 'Agent: {role}' },
-    asstTeamBadge: { de: 'Team: {role}', en: 'Team: {role}' },
     asstRoleDeleted: { de: 'Die Rolle dieses Chats gibt es nicht mehr – er antwortet in der aktiven Rolle.', en: 'This chat’s role no longer exists – it answers in the active role.' },
     asstNewChatInRole: { de: 'Neuer Chat als {role} – stelle deine erste Frage.', en: 'New chat as {role} – ask your first question.' },
     asstTaskPrefilledHint: { de: 'Die Anweisung steht im Eingabefeld und kann vor dem Senden angepasst werden.', en: 'The instruction is in the input field and can be adjusted before sending.' },

@@ -18,7 +18,7 @@ import { roleLabel } from '../utils/roleLabel';
 const AdminUI = lazy(() => import('../AdminUI'));
 
 /**
- * The user menu of every sidebar (AppChrome's pages and the KB workspace):
+ * The user menu of every sidebar (AppChrome's pages and the topic view):
  * account actions, „Einstellungen", which opens the settings window
  * (UserSettingsModal — colour scheme, language, profile), „Admin-Einstellungen"
  * for system admins (AdminUI, the same dialog), and „Hilfe" with the legal

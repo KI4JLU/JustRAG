@@ -62,7 +62,7 @@ function AssistantGate({ store, children }: { store: AssistantSettings; children
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'invalid';
 
 /**
- * „Thema-Einstellungen" (gear in the workspace header): the DS settings window,
+ * „Thema-Einstellungen" (gear in the topic header): the DS settings window,
  * the same one as the user settings, with five searchable sections:
  *   - Startseite: the start page as members see it, each block edited in
  *     place — the title card (title, category, description, gradient) and

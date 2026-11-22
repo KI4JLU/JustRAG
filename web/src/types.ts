@@ -203,14 +203,6 @@ export interface Message {
     isDeepSearch?: boolean;
     verification?: MessageVerification | null;
     traceId?: string | null;
-    // Attribution: the user-created team/agent that answered this turn (if
-    // any). Populated from the backend's camelCase `teamId`/`agentId` on AI
-    // message rows (omitted when nil) and stamped client-side from the
-    // current agentSelection while streaming. Drives the small chip in the
-    // AI-message chrome; a lookup miss (team/agent later deleted) renders
-    // nothing rather than an empty label.
-    teamId?: string | null;
-    agentId?: string | null;
     // The answer's agent steps: one entry per orchestrator decision point
     // (plan/iterate/hop/decision/answer/…), plus a `reasoning` marker where
     // the model's thinking began. Live from the `agentTrajectory` SSE events
@@ -218,9 +210,6 @@ export interface Message {
     // message (GET /api/chats/{id}/messages). Undefined when the turn had no
     // steps.
     trajectory?: TrajectoryEvent[];
-    // In-chat document comparison findings, populated by useChatStream from
-    // the `comparisonFindings` SSE event during a comparison turn.
-    comparisonFindings?: ComparisonFinding[];
     // Conflicting-sources report (Wave 5, chat_conflict_surfacing_enabled):
     // populated live from the `conflicts` SSE frame (useChatStream, right
     // after `sources`) and from the persisted `conflicts` column on reload
@@ -246,16 +235,6 @@ export interface MessageConflict {
     newer: 'a' | 'b' | 'unknown';
     fileA: string;
     fileB: string;
-}
-
-export interface ComparisonFinding {
-    mode: 'contradiction' | 'formal' | 'completeness';
-    severity: 'high' | 'medium' | 'low';
-    sectionIdx: number;
-    uploadQuote: string;
-    issue: string;
-    citedFileIds: string[];
-    citedQuote: string;
 }
 
 export interface BranchInfo {
@@ -583,8 +562,6 @@ export interface ChatEntry {
     type?: 'chat' | 'research' | 'academic_research' | 'academic-research';
     createdAt: string;
     updatedAt: string;
-    teamId?: string | null;
-    agentId?: string | null;
     /** The role the chat was started in (a starter question with a role,
      *  API.md "Behavior: roles and rules"); absent for a chat in the KB's
      *  active role. */
@@ -954,86 +931,6 @@ export interface WorkflowEdge {
   maxIterations: number;
 }
 
-/**
- * What a KB's default agent/team binding can point AT — the two things that
- * are actually attachable, and the two the writer can address (`kind` picks
- * between PUT …/agents/{id} and PUT …/teams/{id}).
- *
- * Kept apart from AgentBindingKind below on purpose: an option carrying
- * "unknown" would be an option nobody can save, and typing them the same
- * would let one be handed to the writer.
- */
-export type BindingTarget = 'agent' | 'team';
-
-/**
- * The resolved state of the binding — FOUR values, mirroring
- * go-backend/internal/pipeline/BindingKind:
- *
- *  - 'agent' / 'team' — a default is bound, `id`/`name` name it;
- *  - ''              — nothing is bound (a claim about the KB);
- *  - 'unknown'       — the server TRIED to read the link tables and could
- *                      not. Deliberately NOT collapsed into '': "nothing
- *                      bound" is a claim, and a failed read is not entitled
- *                      to make it. See BindingUnknown's doc comment in
- *                      go-backend/internal/pipeline/binding.go.
- */
-export type AgentBindingKind = BindingTarget | '' | 'unknown';
-
-/**
- * One agent or team attached to the KB, as a candidate for the KB default.
- *
- * `disabled` means the agent/team itself is switched off (agents.is_enabled /
- * agent_teams.is_enabled). Such an option is still LISTED — the KB's current
- * default may be one of them, and an admin has to see what they are clearing —
- * but must not be offered as a NEW default: chat-time resolution filters
- * is_enabled, so binding one would produce a default that never applies.
- */
-export interface AgentBindingOption {
-  kind: BindingTarget;
-  id: string;
-  name: string;
-  disabled: boolean;
-  /**
-   * A TEAM with no enabled member. Same consequence as `disabled` — chat-time
-   * resolution drops the selection and the KB answers with the standard path —
-   * but a separate flag, because the remedy differs: staff the team rather than
-   * switch it on. Never true for an agent.
-   */
-  emptyTeam: boolean;
-}
-
-/**
- * GET /api/kb/{id}/workflow's `agentBinding`: what is bound right now, and
- * what could be bound instead.
- *
- * `id`/`name` are empty unless `kind` is 'agent' or 'team'. Which option is
- * the current binding is answered ONCE, here at the top level — the options
- * deliberately carry no isDefault flag of their own (two places answering
- * "what is bound?" is two places that can disagree), so the control compares
- * `option.id` against this `id`.
- */
-export interface AgentBindingInfo {
-  kind: AgentBindingKind;
-  id: string;
-  name: string;
-  /**
-   * A default IS bound (`kind`/`id`/`name` name it) and the agent or team it
-   * points at is switched off, so nothing routes through it — the KB answers
-   * with the standard path. The row survives and takes effect again the moment
-   * anyone re-enables the agent, which is why the control shows it and offers
-   * to clear it instead of hiding it.
-   */
-  disabled: boolean;
-  /**
-   * A TEAM is bound and it has no enabled member. The team itself is switched
-   * ON, so `disabled` is false and nothing about it looks wrong — but
-   * LoadTeamForChat returns zero members, the selection is dropped, and the KB
-   * answers exactly as if nothing were bound.
-   */
-  emptyTeam: boolean;
-  options: AgentBindingOption[];
-}
-
 export interface OrchestratorCandidate {
   orchestrator: string;
   activation: NodeActivation;
@@ -1079,12 +976,6 @@ export interface WorkflowGraph {
    * bundle. Only meaningful when presetBaseKnown is true and presetBase is
    * non-empty; empty otherwise. */
   deviations: string[];
-  /** The KB's default agent/team binding plus the attachable set. A TOP-LEVEL
-   * field, not something on the agent_binding node: `options` and `id` are
-   * values the server's Project() has no argument for and never reads (see
-   * AgentBindingInfo in go-backend/internal/pipeline/binding.go), and the
-   * client mirrors that split rather than inventing a second home for it. */
-  agentBinding: AgentBindingInfo;
 }
 
 // --- Workflow presets (GET /api/workflow/presets, POST/GET .../workflow/preset) ---

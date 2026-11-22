@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, TrajectoryEvent, ComparisonFinding, MessageConflict, MessageAttachment } from '../types';
+import type { Message, MessageSource, MessageVerification, StructuredTable, KnowledgeBase, FileEntry, ChatEntry, TrajectoryEvent, MessageConflict, MessageAttachment } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../utils/haptics';
 import { chatSourceSelection } from '../utils/kbAccess';
@@ -8,7 +8,6 @@ import {
 } from '../utils/messageTree';
 import { parseSseStream, SseIdleTimeoutError } from '../utils/sseParser';
 import { errorInfoFromBody, isFileErrorCode, userErrorMessage } from '../utils/userErrors';
-import type { AgentSelection } from './useKbSettings';
 
 interface UseChatStreamParams {
   currentKb: KnowledgeBase | null;
@@ -19,7 +18,6 @@ interface UseChatStreamParams {
    *  utils/chatWebSearch.ts `chatWebSearchRequestField`). */
   webSearchEnabled: boolean | undefined;
   reasoningLevel: 'low' | 'medium' | 'high';
-  agentSelection: AgentSelection;
   language: string;
   // Tree state setters from useMessageTree
   setMessageTree: React.Dispatch<React.SetStateAction<Map<string, Message>>>;
@@ -49,7 +47,7 @@ interface UseChatStreamParams {
  */
 export function useChatStream({
   currentKb, files, enhance,
-  reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, language,
+  reasoningEnabled, webSearchEnabled, reasoningLevel, language,
   setMessageTree, messageTreeRef, setActiveLeafId,
   activeChatIdRef, setActiveChatId, setChats,
   fetchChats, fetchChatsTimerRef,
@@ -81,8 +79,6 @@ export function useChatStream({
     // appended the edited question to the very answer it replaces.
     editParentId?: string | null,
     opts?: {
-      attachmentId?: string;
-      comparisonModes?: string[];
       // Chat attachments of this question: ids for the request, chip data for
       // the optimistic message.
       attachmentIds?: string[];
@@ -90,7 +86,6 @@ export function useChatStream({
       // Called once the server accepted the turn (the question is stored),
       // before the answer streams — the composer clears its files then.
       onAccepted?: () => void;
-      agentSelection?: AgentSelection;
       // The role a NEW chat starts in (a starter question with a role); sent
       // only while the turn opens the chat — an existing chat keeps its role.
       roleId?: string;
@@ -106,11 +101,6 @@ export function useChatStream({
     const selection = chatSourceSelection(currentKb, files);
     if (!userMessage.trim() || !currentKb || loading || !selection.canSend) return false;
     triggerHaptic(HAPTIC_PATTERNS.send);
-
-    // Die Auswahl aus den Sende-Optionen schlägt den Hook-State: setAgentSelection
-    // wirkt erst ab dem nächsten Render, der Vergleichs-Turn wird aber sofort
-    // abgeschickt und liefe sonst mit der vorherigen Auswahl.
-    const effectiveSelection = opts?.agentSelection ?? agentSelection;
 
     const regenerateOf = opts?.regenerateOf;
 
@@ -204,23 +194,10 @@ export function useChatStream({
           ...(webSearchEnabled === undefined ? {} : { webSearch: webSearchEnabled }),
           language,
           ...(selection.selectedFileIds ? { selectedFileIds: selection.selectedFileIds } : {}),
-          // Sticky agent/team selection for this chat session (Standard omits
-          // both). Sent with every chat POST when set. `effectiveSelection`
-          // prefers `opts.agentSelection` over the hook-state closure — see
-          // the comment above its declaration.
-          ...(effectiveSelection?.teamId ? { teamId: effectiveSelection.teamId } : {}),
-          ...(effectiveSelection?.agentId ? { agentId: effectiveSelection.agentId } : {}),
-          // In-chat document comparison: when an attachment is present the
-          // backend injects it; non-empty `comparisonModes` makes the turn a
-          // comparison (otherwise it's a normal follow-up over the attachment).
-          ...(opts?.attachmentId ? { attachmentId: opts.attachmentId } : {}),
           ...(opts?.roleId && !activeChatIdRef.current ? { roleId: opts.roleId } : {}),
           // Chat attachments as context (API.md § Chat): files uploaded for
           // this question.
           ...(opts?.attachmentIds?.length ? { attachmentIds: opts.attachmentIds } : {}),
-          ...(opts?.comparisonModes && opts.comparisonModes.length > 0
-            ? { comparisonModes: opts.comparisonModes }
-            : {}),
         }),
         signal: abortController.signal,
       });
@@ -368,15 +345,6 @@ export function useChatStream({
             // to prevent an intermediate render where activeLeafId points to a non-existent node
             setMessageTree(prev => remapMessageId(prev, prevAiTempId, event.aiMessageId as string));
             setActiveLeafId(event.aiMessageId as string);
-            // Stamp attribution from the CURRENT selection (`effectiveSelection`,
-            // not the closure-only `agentSelection` — see above) so the chip
-            // renders immediately, without waiting for a chat reload to pick up
-            // the backend-persisted teamId/agentId columns, and so the persisted
-            // attribution matches the agent that actually answered this turn.
-            setMessageTree(prev => updateMessageInTree(prev, event.aiMessageId as string, {
-              teamId: effectiveSelection?.teamId ?? null,
-              agentId: effectiveSelection?.agentId ?? null,
-            }));
             // The answer is saved: free the composer and keep this stream
             // for the post-response frames.
             answerSaved = true;
@@ -436,11 +404,6 @@ export function useChatStream({
               structured_table: event.structuredTable as StructuredTable,
             }));
           }
-          if (event.comparisonFindings) {
-            setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
-              comparisonFindings: event.comparisonFindings as ComparisonFinding[],
-            }));
-          }
           if (event.conflicts) {
             setMessageTree(prev => updateMessageInTree(prev, aiNodeId, {
               conflicts: event.conflicts as MessageConflict[],
@@ -487,7 +450,7 @@ export function useChatStream({
       }
     }
     return accepted;
-  }, [currentKb, loading, files, enhance, reasoningEnabled, webSearchEnabled, reasoningLevel, agentSelection, language, fetchChats, t, activeChatIdRef, fetchChatsTimerRef, messageTreeRef, setActiveChatId, setActiveLeafId, setChats, setMessageTree]);
+  }, [currentKb, loading, files, enhance, reasoningEnabled, webSearchEnabled, reasoningLevel, language, fetchChats, t, activeChatIdRef, fetchChatsTimerRef, messageTreeRef, setActiveChatId, setActiveLeafId, setChats, setMessageTree]);
 
   const cancelStream = useCallback(() => {
     chatAbortRef.current?.abort();

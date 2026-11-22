@@ -66,9 +66,6 @@ export function roleAccent(cover: StartColors): string {
     return cover.from;
 }
 
-/** Translation keys of the chat start modes. */
-export const START_MODE_LABEL: Record<StartMode, string> = { input: 'asstStartInput', task: 'asstStartTask', upload: 'asstStartUpload', roles: 'asstStartRoles' };
-
 /** The id of the active role's card, always the first. */
 export const DEFAULT_ENTRY_ID = 'default';
 
@@ -97,10 +94,6 @@ export function pageMode(page: StartPage, activeRoleId: string, roles?: RoleStar
     return kind === 'task' ? 'task' : kind === 'file' ? 'upload' : 'input';
 }
 
-/** What a chat's role badge names: a role, or an agent or a team from before the roles. */
-export type RoleBadgeKind = 'role' | 'agent' | 'team';
-export const ROLE_BADGE_KEY = { role: 'asstRoleBadge', agent: 'asstAgentBadge', team: 'asstTeamBadge' } as const;
-
 /**
  * The role the start page names under its description: the active role's name
  * while it is the only one offered. With further role cards („Rollenauswahl")
@@ -121,17 +114,6 @@ export function activeTaskStart(page: StartPage, activeRoleId: string, roles?: R
 /** The active role's start as its card: the one card of an „Anweisung" start. */
 export function taskModeEntry(start: EntryStart, activeRoleId: string): RoleEntry {
     return { ...start, id: DEFAULT_ENTRY_ID, roleId: activeRoleId };
-}
-
-/**
- * `page` with `roleId`'s start set to `next` — dropped back to the default
- * (its template's start, else the input field) when it equals that.
- */
-export function withRoleStart(page: StartPage, roleId: string, next: EntryStart, roles?: RoleStarts): StartPage {
-    const roleStarts = { ...page.roleStarts };
-    if (JSON.stringify(next) === JSON.stringify(roleDefaultStart(roles, roleId))) delete roleStarts[roleId];
-    else roleStarts[roleId] = next;
-    return { ...page, roleStarts };
 }
 
 /** The cards of „Rollenauswahl": the active role's first, then the further ones, each with its role's start. */

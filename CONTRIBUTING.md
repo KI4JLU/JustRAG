@@ -214,7 +214,7 @@ They remain useful for legacy flows and schema generation, but they are not the 
 - `web/src/components/`
 - `web/src/contexts/`
 - `web/src/hooks/`
-- `web/src/routes/`
+- `web/src/routing/`
 - `web/src/utils/`
 
 ### Desktop app

@@ -15,7 +15,6 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useModalContext } from '../../contexts/ModalContext';
 import { getApiErrorMessage } from '../../utils/apiError';
-import { fetchKbAgents, type KbAgentOption } from '../agents/api';
 import { CheckboxFieldRow, FieldRow, SelectFieldRow } from '../form/SettingsFieldRow';
 import { SyncScheduleSelect } from '../sidebar/SyncScheduleSelect';
 import type { SyncSchedule } from '../../types';
@@ -40,9 +39,8 @@ interface RunSummary {
     aggregate?: AggregateSummary;
     route_mean_recall?: Record<string, number>;
     error_message?: string;
-    // W6-R9: which runs dispatched through a user team instead of the
-    // standard orchestrator-dispatch adapter. team_name may be empty even
-    // when team_id is set (best-effort resolution on the backend).
+    // Set on a run that answered through a team; team_name may be empty
+    // when the backend could not resolve it.
     team_id?: string;
     team_name?: string;
 }
@@ -106,8 +104,6 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
     const [judgeEnabled, setJudgeEnabled] = useState(true);
     const [topK, setTopK] = useState(10);
     const [kickOffLoading, setKickOffLoading] = useState(false);
-    const [selectedTeamId, setSelectedTeamId] = useState('');
-    const [kbTeams, setKbTeams] = useState<KbAgentOption[]>([]);
 
     // State: golden sets
     const [goldenSets, setGoldenSets] = useState<GoldenSet[]>([]);
@@ -161,20 +157,6 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
     useEffect(() => {
         fetchGoldenSets();
     }, [fetchGoldenSets]);
-
-    // Team select: only meaningful once a KB is in play (path-scoped kbId,
-    // or an explicit kb_id typed into the admin-scope form).
-    useEffect(() => {
-        // Clear on every KB change (including formKbId edits) so switching
-        // KB-A -> KB-B never resubmits KB-A's team id against KB-B; the
-        // backend already 400s that mismatch, this just avoids the
-        // confusing error by not offering a stale selection in the first
-        // place.
-        setSelectedTeamId('');
-        const effectiveKb = kbId || formKbId;
-        if (!effectiveKb) { setKbTeams([]); return; }
-        fetchKbAgents(effectiveKb).then(o => setKbTeams(o.teams)).catch(() => setKbTeams([]));
-    }, [kbId, formKbId]);
 
     // Fetch generation jobs
     const fetchGenJobs = useCallback(async () => {
@@ -279,15 +261,6 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
         setScoreSort(prev => (prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none'));
     };
 
-    // W6-R9: the newest completed team run per team id, for the "last run"
-    // hint next to the team selector.
-    const lastTeamRunFor = useCallback((teamId: string): RunSummary | undefined => {
-        const candidates = runs.filter(r => r.status === 'completed' && r.team_id === teamId && r.aggregate);
-        if (candidates.length === 0) return undefined;
-        const timeOf = (r: RunSummary) => new Date(r.finished_at || r.started_at || r.created_at).getTime();
-        return candidates.reduce((newest, r) => (timeOf(r) > timeOf(newest) ? r : newest));
-    }, [runs]);
-
     const handleUpload = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!uploadFile || !uploadName.trim()) {
@@ -367,7 +340,6 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             };
             if (!kbId && formKbId) body.kb_id = formKbId;
             if (selectedGoldenSetId) body.golden_set_id = selectedGoldenSetId;
-            if (selectedTeamId) body.team_id = selectedTeamId;
             await axios.post(`${API_BASE_URL}${basePath}/runs`, body);
             toast.success(t('evalKickedOff'));
             setLabel('');
@@ -708,30 +680,6 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                         label: `${gs.name} (${gs.question_count} ${t('evalQuestions')})`,
                     }))}
                 />
-                {/* Team selector — only shown once a KB is in play (its teams may be empty) */}
-                {kbTeams.length > 0 && (
-                <SelectFieldRow
-                    label={t('evalTeamLabel')}
-                    // '' is a real choice here ("standard, no team"), so it stays a
-                    // listed option AND supplies the placeholder — Radix shows the
-                    // placeholder for value '', so the wording has to exist twice for
-                    // the trigger and the list to read the same.
-                    placeholder={t('evalTeamStandard')}
-                    value={selectedTeamId}
-                    onValueChange={setSelectedTeamId}
-                    options={[
-                        { value: '', label: t('evalTeamStandard') },
-                        ...kbTeams.map(tm => {
-                            // W6-R9: the last completed run's score next to the team name.
-                            const last = lastTeamRunFor(tm.id);
-                            const suffix = last && last.aggregate
-                                ? ` — ${t('evalTeamLastRun')}: Recall ${(last.aggregate.mean_recall * 100).toFixed(1)} % / MRR ${(last.aggregate.mrr * 100).toFixed(1)} %`
-                                : '';
-                            return { value: tm.id, label: `${tm.name}${suffix}` };
-                        }),
-                    ]}
-                />
-                )}
                 {/* Top-k + judge + submit row */}
                 <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <FieldRow

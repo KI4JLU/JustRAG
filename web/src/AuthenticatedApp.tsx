@@ -1,7 +1,7 @@
 import { useState, lazy, Suspense, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { BreadcrumbBack } from '@ki4jlu/design-system';
-import type { KnowledgeBase, GeneratedContent } from './types';
+import type { KnowledgeBase } from './types';
 import { useTheme } from './contexts/ThemeContext';
 import { useAuth } from './contexts/AuthContext';
 import { ModalProvider, useModalContext } from './contexts/ModalContext';
@@ -22,7 +22,6 @@ import { useFileManagement } from './hooks/useFileManagement';
 import { useUploadStorageNotice } from './hooks/useUploadStorageNotice';
 import { UploadStorageNoticeDialog } from './components/UploadStorageNoticeDialog';
 import { useWebTools } from './hooks/useWebTools';
-import { useGeneratedContent } from './hooks/useGeneratedContent';
 import { useKnowledgeBases } from './hooks/useKnowledgeBases';
 import { useJoinRedeem } from './hooks/useJoinRedeem';
 import { useKbSearchState } from './hooks/useKbSearchState';
@@ -30,7 +29,7 @@ import { useSearchNavigation } from './hooks/useSearchNavigation';
 import { useRssFeeds } from './hooks/useRssFeeds';
 import { useConfluenceSources } from './hooks/useConfluenceSources';
 import { useGitRepoSources } from './hooks/useGitRepoSources';
-import { useViewState, type KbViewType } from './hooks/useViewState';
+import { useViewState } from './hooks/useViewState';
 import { useLocation, useRouter } from '@tanstack/react-router';
 import { useAppNavigate, useAppRoute } from './routing/navigation';
 import { useKbSettings } from './hooks/useKbSettings';
@@ -43,10 +42,9 @@ import { useChatRoute, useChatTopic } from './hooks/useChatRoute';
 import { MyTopicsView } from './components/MyTopicsView';
 import { SharedTopicsView } from './components/SharedTopicsView';
 import { DiscoverView } from './components/DiscoverView';
-import { ToolsView } from './components/ToolsView';
-import { AppFrame, WorkspaceProviders, type AppChromeView, type WorkspaceFrame } from './components/AppChrome';
+import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from './components/AppChrome';
 import { ChatView } from './components/ChatView';
-import { KbWorkspaceModals } from './components/KbWorkspaceModals';
+import { TopicModals } from './components/TopicModals';
 
 // Lazy load heavy components
 const GlobalKbSettings = lazy(() => import('./components/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));
@@ -59,20 +57,12 @@ import { chatWebSearchRequestField } from './utils/chatWebSearch';
 import { kbSourceRights } from './utils/kbAccess';
 
 // Lazy Loaded Components
-const Profile = lazy(() => import('./Profile'));
-const AgentsView = lazy(() => import('./components/agents/AgentsView'));
 
 const LoadingFallback = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
     <Loader2 className="animate-spin" size={32} color="var(--accent-primary)" />
   </div>
 );
-
-/** First occurrence wins; order is kept. */
-function uniqueById(kbs: KnowledgeBase[]): KnowledgeBase[] {
-  const seen = new Set<string>();
-  return kbs.filter(kb => (seen.has(kb.id) ? false : (seen.add(kb.id), true)));
-}
 
 export default function AuthenticatedApp() {
   /* `ToastProvider` and `ToastContainer` used to be here, inside
@@ -113,7 +103,7 @@ function AuthenticatedAppInner() {
   // to carry the resolved value or the container would silently stop matching
   // `[data-theme="dark"]` for every OS-following user.
   const { resolvedTheme, t } = useTheme();
-  const { user, token, updateUser: onUpdateUser, siteConfigs } = useAuth();
+  const { user, token, siteConfigs } = useAuth();
   const { showConfirm } = useModalContext();
   const toast = useToast();
 
@@ -123,13 +113,12 @@ function AuthenticatedAppInner() {
   const navigateTo = useAppNavigate();
 
   // Local state kept here to avoid circular deps with useKnowledgeBases
-  const [kbView, setKbView] = useState<KbViewType>('chat');
   const [currentKb, setCurrentKb] = useState<KnowledgeBase | null>(null);
   // A chat URL (`/c/<id>`) names the chat alone; its topic is the chat's own.
   const routeChatId = route.view === 'chat' ? route.chatId : null;
   const chatTopic = useChatTopic(routeChatId);
-  /** A topic's workspace: its new chat (`/kb/<id>`) or one of its chats (`/c/<id>`). */
-  const onWorkspace = view === 'kb' || view === 'chat';
+  /** A topic's view: its new chat (`/kb/<id>`) or one of its chats (`/c/<id>`). */
+  const onTopic = view === 'kb' || view === 'chat';
 
   /* The advanced settings page (RAG settings, evals, workflow; KbSettingsPanel)
    * deliberately has NO URL: it is experimental and partly deprecated, so it
@@ -147,8 +136,8 @@ function AuthenticatedAppInner() {
 
   // New extracted hooks
   const kbSettings = useKbSettings();
+  const goHome = useCallback(() => navigateTo({ view: 'my-topics' }), [navigateTo]);
   const viewState = useViewState({
-    navigateTo, setKbView, setShowSettings: kbSettings.setShowSettings,
     // The swipe follows the tabs AppFrame renders (no 'files'
     // without seeSources).
     showFilesTab: kbSourceRights(currentKb, user?.role, user?.id).seeSources,
@@ -172,7 +161,6 @@ function AuthenticatedAppInner() {
     // hides the toggle by.
     webSearchEnabled: chatWebSearchRequestField(siteConfigs, kbSettings.webSearchEnabled),
     reasoningLevel: kbSettings.reasoningLevel,
-    agentSelection: kbSettings.agentSelection, setAgentSelection: kbSettings.setAgentSelection,
   });
 
   /* The topic the URL names, once it is the open one. A topic view renders
@@ -182,7 +170,7 @@ function AuthenticatedAppInner() {
    *
    * A chat URL whose chat is the one on screen belongs to the open topic, with
    * no lookup: a new chat's first answer switches `/kb/<id>` to `/c/<chat>`,
-   * and waiting even one render for the chat's topic would drop the workspace
+   * and waiting even one render for the chat's topic would drop the topic view
    * for a spinner and mount it again — a visible flicker mid-answer. */
   const routeKbId = 'kbId' in route ? route.kbId
     : routeChatId && routeChatId === chat.activeChatId && currentKb ? currentKb.id
@@ -190,7 +178,7 @@ function AuthenticatedAppInner() {
     : null;
   const routeKb = currentKb && currentKb.id === routeKbId ? currentKb : null;
   // Thema-Einstellungen: open for one topic at a time (see useTopicSettings).
-  const topicSettings = useTopicSettings(onWorkspace && routeKb !== null);
+  const topicSettings = useTopicSettings(onTopic && routeKb !== null);
 
   const webTools = useWebTools({
     currentKb,
@@ -213,16 +201,10 @@ function AuthenticatedAppInner() {
     fetchFiles: fileMgmt.fetchFiles,
   });
 
-  const content = useGeneratedContent({
-    currentKb, files: fileMgmt.files,
-  });
-
   const kbMgmt = useKnowledgeBases({
     onKBSelected: chat.handleNewChat,
-    handleGoHome: viewState.handleGoHome,
-    setCurrentKb, setIsPro: kbSettings.setIsPro, setKbView, navigateTo,
-    setSelectedContent: content.setSelectedContent,
-    setGeneratedContent: content.setGeneratedContent,
+    handleGoHome: goHome,
+    setCurrentKb, setIsPro: kbSettings.setIsPro, navigateTo,
   });
 
   /* URL -> open topic. When the URL names a topic that is not the open one —
@@ -291,7 +273,7 @@ function AuthenticatedAppInner() {
 
   // The chat on screen and the chat in the URL (/c/<id>, or /kb/<id> for a new chat).
   useChatRoute({
-    kbId: onWorkspace && routeKb ? routeKb.id : null,
+    kbId: onTopic && routeKb ? routeKb.id : null,
     routeChatId,
     routeChatEntry: chatTopic.topic?.status === 'found' ? chatTopic.topic.entry : null,
     rememberTopic: chatTopic.remember,
@@ -331,12 +313,9 @@ function AuthenticatedAppInner() {
     fetchAvailableConfigs: kbSettings.fetchAvailableConfigs,
     fetchFiles: fileMgmt.fetchFiles,
     fetchChats: chat.fetchChats,
-    fetchGeneratedContent: content.fetchGeneratedContent,
     fetchRssFeeds,
     fetchConfluenceSources: confluenceHook.fetchSources,
     fetchConfluenceConnectionInfo: confluenceHook.fetchConnectionInfo,
-    showSettings: kbSettings.showSettings,
-    setShowSettings: kbSettings.setShowSettings,
   });
 
   const { fetchGitRepoSources } = gitRepoHook;
@@ -355,22 +334,10 @@ function AuthenticatedAppInner() {
     // Every view that renders `kbs`/`globalKbs`: a topic shared or published
     // while the user was elsewhere in the session would otherwise be missing
     // from the very view that exists to show it, until a full page reload.
-    // 'tools' joined with card KI-833 — its topic picker lists the same rows.
-    if (view === 'my-topics' || view === 'shared-topics' || view === 'discover' || view === 'tools') {
+    if (view === 'my-topics' || view === 'shared-topics' || view === 'discover') {
       void fetchKBs({ silent: true });
     }
   }, [view, fetchKBs]);
-
-  // Cross-hook handlers. The setters are destructured into stable locals so
-  // the useCallback dep arrays don't have to depend on the whole hook objects
-  // (which are recreated each render and would defeat the memoization).
-  const { setSelectedContent } = content;
-
-  // Wählt ein Artefakt nur noch aus — die Workspace-Ansicht, die es zeigte,
-  // ist seit dem 22.09.2026 nicht erreichbar (KbViewType = 'chat').
-  const handleSelectContent = useCallback((item: GeneratedContent) => {
-    setSelectedContent(item);
-  }, [setSelectedContent]);
 
   // Resolves true once the PATCH succeeded, false when it was declined or
   // failed (already toasted), so a caller can keep its drafts on screen.
@@ -405,10 +372,9 @@ function AuthenticatedAppInner() {
    * home branch before too, so nothing about re-render behaviour changes, and
    * a memo here would have to sit above every early return for no gain. */
   const appNav: AppNavContextValue = {
-    onViewMyTopics: () => navigateTo({ view: 'my-topics' }),
+    onViewMyTopics: goHome,
     onViewSharedTopics: () => navigateTo({ view: 'shared-topics' }),
     onViewDiscover: () => navigateTo({ view: 'discover' }),
-    onViewTools: () => navigateTo({ view: 'tools' }),
     onViewProfile: () => openSettingsDialog('profile'),
     onEditGlobalKb: (kb) => kbMgmt.handleOpenGlobalKbSettings(kb.id),
     onViewLegal: (page) => navigateTo({ view: page }),
@@ -433,7 +399,7 @@ function AuthenticatedAppInner() {
       <Suspense fallback={<div className="loading-spinner"><Loader2 className="animate-spin" /></div>}>
         <GlobalKbSettings
           kb={routeKb}
-          onBack={() => { kbMgmt.fetchKBs(); viewState.handleGoHome(); }}
+          onBack={() => { kbMgmt.fetchKBs(); goHome(); }}
           onOpenKb={() => { kbMgmt.handleSelectKB(routeKb); }}
           onUpdate={(updated) => {
             setCurrentKb(updated);
@@ -462,7 +428,7 @@ function AuthenticatedAppInner() {
           </div>
           <div style={{ padding: '1.25rem 1.5rem 2rem' }}>
             <Suspense fallback={<LoadingFallback />}>
-              <KbSettingsPanel kbId={advanced.id} onCreateAgent={() => navigateTo({ view: 'agents' })} />
+              <KbSettingsPanel kbId={advanced.id} />
             </Suspense>
           </div>
         </div>
@@ -470,56 +436,21 @@ function AuthenticatedAppInner() {
     );
   }
 
-  if (view === 'profile' && user) {
-    return (
-      <div className="app-container" data-theme={resolvedTheme}>
-        <div style={{ display: 'flex', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
-          <Suspense fallback={<LoadingFallback />}>
-            <Profile user={user} onBack={viewState.handleGoHome} onUpdateUser={onUpdateUser} />
-          </Suspense>
-        </div>
-      </div>
-    );
-  }
-
   if (view === 'terms' || view === 'privacy' || view === 'accessibility') {
-    return <LegalPage page={view} onBack={viewState.handleGoHome} siteConfigs={siteConfigs} />;
+    return <LegalPage page={view} onBack={goHome} siteConfigs={siteConfigs} />;
   }
 
-  if (route.view === 'agents') {
-    return (
-      <div className="app-container" data-theme={resolvedTheme}>
-        <div style={{ display: 'flex', height: viewportHeight('100dvh', '100vh'), width: '100%', overflow: 'auto' }}>
-          <Suspense fallback={<LoadingFallback />}>
-            <AgentsView
-              onBack={viewState.handleGoHome}
-              tab={route.tab}
-              // A tab is not a step of its own: back leaves the page.
-              onTabChange={(tab) => navigateTo({ view: 'agents', tab }, { replace: true })}
-              availableModels={[...new Set(kbSettings.availableConfigs.flatMap(c => c.chat_models))]}
-            />
-          </Suspense>
-        </div>
-      </div>
-    );
-  }
-
-  /* The overview pages and the topic workspace share ONE shell (`AppFrame`),
+  /* The overview pages and the topic view share ONE shell (`AppFrame`),
    * returned from this one place, so the sidebar stays mounted when the main
    * area changes. Everything below builds what goes into it. */
-  const workspaceKb = onWorkspace ? routeKb : null;
-  let workspace: WorkspaceFrame | null = null;
-  if (workspaceKb) {
+  const topicKb = onTopic ? routeKb : null;
+  let topic: TopicFrame | null = null;
+  if (topicKb) {
   const coreValue: KbCoreContextValue = {
-      currentKb: workspaceKb,
+      currentKb: topicKb,
       isPro: kbSettings.isPro,
       availableConfigs: kbSettings.availableConfigs,
-      kbView,
-      setKbView,
       kbMgmt,
-      handleGoHome: viewState.handleGoHome,
-      handleViewHome: viewState.handleViewHome,
-      onViewAgents: () => navigateTo({ view: 'agents' }),
       handleUpdateKBSettings,
     };
 
@@ -533,20 +464,11 @@ function AuthenticatedAppInner() {
       setWebSearchEnabled: kbSettings.setWebSearchEnabled,
       reasoningLevel: kbSettings.reasoningLevel,
       setReasoningLevel: kbSettings.setReasoningLevel,
-      showSettings: kbSettings.showSettings,
-      setShowSettings: kbSettings.setShowSettings,
-      researchRunning: kbSettings.researchRunning,
-      academicResearchRunning: kbSettings.academicResearchRunning,
-      setResearchRunning: kbSettings.setResearchRunning,
-      setAcademicResearchRunning: kbSettings.setAcademicResearchRunning,
-      agentSelection: kbSettings.agentSelection,
-      setAgentSelection: kbSettings.setAgentSelection,
     };
 
     const dataValue: KbDataContextValue = {
       fileMgmt,
       webTools,
-      content,
       rssFeeds,
       rssLoading,
       fetchRssFeeds,
@@ -576,7 +498,6 @@ function AuthenticatedAppInner() {
       updateGitRepoSource: gitRepoHook.updateGitRepoSource,
       deleteGitRepoSources: gitRepoHook.deleteGitRepoSources,
       syncGitRepoNow: gitRepoHook.syncGitRepoNow,
-      handleSelectContent,
     };
 
     const layoutValue: KbLayoutContextValue = {
@@ -587,7 +508,7 @@ function AuthenticatedAppInner() {
       setSystemPromptSection: topicSettings.setSection,
     };
 
-    workspace = {
+    topic = {
       core: coreValue, chat: chatValue, data: dataValue, layout: layoutValue,
       mobileTab: viewState.mobileTab,
       setMobileTab: viewState.setMobileTab,
@@ -601,42 +522,31 @@ function AuthenticatedAppInner() {
   const { handleSelectChat, handleDeleteChats, handleRenameChat, handleNewChat } = chat;
   const subscribedIds = new Set(kbMgmt.globalKbs.map(kb => kb.id));
   const chatHistory: ChatHistoryHost = {
-    activeChatId: workspace ? chat.activeChatId : null,
-    openTopicId: workspace ? workspace.core.currentKb.id : null,
+    activeChatId: topic ? chat.activeChatId : null,
+    openTopicId: topic ? topic.core.currentKb.id : null,
     sectionOf: (c) => topicSection({
       isPublic: c.kbVisibility === 'public',
       isOwner: c.kbRole === 'owner',
       isSubscribed: subscribedIds.has(c.kbId),
     }),
     openChat: (c) => {
-      if (workspace && c.kbId === workspace.core.currentKb.id) {
+      if (topic && c.kbId === topic.core.currentKb.id) {
         // The chat already on screen is not loaded again: that would replace
         // the local state of a running answer.
         if (c.id !== chat.activeChatId) void handleSelectChat(c);
-        setKbView('chat');
         return;
       }
       navigateTo({ view: 'chat', chatId: c.id });
     },
     deleteChats: handleDeleteChats,
     renameChat: handleRenameChat,
-    newChat: workspace ? handleNewChat : null,
+    newChat: topic ? handleNewChat : null,
     newTopic: () => { void kbMgmt.handleCreateKB(); },
-    generating: workspace ? content.generating : false,
-    generatingMessage: workspace ? content.podcastProgress?.message : undefined,
   };
 
   let active: AppChromeView | null = null;
   let main: ReactNode;
-  if (view === 'tools') {
-    active = 'tools';
-    /* Owned + shared (`kbs`) and subscribed public topics (`globalKbs`):
-       generated content is view-gated, so every one of them is a valid
-       target for the text-documents tool. The two lists are disjoint
-       (GET /api/kb returns private topics only); the id filter is a guard,
-       not a known case. */
-    main = <ToolsView topics={uniqueById([...kbMgmt.kbs, ...kbMgmt.globalKbs])} />;
-  } else if (view === 'discover') {
+  if (view === 'discover') {
     active = 'discover';
     main = (
       <DiscoverView
@@ -668,24 +578,18 @@ function AuthenticatedAppInner() {
         loading={kbMgmt.kbsStatus === 'loading'}
         loadFailed={kbMgmt.kbsStatus === 'failed'}
         onRetryLoad={() => { void kbMgmt.fetchKBs(); }}
-        currentKb={currentKb}
-        availableConfigs={kbSettings.availableConfigs}
         onCreateKB={kbMgmt.handleCreateKB}
         onSelectKB={kbMgmt.handleSelectKB}
         onDeleteKB={kbMgmt.handleDeleteKB}
         removingKb={kbMgmt.removingKb}
         onRenameKB={kbMgmt.handleRenameKB}
         onToggleFavorite={kbMgmt.handleToggleFavorite}
-        onUpdateKBSettings={handleUpdateKBSettings}
-        showSettings={kbSettings.showSettings}
-        setShowSettings={kbSettings.setShowSettings}
       />
     );
-  } else if (workspace) {
+  } else if (topic) {
     main = <ChatView />;
   } else {
-    // A topic URL whose topic is still loading, or any other view that got
-    // here (the profile before `user` exists): the spinner, in the main area.
+    // A topic URL whose topic is still loading: the spinner, in the main area.
     main = (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%' }}>
         <Loader2 className="animate-spin" size={32} color="var(--accent-primary)" />
@@ -706,14 +610,14 @@ function AuthenticatedAppInner() {
           currentKb={currentKb}
           refreshKey={`${view}:${currentKb?.id ?? ''}:${chat.chats.length}`}
         >
-          <AppFrame active={active} workspace={workspace}>
+          <AppFrame active={active} topic={topic}>
             {main}
           </AppFrame>
         </ChatHistoryStore>
-        {workspace && (
-          <WorkspaceProviders value={workspace}>
-            <KbWorkspaceModals />
-          </WorkspaceProviders>
+        {topic && (
+          <TopicProviders value={topic}>
+            <TopicModals />
+          </TopicProviders>
         )}
       </KbSearchProvider>
     </AppNavProvider>

@@ -35,7 +35,7 @@ export async function fetchChat(chatId: string): Promise<FetchedChat> {
  * The topic of the chat the URL names. A chat URL carries the chat alone, so
  * its topic comes from GET /api/chats/{id} — or, for a URL the app wrote
  * itself (a chat picked in the history, a new chat's first answer), from
- * `remember`, called before that navigation so the workspace never waits on
+ * `remember`, called before that navigation so the topic view never waits on
  * a request for a chat it already shows.
  */
 export function useChatTopic(routeChatId: string | null) {

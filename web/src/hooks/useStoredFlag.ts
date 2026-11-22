@@ -18,7 +18,8 @@ import { useCallback, useState, useSyncExternalStore } from 'react';
  * the migration is a pure extraction.
  *
  * KEY NAMESPACE. Callers pass the FULL key and every key starts `justrag.`:
- *   - `justrag.home.section.<id>`      — `useSectionOpen` (Stage 7b, unchanged)
+ *   - `justrag.home.section.<id>`      — the former `useSectionOpen`; no
+ *     caller reads it any more, the values stay in users' browsers
  *   - `justrag.chrome.sidebar.collapsed` — `useSidebarCollapse` (KI-789)
  * The prefix is assembled by the calling hook rather than here, because a key
  * is part of that hook's contract with the browser — a shared hook that minted

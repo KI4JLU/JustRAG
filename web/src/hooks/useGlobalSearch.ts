@@ -88,7 +88,7 @@ function normalise(data: unknown, query: string): SearchResponse {
 /**
  * THE SCOPE IS PER CALL, not per hook (KI-838). `search(text, kbId)` sends
  * `kb_id`, which restricts every group to that topic; `search(text)` searches
- * everything. The workspace search widens by repeating the same text without
+ * everything. The topic search widens by repeating the same text without
  * the id, so the scope has to be an argument of the request rather than a
  * setting of the hook. A hidden, unknown or malformed topic id answers 404
  * (API.md — never 403), which becomes the `not-found` state.
