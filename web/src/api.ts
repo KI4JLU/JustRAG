@@ -17,7 +17,6 @@ const getBaseUrl = () => {
 };
 
 export const API_BASE_URL = getBaseUrl();
-export const API_URL = `${API_BASE_URL}/api`;
 
 /**
  * Wrapper around fetch that auto-injects the Authorization header

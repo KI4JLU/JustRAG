@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import AdminAgentTab from './AdminAgentTab';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 
 // Real English strings so labels can be matched by text.
 const tMock = (key: string) => {

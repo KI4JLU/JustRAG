@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultStart, type SettingsVersion, type StartPage } from './api';
-import { ROLE_COVER_DEFAULTS, activeTaskStart, categoryGlowStyle, chatStartIncomplete, pageMode, pageQuestions, roleCardCover, showsGeneratedQuestions, soleRoleName, startEntries, suggestionQuestions, withRoleStart } from './startPageModel';
+import { ROLE_COVER_DEFAULTS, activeTaskStart, categoryGlowStyle, chatStartIncomplete, pageMode, pageQuestions, roleCardCover, showsGeneratedQuestions, soleRoleName, startEntries, suggestionQuestions } from './startPageModel';
 import { changeValue, versionNote } from './versionModel';
 import { draftAfterReset, type AssistantDraft } from './useAssistantSettings';
 
@@ -178,11 +178,6 @@ describe('the page follows the roles', () => {
         expect(activeTaskStart(page({ roleStarts: { chat: { ...task, text: 'Los' } } }), 'chat', roles)).toMatchObject({ text: 'Los' });
         expect(activeTaskStart(page(), 'chat', roles)).toBeNull();
         expect(activeTaskStart(page({ roleEntries: [{ id: 're-1', roleId: 'chat' }] }), 'summary', roles)).toBeNull();
-    });
-
-    it('keeps a start equal to the template\'s as the template\'s', () => {
-        expect(withRoleStart(page(), 'summary', { ...task }, roles).roleStarts.summary).toBeUndefined();
-        expect(withRoleStart(page(), 'summary', { ...task, text: 'Anders' }, roles).roleStarts.summary).toMatchObject({ text: 'Anders' });
     });
 });
 

@@ -1,7 +1,7 @@
 package processor
 
 // Ingestion stage keys. Stable identifiers the frontend maps to localized
-// labels (see web/src/translations.ts ingestStage* keys). Keep in sync.
+// labels (the ingestStage* keys in the web app's translations.ts). Keep in sync.
 const (
 	stageParse   = "parse"
 	stageTabular = "tabular"

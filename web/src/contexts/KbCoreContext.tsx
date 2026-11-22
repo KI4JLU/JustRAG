@@ -6,14 +6,7 @@ export interface KbCoreContextValue {
   currentKb: KnowledgeBase;
   isPro: boolean;
   availableConfigs: SafeAIConfig[];
-  kbView: string;
-  /** Nur 'chat' — siehe `KbViewType` in useViewState.ts (22.09.2026). */
-  setKbView: (view: 'chat') => void;
   kbMgmt: ReturnType<typeof useKnowledgeBases>;
-  handleGoHome: () => void;
-  handleViewHome: () => void;
-  /** Navigate to the My Agents screen (linked from KB settings). */
-  onViewAgents: () => void;
   handleUpdateKBSettings: (data: Record<string, unknown>) => Promise<boolean>;
 }
 

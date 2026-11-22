@@ -6,7 +6,7 @@ import MockAdapter from 'axios-mock-adapter';
  *
  * The login page has no props that describe its state: everything visible on
  * it is derived inside the component from ONE response, `GET
- * /api/auth/providers` (see src/Login.tsx — `oidcProvider = providers.find(p
+ * /api/auth/providers` (see src/pages/Login.tsx — `oidcProvider = providers.find(p
  * => p.type === 'oidc')`, `ldapActive = providers.some(p => p.type ===
  * 'ldap')`). So a story must supply that response and nothing else. Handing
  * `Login` a doubled child, a fake hook or a pre-computed `showOidcButton`
@@ -79,13 +79,11 @@ export interface MockLoginRejection {
  * returns 0, but the tab renders two children that fetch on mount —
  * AdminMCPSection (`GET /api/admin/mcp/status`, AdminMCPSection.tsx:152) and
  * AdminAgentMetricsCard (`GET /api/admin/agent-metrics`,
- * AdminAgentMetricsCard.tsx:152) — and AdminEvalTab reaches
- * `GET /api/kb/{id}/agents` through `fetchKbAgents`
- * (src/components/agents/api.ts:104). All three go through `authFetch`.
+ * AdminAgentMetricsCard.tsx:152). Both go through `authFetch`.
  * Unmocked, each renders its own `Error: HTTP 404` box, which is a false
  * signal for the reviewer this card exists to serve.
  *
- * So the three are answered here, at the `window.fetch` boundary, on the same
+ * So the two are answered here, at the `window.fetch` boundary, on the same
  * terms as the axios half: matched by METHOD and URL, with everything above
  * the transport left real (the real effect, the real `API_BASE_URL`
  * construction, the real `r.ok` check, the real `.catch()`). The patch is
@@ -106,10 +104,6 @@ const never = () => new Promise<never>(() => {});
 export interface ApiMockParameters {
   authProviders?: MockAuthConfig;
   loginRejection?: MockLoginRejection;
-  /** GET /api/kb/{id}/analytics */
-  kbAnalytics?: unknown;
-  /** GET /api/kb/{id}/analytics/retrieval-quality */
-  kbRetrievalQuality?: unknown;
   /** GET /api/admin/kb-overview */
   kbOverview?: unknown;
   /** GET /api/system-health/live */
@@ -120,8 +114,6 @@ export interface ApiMockParameters {
   aiCheck?: unknown;
   /** Endpoints whose request must hang, so the story shows the loading state. */
   pending?: Array<
-    | 'kbAnalytics'
-    | 'kbRetrievalQuality'
     | 'kbOverview'
     | 'systemHealthLive'
     | 'systemHealthHistory'
@@ -142,8 +134,6 @@ export interface ApiMockParameters {
   mcpStatus?: unknown;
   /** GET /api/admin/agent-metrics?window=… — AdminAgentMetricsCard. */
   agentMetrics?: unknown;
-  /** GET /api/kb/{id}/agents — AdminEvalTab's team select, via fetchKbAgents. */
-  kbAgents?: unknown;
 
   /* -- HomeView, axios half (card KI-774).
    *
@@ -181,12 +171,9 @@ export interface ApiMockParameters {
 /**
  * Tail-anchored URL patterns. API_BASE_URL is the Storybook origin at runtime
  * (.storybook/env.ts), so the URL axios is handed is absolute; the query
- * string is matched by axios-mock-adapter separately from the path, which is
- * why `analytics` needs the `(\?|$)` tail — `Dashboard` always appends `?…`.
+ * string is matched by axios-mock-adapter separately from the path.
  */
 const URLS = {
-  kbAnalytics: /\/api\/kb\/[^/]+\/analytics(\?|$)/,
-  kbRetrievalQuality: /\/api\/kb\/[^/]+\/analytics\/retrieval-quality(\?|$)/,
   kbOverview: /\/api\/admin\/kb-overview$/,
   systemHealthLive: /\/api\/system-health\/live$/,
   systemHealthHistory: /\/api\/system-health\/history$/,
@@ -218,7 +205,6 @@ const URLS = {
 const FETCH_URLS = {
   mcpStatus: /\/api\/admin\/mcp\/status(\?|$)/,
   agentMetrics: /\/api\/admin\/agent-metrics(\?|$)/,
-  kbAgents: /\/api\/kb\/[^/]+\/agents(\?|$)/,
 } as const;
 
 /**
@@ -304,21 +290,7 @@ export function installApiMock(params: ApiMockParameters): () => void {
 
   const pending = new Set(params.pending ?? []);
 
-  // retrieval-quality FIRST: axios-mock-adapter matches handlers in
-  // registration order, and `/analytics(\?|$)` would otherwise swallow
-  // `/analytics/retrieval-quality?…` before the more specific pattern is
-  // reached.
-  if (pending.has('kbRetrievalQuality')) {
-    mock.onGet(URLS.kbRetrievalQuality).reply(never);
-  } else if (params.kbRetrievalQuality !== undefined) {
-    mock.onGet(URLS.kbRetrievalQuality).reply(200, params.kbRetrievalQuality);
-  } else {
-    // Dashboard treats a failure here as "optional data absent" and keeps
-    // rendering, so 404 is the honest default rather than an empty object.
-    mock.onGet(URLS.kbRetrievalQuality).reply(404, { error: 'not configured' });
-  }
-
-  for (const key of ['kbAnalytics', 'kbOverview', 'systemHealthLive', 'systemHealthHistory'] as const) {
+  for (const key of ['kbOverview', 'systemHealthLive', 'systemHealthHistory'] as const) {
     if (pending.has(key)) {
       mock.onGet(URLS[key]).reply(never);
     } else if (params[key] !== undefined) {
@@ -365,8 +337,7 @@ export function installApiMock(params: ApiMockParameters): () => void {
 
   /* Registration order is irrelevant here: none of the four patterns can
    * match another's URL, and none of them collides with a pattern registered
-   * above (checked against `/api/kb/{id}/analytics` and its
-   * retrieval-quality twin, the only other `/api/kb/…` readers). */
+   * above. */
   for (const key of ['kbCategories', 'kbCatalog', 'kbMembers', 'kbInviteLinks'] as const) {
     if (params[key] !== undefined) mock.onGet(URLS[key]).reply(200, params[key]);
   }
@@ -386,7 +357,7 @@ export function installApiMock(params: ApiMockParameters): () => void {
   /* -- The authFetch half ------------------------------------------------ */
 
   const fetchRoutes: Array<[RegExp, unknown]> = [];
-  for (const key of ['mcpStatus', 'agentMetrics', 'kbAgents'] as const) {
+  for (const key of ['mcpStatus', 'agentMetrics'] as const) {
     if (params[key] !== undefined) fetchRoutes.push([FETCH_URLS[key], params[key]]);
   }
 

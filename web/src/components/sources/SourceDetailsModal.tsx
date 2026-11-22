@@ -5,7 +5,7 @@ import type { FileEntry } from '../../types';
 import { sourceDetailsTitle, type SourceDetailsTarget } from './sourceDetails';
 import { useTheme } from '../../contexts/ThemeContext';
 import { IngestStageIndicator } from '../sidebar/IngestStageIndicator';
-import { PreviewHeaderBand } from '../PreviewDialog';
+import { PreviewHeaderBand } from '../preview/PreviewDialog';
 import { sourceIconFor } from '../sidebar/sourceIconFor';
 import { useSourceFacts } from './sourceFacts';
 import { SourceStatusDot, type SourceTone } from './SourceStatusDot';

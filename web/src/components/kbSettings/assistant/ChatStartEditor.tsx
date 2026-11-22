@@ -8,7 +8,7 @@ import {
     Input, Notice, SegmentedControl, Shimmer, Switch, Textarea, cardAccentStyle, cn,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
-import { Skeleton } from '../../Skeleton';
+import { Skeleton } from '../../ui/Skeleton';
 import {
     FIXED_QUESTION_MAX, INSTRUCTION_MAX_LEN, QUESTION_MAX_LEN, ROLE_ENTRY_MAX, UPLOAD_LABEL_MAX_LEN,
     suggestStarterQuestions, type EntryKind, type EntryStart, type RoleEntry, type StartPage, type Suggestions,

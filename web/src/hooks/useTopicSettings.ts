@@ -26,7 +26,7 @@ export function useTopicSettings(onTopic: boolean) {
   return {
     open: onTopic && open,
     section: value,
-    /** The gear in the workspace header: open on Startseite, or close. */
+    /** The gear in the topic header: open on Startseite, or close. */
     setOpen: (next: boolean) => (next ? dialog.open('start') : dialog.setOpen(false)),
     setSection: dialog.setValue,
   };

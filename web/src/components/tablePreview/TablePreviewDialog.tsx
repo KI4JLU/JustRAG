@@ -15,12 +15,12 @@ import type { FileEntry, TabularFileDetail, TabularTable } from '../../types';
 import {
     columnDecimals, columnKind, columnLabel, nextSort, parseCell, type SortState,
 } from '../../utils/tableFormat';
-import { PreviewDialog } from '../PreviewDialog';
+import { PreviewDialog } from '../preview/PreviewDialog';
 import { SheetTable } from './SheetTable';
 import { SheetTabs } from './SheetTabs';
 import { ViewMenu } from './ViewMenu';
 import type { DetailMode, ViewColumn, ViewRow } from './types';
-import { usePreviewBackLink, type PreviewBack } from '../PreviewHeader';
+import { usePreviewBackLink, type PreviewBack } from '../preview/PreviewHeader';
 
 interface TablePreviewDialogProps {
     show: boolean;

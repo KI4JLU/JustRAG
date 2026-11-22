@@ -6,7 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { Check, CheckCheck, Trash2 } from 'lucide-react';
 import { Button, FileDropzone, SidebarPanel, SidebarSelectionBar, useWindowFileDrag } from '@ki4jlu/design-system';
 import { useModalContext } from '../../contexts/ModalContext';
-import '../sidebar-primitives.css';
+import '../shell/sidebar-primitives.css';
 import { SourceDetailsModal } from './SourceDetailsModal';
 import { sourceDetailsTitle, type SourceDetailsTarget } from './sourceDetails';
 import { closeSourceDetails, openSourceDetails, useSourceDetails } from '../../hooks/sourceDetails';
@@ -16,7 +16,6 @@ import { SourcesGrid } from '../sidebar/SourcesGrid';
 import type { SourceType } from '../sidebar/SourcesGrid';
 import { CrawlModal } from '../sidebar/CrawlModal';
 import { RssModal } from '../sidebar/RssModal';
-import { FileUploadModal } from '../sidebar/FileUploadModal';
 import { TextSourceModal } from '../sidebar/TextSourceModal';
 import { ConfluenceModal } from '../sidebar/ConfluenceModal';
 import { GitRepoModal } from '../sidebar/GitRepoModal';
@@ -26,7 +25,7 @@ import './SourcesPanel.css';
 
 const SourcesPanelComp: React.FC = () => {
     const { t } = useTheme();
-    const { currentKb, setKbView } = useKbCore();
+    const { currentKb } = useKbCore();
     const { showConfirm } = useModalContext();
     const {
         fileMgmt, webTools,
@@ -43,10 +42,9 @@ const SourcesPanelComp: React.FC = () => {
         handleToggleFilesSelection,
         handleDownloadFile, handleDeleteFile, deleteFiles, handleFileUpload,
         retryFile,
-        isDragging, textSourceTitle, setTextSourceTitle,
+        textSourceTitle, setTextSourceTitle,
         textSourceContent, setTextSourceContent,
-        handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd, uploadFiles,
-        showUploadModal, setShowUploadModal,
+        handleTextSourceAdd, uploadFiles,
     } = fileMgmt;
 
     const {
@@ -55,7 +53,7 @@ const SourcesPanelComp: React.FC = () => {
         toolLoading, handleToolSubmit, crawlResults, searchResults,
         handlePreviewSource,
         webResearchRunning, webResearchStatus, webResearchProgress, handleCancelWebResearch,
-        setShowWebWorkspace, sourcesAddedCount,
+        setShowWebResults, sourcesAddedCount,
     } = webTools;
 
     // What the caller may do with the sources (backend capabilities, see
@@ -67,14 +65,14 @@ const SourcesPanelComp: React.FC = () => {
     //  - manageSources: delete, retry, sync, pause, schedule.
     //  - downloadSources: download, the preview on click and on hover.
     const { addSources: canAdd, manageSources: canManage, downloadSources: canDownload } = useKbSourceRights();
-    // Files dragged anywhere over the workspace turn the source list into a
+    // Files dragged anywhere over the topic view turn the source list into a
     // dropzone.
     const fileDragActive = useWindowFileDrag(canAdd);
     // A KB with no sources at all keeps the dropzone as its list (the empty
-    // workspace placeholder); it opens the file picker on click / Enter too.
+    // topic view placeholder); it opens the file picker on click / Enter too.
     const noSourcesYet = canAdd && filesLoaded && files.length === 0 && uploads.length === 0
         && rssFeeds.length === 0 && confluenceSources.length === 0 && gitRepoSources.length === 0;
-    const handleOpenWorkspace = useCallback(() => setShowWebWorkspace(true), [setShowWebWorkspace]);
+    const handleOpenWebResults = useCallback(() => setShowWebResults(true), [setShowWebResults]);
 
     const [activeSourceModal, setActiveSourceModal] = useState<SourceType | null>(null);
     // The open details dialog (hooks/sourceDetails): kind + id, resolved
@@ -129,7 +127,7 @@ const SourcesPanelComp: React.FC = () => {
             setToolTab(type);
         }
         setActiveSourceModal(type);
-    }, [setKbView, fileInputRef, setToolTab]);
+    }, [fileInputRef, setToolTab]);
 
     const closeSourceModal = useCallback(() => setActiveSourceModal(null), []);
 
@@ -224,7 +222,7 @@ const SourcesPanelComp: React.FC = () => {
                                     webResearchProgress,
                                     onCancelWebResearch: handleCancelWebResearch,
                                     hasResults: searchResults.length > 0 || crawlResults.length > 0,
-                                    onOpenWorkspace: handleOpenWorkspace,
+                                    onOpenWebResults: handleOpenWebResults,
                                 }}
                             />
                         )}
@@ -355,7 +353,7 @@ const SourcesPanelComp: React.FC = () => {
                 crawlMaxPages={crawlMaxPages}
                 setCrawlMaxPages={setCrawlMaxPages}
                 crawlResults={crawlResults}
-                onOpenWorkspace={handleOpenWorkspace}
+                onOpenWebResults={handleOpenWebResults}
             />
             <RssModal
                 show={activeSourceModal === 'rss'}
@@ -385,16 +383,6 @@ const SourcesPanelComp: React.FC = () => {
                 onClose={closeSourceModal}
                 loading={gitRepoLoading}
                 onAdd={addGitRepoSource}
-            />
-            <FileUploadModal
-                show={showUploadModal}
-                onClose={() => setShowUploadModal(false)}
-                fileInputRef={fileInputRef}
-                onDragOver={handleDragOver}
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                isDragging={isDragging}
             />
             <TextSourceModal
                 show={activeSourceModal === 'text'}

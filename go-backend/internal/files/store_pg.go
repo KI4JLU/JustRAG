@@ -462,7 +462,7 @@ func (s *PGStore) UpdateFileStageDetail(ctx context.Context, fileID, detail stri
 //
 // Stage vocabulary: unsupported_type, too_large, parse, embedding, canceled,
 // processing, timeout, queue. The frontend maps stages to translated
-// labels, so additions need a matching key in web/src/translations.ts.
+// labels, so additions need a matching key in the web app's translations.ts.
 func (s *PGStore) MarkFileError(ctx context.Context, fileID, stage, message string) error {
 	const sql = `UPDATE files SET status = 'error', error_stage = $1, error_message = $2 WHERE id = $3`
 	_, err := s.pool.Exec(ctx, sql, stage, message, fileID)

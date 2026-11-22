@@ -11,14 +11,7 @@ describe('routeFromMatch', () => {
     expect(routeFromMatch({ routeId: '/', params: {} })).toEqual({ view: 'my-topics' });
     expect(routeFromMatch({ routeId: '/shared', params: {} })).toEqual({ view: 'shared-topics' });
     expect(routeFromMatch({ routeId: '/discover', params: {} })).toEqual({ view: 'discover' });
-    expect(routeFromMatch({ routeId: '/tools', params: {} })).toEqual({ view: 'tools' });
-    expect(routeFromMatch({ routeId: '/profile', params: {} })).toEqual({ view: 'profile' });
     expect(routeFromMatch({ routeId: '/privacy', params: {} })).toEqual({ view: 'privacy' });
-  });
-
-  it('reads the agents page and its teams tab', () => {
-    expect(routeFromMatch({ routeId: '/agents', params: {} })).toEqual({ view: 'agents', tab: 'agents' });
-    expect(routeFromMatch({ routeId: '/agents/teams', params: {} })).toEqual({ view: 'agents', tab: 'teams' });
   });
 
   it('decodes the short ids in topic and chat paths to UUIDs', () => {

@@ -5,7 +5,7 @@ import { kbSourceRights } from '../utils/kbAccess';
 
 /**
  * What the current user may do with the open KB's sources (see
- * kbSourceRights). Every source control — the workspace's sources column, its
+ * kbSourceRights). Every source control — the topic view's sources column, its
  * rail, the chat answers' citations and previews, the topic search — reads
  * this one hook, so no two of them can disagree.
  */

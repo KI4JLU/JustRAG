@@ -9,6 +9,7 @@ one before changing a feature**:
 |---|---|
 | `docs/feature-reference.md` | Full entry per `site_config` namespace (defaults, ranges, eval history, metrics, gotchas), runtime-only knobs, env security detail, always-on behaviour (OpenAI-compat citations, usage ledger), document parsing / Docling / describe-image |
 | `docs/kb-access.md` | KB roles + resolution ladder, per-KB source capabilities, visibility/publish/subscriptions, invite links, per-user topic filters, overview UI |
+| `docs/ui-views.md` | Every view of the web app: URL, component, shell, URL dialogs and their sections, gates |
 | `docs/eval-cli.md` | Every `cmd/eval` / `cmd/eval-gen` flag and mode (judge, pairwise, production-context overlays, trajectory, multi-turn, policy) |
 | `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0105**) |
 | `docs/feature-recipes.md` | Enablement toggle blocks per gated feature (flag order, SQL grants, ops sequences) |
@@ -72,7 +73,7 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 
 **When adding a global-only `site_config` key:** add a save-time validator if it has a range, and check `ignoredKeys` in `internal/pipeline/coverage_test.go`.
 
-**When adding a setting to a settings window (admin, user, KB):** put its label key in `web/src/components/admin/adminSearchKeywords.ts` (Agent rows: `agentSections.ts`) so the admin dialog search finds it; `src/components/settingsSearchKeywords.test.ts` fails otherwise. Same for the user settings (`userSettingsSearchKeywords.ts`) and KB settings (`kbSettings/kbSettingsSearchKeywords.ts`); a new section file goes into that test's `DIALOGS`.
+**When adding a setting to a settings window (admin, user, KB):** put its label key in `web/src/components/admin/adminSearchKeywords.ts` (Agent rows: `agentSections.ts`) so the admin dialog search finds it; `src/components/settings/settingsSearchKeywords.test.ts` fails otherwise. Same for the user settings (`settings/userSettingsSearchKeywords.ts`) and KB settings (`kbSettings/kbSettingsSearchKeywords.ts`); a new section file goes into that test's `DIALOGS`.
 
 ## KB access (summary — full model in `docs/kb-access.md`)
 
@@ -140,7 +141,7 @@ Details: `docs/feature-reference.md` § Environment variables.
 
 ## Architecture
 
-- `go-backend/` (Go-only runtime; entrypoints `cmd/server`, `cmd/worker`, `cmd/migrate`; wiring `internal/app/`; config `internal/config/`; migrations `migrations/main/` + `migrations/vector/`), `web/` (React 19 + Vite 7, built into `web/dist`; TanStack Router — every view and chat is a URL (`/kb/<id>`, `/c/<chat>`, ids as 22-char base64url via `routing/shortId.ts`), table in `web/src/routing/routes.ts`; dialogs live in URL parameters `?admin=`, `?settings=`, `?topic=` via `web/src/routing/urlDialog.ts`).
+- `go-backend/` (Go-only runtime; entrypoints `cmd/server`, `cmd/worker`, `cmd/migrate`; wiring `internal/app/`; config `internal/config/`; migrations `migrations/main/` + `migrations/vector/`), `web/` (React 19 + Vite, built into `web/dist`; TanStack Router — every view and chat is a URL (`/kb/<id>`, `/c/<chat>`, ids as 22-char base64url via `routing/shortId.ts`), table in `web/src/routing/routes.ts`; dialogs live in URL parameters `?admin=`, `?settings=`, `?topic=` via `web/src/routing/urlDialog.ts`).
 - `desktop/` — the desktop app: an Electron host (electron-vite, electron-builder) that loads the deployment's web app by URL; no UI of its own. Not in the root npm workspace (own lockfile), versioned with the web app. The host/page contract is the design system's Storybook page "Native shell". See `desktop/README.md`.
 - Storage: main Postgres, vector Postgres (dim-keyed tables `document_chunks_<dim>`; switching the embedder needs a re-ingest), Redis, filesystem or S3.
 
