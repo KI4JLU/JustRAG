@@ -36,8 +36,6 @@ export function useFileManagement({ currentKb, confirmUpload }: UseFileManagemen
   // list is unknown, not empty (callers must not show the "no sources" state).
   const [filesKbId, setFilesKbId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [textSourceTitle, setTextSourceTitle] = useState('');
   const [textSourceContent, setTextSourceContent] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -197,7 +195,6 @@ export function useFileManagement({ currentKb, confirmUpload }: UseFileManagemen
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []);
     if (selectedFiles.length === 0 || !currentKb) return;
-    setShowUploadModal(false);
     await uploadFilesBatch(selectedFiles);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [currentKb, uploadFilesBatch]);
@@ -300,45 +297,9 @@ export function useFileManagement({ currentKb, confirmUpload }: UseFileManagemen
     }
   }, [files, t, toast]);
 
-  const openUploadModal = useCallback(() => {
-    setTextSourceTitle('');
-    setTextSourceContent('');
-    setShowUploadModal(true);
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  }, []);
-
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  }, []);
-
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    if (droppedFiles.length === 0 || !currentKb) return;
-    setShowUploadModal(false);
-    await uploadFilesBatch(droppedFiles);
-  }, [currentKb, uploadFilesBatch]);
-
-  // Files dropped on a dropzone that is not a React drag target of this hook
-  // (the sources panel's DS FileDropzone).
+  // Files dropped on the sources panel's dropzone.
   const uploadFiles = useCallback(async (dropped: File[]) => {
     if (dropped.length === 0 || !currentKb) return;
-    setShowUploadModal(false);
     await uploadFilesBatch(dropped);
   }, [currentKb, uploadFilesBatch]);
 
@@ -346,7 +307,6 @@ export function useFileManagement({ currentKb, confirmUpload }: UseFileManagemen
     if (!currentKb || !textSourceContent.trim()) return;
 
     setUploading(true);
-    setShowUploadModal(false);
 
     try {
       await axios.post(`${API_BASE_URL}/api/kb/${currentKb.id}/text`, {
@@ -368,16 +328,15 @@ export function useFileManagement({ currentKb, confirmUpload }: UseFileManagemen
   return useMemo(() => ({
     files, uploads, uploading, hasFiles, filesLoaded, selectedFileCount, fileInputRef,
     fetchFiles, uploadFiles, handleFileUpload, deleteFiles, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
-    handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
-    showUploadModal, setShowUploadModal,
-    isDragging, textSourceTitle, setTextSourceTitle,
+    handleDownloadFile, retryFile, retryAllFailed,
+    textSourceTitle, setTextSourceTitle,
     textSourceContent, setTextSourceContent,
-    handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd,
+    handleTextSourceAdd,
   }), [
     files, uploads, uploading, hasFiles, filesLoaded, selectedFileCount,
-    showUploadModal, isDragging, textSourceTitle, textSourceContent,
+    textSourceTitle, textSourceContent,
     fetchFiles, uploadFiles, handleFileUpload, deleteFiles, handleDeleteFile, handleToggleFileSelection, handleToggleFilesSelection,
-    handleDownloadFile, openUploadModal, retryFile, retryAllFailed,
-    handleDragOver, handleDragEnter, handleDragLeave, handleDrop, handleTextSourceAdd
+    handleDownloadFile, retryFile, retryAllFailed,
+    handleTextSourceAdd
   ]);
 }

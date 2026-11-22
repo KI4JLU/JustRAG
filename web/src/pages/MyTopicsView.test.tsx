@@ -1,0 +1,925 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { stubViewport } from '../test/viewport';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { ThemeProvider as DesignSystemThemeProvider } from '@ki4jlu/design-system';
+import axios from 'axios';
+import type { KnowledgeBase } from '../types';
+import { MyTopicsView, type MyTopicsViewProps } from './MyTopicsView';
+import { translations } from '../i18n/translations';
+import { ModalProvider } from '../contexts/ModalContext';
+import { ToastProvider } from '../contexts/ToastContext';
+import { AppNavProvider } from '../contexts/AppNavContext';
+import { KbSearchProvider } from '../contexts/KbSearchContext';
+import { useKbRemoval } from '../hooks/useKbRemoval';
+import { useKbSearchState } from '../hooks/useKbSearchState';
+import { openAdminDialog, setAdminDialogOpen } from '../hooks/adminDialog';
+
+/** Opens the topic card's ⋮ menu; the card actions live there. */
+async function kbMenu() {
+  await userEvent.click(screen.getByRole('button', { name: new RegExp(`^${translations.kbActions.en}: `) }));
+  return within(await screen.findByRole('menu'));
+}
+
+
+vi.mock('axios');
+
+// The console is covered by AdminUI.*.test.tsx and App.authenticated-home.test.tsx;
+// here it only has to open.
+vi.mock('../components/admin/AdminUI', () => ({
+  default: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="admin console" /> : null),
+}));
+const mockedAxios = vi.mocked(axios, true);
+
+// Modal (behind ModalProvider) calls useReducedMotion, which reads
+// window.matchMedia — jsdom doesn't implement it, so the real ModalProvider
+// every render mounts needs it stubbed (see KbSettingsPanel.test.tsx for the
+// same pattern).
+
+// A real in-memory Storage, installed fresh per test.
+//
+// useSectionOpen persists each section's open state in localStorage, so without
+// this a test that expands a section decides the starting state of every test
+// after it. That is not hypothetical: it is exactly how this file broke in CI
+// while passing locally — jsdom's localStorage differs between the two
+// environments (locally it is a bare object with no getItem/setItem, so the
+// hook's try/catch silently fell back to defaultOpen every time and hid
+// the leak). Owning the implementation here removes that difference: the
+// persistence path is genuinely exercised on both machines, and each test
+// starts from the defaults.
+function memoryStorage(): Storage {
+  const map = new Map<string, string>();
+  return {
+    get length() { return map.size; },
+    key: (i: number) => Array.from(map.keys())[i] ?? null,
+    getItem: (k: string) => (map.has(k) ? map.get(k)! : null),
+    setItem: (k: string, v: string) => { map.set(k, String(v)); },
+    removeItem: (k: string) => { map.delete(k); },
+    clear: () => { map.clear(); },
+  } as Storage;
+}
+
+// Radix measures and captures pointers; jsdom implements neither. The shell
+// brings the sidebar's `SidebarUserMenu` dropdown to this suite, so the same
+// shim the admin suites use (AdminEvalTab.test.tsx:56) is needed here. It
+// enables opening it with a click, nothing more. (`AppShell`'s mobile drawer
+// was the second Radix widget behind this shim until design-system 0.30.0
+// replaced it with a `BottomTabBar`.)
+beforeEach(() => {
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  Element.prototype.setPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
+beforeEach(() => {
+  stubViewport();
+  vi.stubGlobal('localStorage', memoryStorage());
+  // The discovery panel fetches on mount; a bare auto-mocked axios.get
+  // returns undefined and its .then() would throw. Individual describes
+  // override this.
+  mockedAxios.get.mockResolvedValue({ data: [] });
+});
+
+// The top-level jumps the chrome around HomeView reads off AppNavContext
+// (three since KI-770, five since KI-783 added the „Geteilte Knowledge Bases"
+// destination and the Overview row's own handler). Module-level spies: a fresh
+// object per render would only add churn.
+const NAV = {
+  onViewMyTopics: vi.fn(),
+  onViewSharedTopics: vi.fn(),
+  onViewDiscover: vi.fn(),
+  onViewProfile: vi.fn(),
+  onEditGlobalKb: vi.fn(),
+  onViewLegal: vi.fn(),
+  // The header search's destinations (KI-837). No test here selects a hit.
+  onOpenTopic: vi.fn(),
+  onOpenSource: vi.fn(),
+  onOpenChat: vi.fn(),
+  // „Teilen" on a topic card opens that topic's Thema-Einstellungen on
+  // Mitglieder through this jump.
+  onOpenTopicSettings: vi.fn(),
+  onOpenRagSettings: vi.fn(),
+};
+
+// Cleared per test since KI-776: two tests now assert CALL COUNTS on these, and
+// a module-level spy that is never reset would carry one test's clicks into the
+// next.
+beforeEach(() => {
+  NAV.onViewMyTopics.mockClear();
+  NAV.onViewSharedTopics.mockClear();
+  NAV.onViewDiscover.mockClear();
+  NAV.onViewProfile.mockClear();
+  setAdminDialogOpen(false);
+  NAV.onOpenTopicSettings.mockClear();
+});
+
+/**
+ * The REAL `useKbSearchState`, published on the context the chrome's search
+ * field reads (cards KI-787, KI-837).
+ *
+ * Real, not a stub: the field's text
+ * and the caret handoff live INSIDE the hook, and a stubbed
+ * `{ query, setQuery }` would turn every assertion that touches the header
+ * into a statement about the stub. (KI-837 removed the „KBs entdecken"
+ * section flag it used to own; see `KbSearchContext`.)
+ */
+function KbSearchHarness({ children }: { children: React.ReactNode }) {
+  const kbSearch = useKbSearchState();
+  return <KbSearchProvider value={kbSearch}>{children}</KbSearchProvider>;
+}
+
+// Every render goes through the providers HomeView's subtree actually needs in
+// production. ToastProvider is not optional even for tests that never mean to
+// touch the discovery panel: whether that panel mounts depends on persisted
+// accordion state, so a bare render would fail or pass depending on what ran
+// before it.
+// The DESIGN SYSTEM's ThemeProvider, on top of the app providers.
+//
+// It is not decoration and it is not a stub: the chrome renders a
+// `ThemeToggle`, and that toggle calls the design system's own `useTheme()`,
+// which throws outright without this provider — measured, it is what made all
+// 30 tests in this file fail at once when the shell landed. (KI-776 hit it
+// because `AppShellLayout` rendered the toggle itself; since design-system
+// 0.26.0 it is `AppChrome`'s sidebar footer that does — KI-788 — so the
+// dependency is unchanged.) In
+// production the app mounts it inside `contexts/ThemeContext.tsx`'s
+// `ThemeProvider`, which this file replaces with a `vi.mock` factory; so the
+// factory's replacement has to bring it back, or the harness would be missing a
+// provider the real route supplies. (`App.authenticated-home.test.tsx` is the
+// test that checks the real route actually supplies it — a harness can't.)
+function renderView(ui: React.ReactElement) {
+  return render(
+    <DesignSystemThemeProvider>
+      <ToastProvider>
+        <ModalProvider>
+          <AppNavProvider value={NAV}>
+            <KbSearchHarness>{ui}</KbSearchHarness>
+          </AppNavProvider>
+        </ModalProvider>
+      </ToastProvider>
+    </DesignSystemThemeProvider>
+  );
+}
+
+vi.mock('../contexts/ThemeContext', () => ({
+  useTheme: () => ({
+    theme: 'light',
+    language: 'en',
+    setLanguage: vi.fn(),
+    resolvedTheme: 'light',
+    setTheme: vi.fn(),
+    t: (key: string) => {
+      const entry = translations[key as keyof typeof translations];
+      return entry ? entry.en : key;
+    },
+  }),
+}));
+
+// The caller's SYSTEM role, mutable per test. It is a separate axis from the
+// KB role: the advanced-settings trigger needs BOTH, so a fixed 'user' here
+// would make every one of those assertions unfalsifiable in one direction.
+// vi.hoisted because vi.mock's factory is hoisted above this file's top-level
+// statements.
+const authState = vi.hoisted(() => ({ role: 'user' }));
+
+beforeEach(() => { authState.role = 'user'; });
+
+// `logout` is part of the mock since KI-770: HomeView's logout button reads it
+// off this context instead of taking an onLogout prop.
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: { id: 'user-1', username: 'grace', role: authState.role },
+    siteConfigs: {},
+    logout: vi.fn(),
+  }),
+}));
+
+const baseKb: KnowledgeBase = {
+  id: 'kb-1',
+  name: 'Security Advisories',
+  description: null,
+  userId: 'owner-1',
+  createdAt: '2026-01-01T00:00:00Z',
+  isPro: false,
+  aiConfigId: null,
+  chatModel: null,
+  embeddingModel: null,
+  rerankModel: null,
+  ttsModel: null,
+};
+
+const noopProps = {
+  globalKbs: [],
+  currentKb: null,
+  availableConfigs: [],
+  onCreateKB: vi.fn(),
+  onSelectKB: vi.fn(),
+  onDeleteKB: vi.fn(),
+  removingKb: false,
+  onCreateGlobalKB: vi.fn(),
+  onSubscriptionChange: vi.fn(),
+  onOpenKbById: vi.fn(),
+  onDeleteGlobalKB: vi.fn(),
+  onOpenGlobalKbSettings: vi.fn(),
+  onRenameKB: vi.fn(),
+  onToggleFavorite: vi.fn(),
+  onUpdateKBSettings: vi.fn(),
+};
+
+// RealRemovalMyTopicsView wires onDeleteKB to the real useKbRemoval hook (rather
+// than noopProps' vi.fn() stub) so tests can exercise the actual delete /
+// leave / unsubscribe decision, including the real confirmation dialog —
+// which needs a real ModalProvider underneath, not a mocked showConfirm.
+function RealRemovalMyTopicsView(props: { kbs: KnowledgeBase[]; globalKbs: KnowledgeBase[] } & Partial<MyTopicsViewProps>) {
+  const { removeKb, removing } = useKbRemoval();
+  const onDeleteKB = async (kb: KnowledgeBase, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await removeKb(kb);
+  };
+  const merged = { ...noopProps, ...props, onDeleteKB, removingKb: removing } as MyTopicsViewProps;
+  return <MyTopicsView {...merged} />;
+}
+
+// Same providers as renderView, but with onDeleteKB wired to the real
+// useKbRemoval hook: badge tests and real-removal-flow tests (subscriber
+// unsubscribe) both go through it, and showConfirm's dialog actually renders
+// because ModalProvider is real rather than mocked.
+function renderMyTopicsView(overrides: Partial<MyTopicsViewProps> & { kbs?: KnowledgeBase[]; globalKbs?: KnowledgeBase[] } = {}) {
+  const { kbs = [], globalKbs = [], ...rest } = overrides;
+  return renderView(<RealRemovalMyTopicsView kbs={kbs} globalKbs={globalKbs} {...rest} />);
+}
+
+/* ---------------------------------------------------------------------------
+ * The shell KI-776 put this view on — REWRITTEN for design-system 0.30.0.
+ *
+ * There is no drawer any more. The shell used to render the sidebar node TWICE
+ * (a sticky column from `lg` up, a Radix Dialog below it) and let CSS decide
+ * which was visible; 0.30.0 replaced that with one area at a time plus a
+ * `BottomTabBar`, chosen in JavaScript from `useIsDesktop`. That is the reason
+ * this block could be rewritten rather than relabelled: the arrangement is now
+ * decided by a value this suite can set (`stubViewport`), so the narrow case is
+ * genuinely reachable here instead of being a CSS statement jsdom could not
+ * make.
+ *
+ * ORACLES, all independent of the code under test: WAI-ARIA's `navigation` /
+ * `complementary` / `button` role mappings as @testing-library implements them,
+ * the DOM's own id semantics, and src/i18n/translations.ts for every accessible name.
+ * ------------------------------------------------------------------------- */
+describe('AppChrome, through the view that mounts it', () => {
+  it('reaches the nav column and the user menu through the narrow-screen drawer', async () => {
+    authState.role = 'admin';
+    stubViewport(false);
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    /* In the narrow arrangement the page is on screen and the nav column is a
+       drawer over it, closed at rest — so it is NOT in the tree until the
+       toggle at the start of the bar opens it. */
+    expect(screen.queryByRole('navigation', { name: translations.mainNavigation.en })).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.en }));
+
+    const column = within(await screen.findByRole('dialog', { name: translations.mainNavigation.en }));
+    /* ORACLE: translations.ts. All three nav rows, including the admin one the
+       mocked system role above unlocks, plus the user-menu trigger — i.e. the
+       `nav` and `sidebarFooter` slots both reach the narrow arrangement. This
+       is the assertion the old drawer test made; only the route changed. */
+    expect(column.getByRole('button', { name: translations.myTopics.en })).toHaveAttribute('aria-current', 'page');
+    expect(column.getByRole('button', { name: translations.sharedTopics.en })).not.toHaveAttribute('aria-current');
+    /* „Admin settings" is not a nav row (KI-782) — it is a `DropdownMenuItem`
+       inside the user menu, so it is absent from the nav slot here too. */
+    expect(column.queryByRole('button', { name: translations.adminSettings.en })).toBeNull();
+    expect(column.getByRole('button', { name: /^@grace/ })).toBeInTheDocument();
+  });
+
+  it('returns to the content after a nav row is chosen on a narrow screen', async () => {
+    stubViewport(false);
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.en }));
+    await userEvent.click(await screen.findByRole('button', { name: translations.sharedTopics.en }));
+
+    /* The jump itself still happens — that is the row's own handler, untouched.
+       What this pins is the handoff `AppChrome` adds on top of it: a drawer
+       that stays open after a choice reads as a dead tap, so the shell is put
+       back on the page and the drawer closes. */
+    expect(NAV.onViewSharedTopics).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('main')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: translations.mainNavigation.en })).toBeNull());
+  });
+
+  /* The user menu — and with it language, colour scheme and Style — is
+   * reachable in every arrangement: expanded, collapsed to the rail (where
+   * `SidebarUserMenu` renders as its avatar), and on a narrow screen.
+   * ORACLE: WAI-ARIA's menu/menuitem mapping and translations.ts. */
+  it('keeps the user menu with its settings item reachable in every arrangement', async () => {
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+    const schemeItem = translations.settings.en;
+
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    expect(within(await screen.findByRole('menu')).getByRole('menuitem', { name: schemeItem })).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+
+    await userEvent.click(screen.getByRole('button', { name: translations.collapseNavigation.en }));
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    expect(within(await screen.findByRole('menu')).getByRole('menuitem', { name: schemeItem })).toBeInTheDocument();
+  });
+
+  it('mounts the user menu once on a narrow screen too', async () => {
+    stubViewport(false);
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.en }));
+    await screen.findByRole('dialog', { name: translations.mainNavigation.en });
+
+    expect(screen.getAllByRole('button', { name: /^@grace/ })).toHaveLength(1);
+  });
+
+  /* ---------------------------------------------------------------------
+   * The minimise toggle (KI-789).
+   *
+   * WHAT THIS FILE CAN SAY, AND WHAT IT DELIBERATELY CANNOT. jsdom applies no
+   * stylesheet, so nothing here is a statement about width or about text being
+   * painted. The pixels are the design system's own now — its
+   * `WithCollapsibleColumns` story measures in Chromium that a row actually
+   * fits `SIDE_PANEL_RAIL_WIDTH`, which is where that claim belongs since the
+   * rail is its geometry, not this app's. (`AppShellCollapsed` used to make
+   * that measurement here against the old 80px `Sidebar` column; it was deleted
+   * with the column it measured.) What jsdom CAN see is the DOM contract:
+   *
+   *  EVERY NAV ROW KEEPS AN ACCESSIBLE NAME, and while collapsed it is an
+   *  `aria-label` rather than the visible text. This is the a11y risk of the
+   *  whole feature, and it has a silent failure mode in both directions:
+   *  `NavItem` collapses only a row it was given a `label` for, so a row
+   *  missing one keeps rendering full width next to collapsed neighbours (no
+   *  error, no warning, no type failure); and a row that collapsed without one
+   *  would lose its name entirely. Asserting the `aria-label` — not merely that
+   *  the name resolves — is what distinguishes the collapsed row from a row
+   *  that quietly declined to collapse. All three rows, hence the admin fixture.
+   *
+   * ORACLES: `src/i18n/translations.ts` for every name, and WAI-ARIA's button role
+   * and accessible-name mappings as jsdom implements them. Neither is derived
+   * from this repo's components.
+   * ------------------------------------------------------------------- */
+  it('collapses the sidebar without taking a name off any nav row', async () => {
+    authState.role = 'admin';
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    /* RE-QUERIED EACH TIME, never captured once. Design-system 0.31.0 MOVES the
+       nav between two mount points — `content` while the column is expanded,
+       `collapsedPreview` (the rail) while it is collapsed — so React unmounts
+       one `<nav>` and mounts another. A reference taken before the click keeps
+       pointing at the detached node, whose rows are the pre-collapse ones: the
+       assertions below would then read a stale tree and fail for a reason that
+       has nothing to do with the claim. That the node moves rather than being
+       duplicated is deliberate (a second mount would duplicate every `id` and
+       `aria-current`), and this is the cost of it. */
+    const navRows = () =>
+      within(screen.getByRole('navigation', { name: translations.mainNavigation.en }));
+    const ROWS = [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en];
+
+    // Expanded: the visible text IS the name, so there is no aria-label to
+    // override it (and none to drift from it).
+    for (const name of ROWS) {
+      expect(navRows().getByRole('button', { name })).not.toHaveAttribute('aria-label');
+    }
+
+    await userEvent.click(screen.getByRole('button', { name: translations.collapseNavigation.en }));
+
+    /* Collapsed: same three names, now carried by aria-label, and still exactly
+       ONE navigation landmark — the move must not leave the old one behind.
+       A row that had refused to collapse would still resolve by name and would
+       fail the aria-label assertion. */
+    expect(screen.getAllByRole('navigation', { name: translations.mainNavigation.en })).toHaveLength(1);
+    for (const name of ROWS) {
+      expect(navRows().getByRole('button', { name })).toHaveAttribute('aria-label', name);
+    }
+
+    // The user menu is the only route to sign-out, so it has to survive too.
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    expect(menu.getByRole('menuitem', { name: translations.logout.en })).toBeInTheDocument();
+  });
+
+  it('ignores the minimised state on a narrow screen: the drawer shows the expanded rows', async () => {
+    authState.role = 'admin';
+    const desktop = renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    // Minimise on the desktop arrangement; the preference is now stored.
+    await userEvent.click(screen.getByRole('button', { name: translations.collapseNavigation.en }));
+    expect(screen.getAllByRole('button', { name: translations.expandNavigation.en })).toHaveLength(1);
+
+    /* UNMOUNTED before the second render, not left standing: `cleanup` only
+       runs between tests, so a second `renderView` here would put two shells in
+       one document and every query below would match twice. The stored flag is
+       what has to survive the remount — that is the point of the test — and it
+       lives in `localStorage`, not in the tree. */
+    desktop.unmount();
+
+    stubViewport(false);
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+    await userEvent.click(screen.getByRole('button', { name: translations.expandNavigation.en }));
+
+    const column = within(await screen.findByRole('dialog', { name: translations.mainNavigation.en }));
+    /* The drawer has no rail: nothing in it expands a minimised column. Its
+       one toggle closes the drawer, and that must not write the desktop
+       preference stored above. */
+    expect(column.queryByRole('button', { name: translations.expandNavigation.en })).toBeNull();
+
+    /* And the rows are the EXPANDED form even though the stored preference says
+       minimised: no `aria-label`, i.e. the visible text is still their name.
+       `NavItem` takes that from `SidebarCollapsedContext`, which the narrow
+       arrangement does not provide — the column is not a `SidePanel` there. */
+    for (const name of [translations.myTopics.en, translations.sharedTopics.en, translations.discoverTopics.en]) {
+      expect(column.getByRole('button', { name })).not.toHaveAttribute('aria-label');
+    }
+
+    // The user menu is the only route to sign-out, so it has to survive here.
+    await userEvent.click(column.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    expect(menu.getByRole('menuitem', { name: translations.logout.en })).toBeInTheDocument();
+  });
+
+  it('keeps the user menu reachable in the collapsed rail', async () => {
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.collapseNavigation.en }));
+
+    /* THE POINT OF design-system PR #30, asserted from the consumer side: the
+       footer moves into the 60px rail instead of being hidden with the body, so
+       sign-out is still reachable while minimised. `toBeVisible` is what makes
+       this a real statement — the control was in the DOM before the fix too,
+       inside the `hidden` region, so `getByRole` alone would have passed. */
+    const trigger = screen.getByRole('button', { name: /^@grace/ });
+    expect(trigger).toBeVisible();
+
+    await userEvent.click(trigger);
+    const menu = within(await screen.findByRole('menu'));
+    expect(menu.getByRole('menuitem', { name: translations.logout.en })).toBeInTheDocument();
+  });
+
+  it('routes the sidebar nav rows to the AppNavContext jumps', async () => {
+    authState.role = 'admin';
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    /* ORACLE: the module-level spies in NAV. One mount per node since
+       design-system 0.30.0, so an unscoped query reaches the only row there is. */
+    await userEvent.click(screen.getByRole('button', { name: translations.discoverTopics.en }));
+    expect(NAV.onViewDiscover).toHaveBeenCalledTimes(1);
+
+    /* KI-783's new destination, asserted the same way: the row has to reach
+       the jump, not merely exist. This is what makes „the sidebar row has a
+       destination" a fact rather than a claim — the row and the view were
+       added by one card precisely so this could be checked in one place. */
+    await userEvent.click(screen.getByRole('button', { name: translations.sharedTopics.en }));
+    expect(NAV.onViewSharedTopics).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole('button', { name: translations.myTopics.en }));
+    expect(NAV.onViewMyTopics).toHaveBeenCalledTimes(1);
+  });
+
+  /* ---------------------------------------------------------------------
+   * KI-782's role gate, asserted from BOTH sides.
+   *
+   * ORACLE-LEVEL, and stated as such: the nav SET now depends on the caller's
+   * system role. A suite that only rendered the admin case could not tell
+   * „gated" from „always visible", which is why the non-admin case below is
+   * the one carrying the behaviour change — a non-admin loses the agents
+   * screen, since this row is their only entry to it.
+   *
+   * ORACLES: src/i18n/translations.ts for every accessible name and WAI-ARIA's
+   * button/menuitem role mappings — neither derived from the component. The
+   * role axis is `authState`, the same mutable fixture the KB-role tests use.
+   * ------------------------------------------------------------------- */
+  it('hides the admin entry from a non-admin, and keeps every nav row', async () => {
+    authState.role = 'user';
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    /* Every nav row is unconditional now — „Meine Agenten" was the only gated
+       one and it is gone (18.09.2026) — so what this test still checks is the
+       ADMIN ENTRY's gate, below. The three rows are asserted first so a failure
+       says "the nav did not render" rather than "the gate ate a row". */
+    for (const name of [translations.myTopics.en, translations.sharedTopics.en,
+                        translations.discoverTopics.en]) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+
+    // And the admin entry is absent from its NEW home as well, i.e. the move
+    // did not lose the gate on the way into the dropdown.
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+    expect(menu.queryByRole('menuitem', { name: translations.adminSettings.en })).toBeNull();
+    expect(menu.getByRole('menuitem', { name: translations.profile.en })).toBeInTheDocument();
+  });
+
+  // ORACLE: the rights rule of the `?admin=` link: it is for system admins; for anyone else the parameter is
+  // ignored and removed from the URL, and no console opens.
+  it('ignores and strips ?admin for a user who is not a system admin', async () => {
+    authState.role = 'user';
+    openAdminDialog('users'); // as a link carrying ?admin=users would
+    expect(window.location.search).toBe('?admin=users');
+
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    await waitFor(() => expect(window.location.search).toBe(''));
+    expect(screen.queryByRole('dialog', { name: 'admin console' })).toBeNull();
+  });
+
+  it('offers the admin entry in the user menu for an admin, and it opens the console', async () => {
+    authState.role = 'admin';
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+
+    await userEvent.click(screen.getByRole('button', { name: /^@grace/ }));
+    const menu = within(await screen.findByRole('menu'));
+
+    /* ORACLE: the admin dialog's open state (AdminUI is stubbed above: this
+       suite pins the entry, `App.authenticated-home.test.tsx` the real
+       console). Clicking is the assertion, not rendering: the console has no
+       other entry point, so an item that renders but reaches nothing would
+       lock admins out of it entirely. */
+    await userEvent.click(menu.getByRole('menuitem', { name: translations.adminSettings.en }));
+    expect(await screen.findByRole('dialog', { name: 'admin console' })).toBeInTheDocument();
+  });
+});
+
+// „Teilen" opens the topic's Thema-Einstellungen on Mitglieder, so the card
+// offers it exactly to the callers who may open that window: KB admin and
+// owner (the routes behind it sit on kbAdminChain), and a superadmin, whom
+// kbaccess.EffectiveRole resolves to owner on every KB. This page lists only
+// topics whose myRole is owner (splitKbsByOwnership), so the owner case is the
+// only one it can render; the admin / edit / view / superadmin cases live in
+// SharedTopicsView.test.tsx, which renders the rest.
+//
+// ORACLE: that role ladder (go-backend/internal/kbaccess/middleware.go) and
+// translations.ts for the item's name — not the predicate under test.
+describe('MyTopicsView share trigger', () => {
+  it('shows the trigger for a caller whose myRole is owner', async () => {
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
+    expect((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` })).toBeInTheDocument();
+  });
+
+  /* ORACLE: the NAV spy and the card's own open handler. Teilen asks for one
+     destination — this topic, Mitglieder — and the click must not also reach
+     the card it sits in — the settings jump opens the topic itself. */
+  it('opens the topic settings on Mitglieder without also opening the card', async () => {
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: `${translations.share.en}…` }));
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledTimes(1);
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'members');
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
+});
+
+// KbSettingsPanel (RAG settings / evals / workflow) is the KB "advanced
+// settings" surface, and its endpoints sit on kbAdvancedChain: a system role in
+// {api-user, admin, superadmin} AND KB role admin or better. The trigger must
+// therefore be hidden in exactly the cases the server refuses — both terms, not
+// the share item's KB-role gate, which is what it wrongly shared before.
+// The share item beside it deliberately keeps that looser gate, and the
+// plain-owner case here pins the two apart.
+//
+// On top of that the card offers it to system admins only, badged "Admin"
+// (developer, 2026-10-13): an api-user passes the server gate but gets no entry.
+describe('MyTopicsView card menu', () => {
+  /* The guideline menu (2026-10-29): Umbenennen… · Teilen… · Einstellungen ↗ ·
+     Löschen…, nothing else — the RAG configuration left for Verhalten, the
+     favorite is the star. ORACLE: translations.ts and the role ladder. */
+  it('lists exactly the topic actions, in order, for an owner', async () => {
+    authState.role = 'admin';
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} />);
+    const names = (await kbMenu()).getAllByRole('menuitem').map(i => i.textContent);
+    expect(names).toEqual([
+      `${translations.rename.en}…`, `${translations.share.en}…`, translations.settings.en, `${translations.delete.en}…`,
+    ]);
+  });
+
+  it('opens the topic settings on Startseite without also opening the card', async () => {
+    authState.role = 'user';
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} />);
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: translations.settings.en }));
+    expect(NAV.onOpenTopicSettings).toHaveBeenCalledWith(kb, 'start');
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
+
+  it('toggles the favorite with the star, without opening the card', async () => {
+    authState.role = 'user';
+    const onToggleFavorite = vi.fn();
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner', isFavorite: false };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onToggleFavorite={onToggleFavorite} onSelectKB={onSelectKB} />);
+    await userEvent.click(screen.getByRole('button', { name: translations.addFavorite.en }));
+    expect(onToggleFavorite).toHaveBeenCalledWith(kb, expect.anything());
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
+});
+
+// Renaming is owner-only on a private KB (kbaccess.CanRename on the server;
+// canRenameKb here). The pencil must not appear on a shared card whose caller
+// is a mere admin member — that role edits everything else, not the name.
+describe('MyTopicsView rename trigger', () => {
+  const label = `${translations.rename.en}…`;
+
+  it('shows the pencil to the owner and hands the KB to onRenameKB', async () => {
+    authState.role = 'user';
+    const onRenameKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onRenameKB={onRenameKB} />);
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: label }));
+    expect(onRenameKB).toHaveBeenCalledWith(kb, expect.anything());
+  });
+
+  it('does not open the KB when the pencil is clicked', async () => {
+    authState.role = 'user';
+    const onSelectKB = vi.fn();
+    const kb: KnowledgeBase = { ...baseKb, myRole: 'owner' };
+    renderView(<MyTopicsView kbs={[kb]} {...noopProps} onSelectKB={onSelectKB} onRenameKB={vi.fn()} />);
+    await userEvent.click((await kbMenu()).getByRole('menuitem', { name: label }));
+    expect(onSelectKB).not.toHaveBeenCalled();
+  });
+
+
+});
+
+// Three displayed states from two stored ones (visibility + memberCount).
+// memberCount counts the owner too, hence <= 1 rather than === 0.
+//
+// The fixtures have to respect where each state can actually come from, or the
+// test proves nothing about production. GET /api/kb hard-filters
+// `WHERE kb.visibility = 'private'`, so the `kbs` prop can never hold a public
+// KB; public ones arrive through GET /api/kb/global, i.e. the `globalKbs` prop.
+// The earlier version of this file passed `kbs: [{ visibility: 'public' }]` —
+// a shape the backend cannot produce — and so kept a dead badge branch green.
+/* The badge, and only the badge.
+ *
+ * „Persönlich" and „Geteilt" are FILTER CHIPS on this page as well now, so an
+ * unscoped `getByText(/persönlich/i)` matches two elements — the chip and the
+ * badge — and fails for a reason that has nothing to do with the badge. These
+ * queries are scoped to the card list; the chips live in the filter row above
+ * it, which is a sibling of the grid rather than part of it. */
+function inCards() {
+  const card = document.querySelector('[data-testid="kb-card"]');
+  if (card === null) throw new Error('no KB card rendered');
+  return within(card as HTMLElement);
+}
+
+/* ---------------------------------------------------------------------------
+ * Favorites lead the list, whatever the filter.
+ *
+ * ORACLE: the fixture's own order, inverted. The two topics are given in
+ * NON-favorite-first order (`plain` before `starred`), so a view that simply
+ * rendered `kbs` as it received them would fail — which is what makes this a
+ * statement about the ordering rather than about the fixture.
+ *
+ * Read off the DOM in document order via the cards' own name buttons, not off
+ * any value the component reports about itself.
+ * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * The filter row: selecting, and clearing by pressing the same chip again.
+ *
+ * ORACLE: which cards are on screen, read off the DOM — not the chip's own
+ * `aria-pressed`, which would only say the row agrees with itself. A filter
+ * that highlighted correctly and filtered nothing passes that and fails this.
+ * ------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+ * The platform's categories in the chip row, and hiding them.
+ *
+ * ORACLE: developer rulings 30.10.2026 — the system categories are filter
+ * chips (a topic matches its one `category`), the category dialog hides a
+ * chip with its „Im Filter" switch, and the user's own categories are not
+ * offered (nothing attaches one to a topic yet). Read off the chip row and the
+ * rendered cards, not off the hook's state.
+ * ------------------------------------------------------------------------- */
+describe('MyTopicsView platform categories', () => {
+  const CATEGORY = { id: 'cat-1', name: 'Verwaltung', sortOrder: 0, colorSlot: 4 };
+  const inCategory: KnowledgeBase = { ...baseKb, id: 'kb-v', name: 'Prüfungen', myRole: 'owner', category: CATEGORY };
+  const other: KnowledgeBase = { ...baseKb, id: 'kb-o', name: 'Sonstiges', myRole: 'owner' };
+
+  beforeEach(() => {
+    mockedAxios.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url.endsWith('/api/kb-categories') ? [CATEGORY] : [] }),
+    );
+  });
+
+  it('offers a platform category as a chip that narrows to its topics', async () => {
+    renderView(<MyTopicsView kbs={[inCategory, other]} {...noopProps} />);
+    await userEvent.click(await screen.findByRole('button', { name: CATEGORY.name }));
+    expect(screen.getByText('Prüfungen')).toBeInTheDocument();
+    expect(screen.queryByText('Sonstiges')).toBeNull();
+  });
+
+  it('asks for no personal categories', async () => {
+    renderView(<MyTopicsView kbs={[]} {...noopProps} />);
+    await screen.findByRole('button', { name: CATEGORY.name });
+    expect(mockedAxios.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/kb-user-categories'));
+  });
+
+  it('hides a chip with its switch in the category dialog, and shows it again', async () => {
+    renderView(<MyTopicsView kbs={[inCategory, other]} {...noopProps} />);
+    await screen.findByRole('button', { name: CATEGORY.name });
+    await userEvent.click(screen.getByRole('button', { name: translations.manageCategories.en }));
+    const dialog = within(await screen.findByRole('dialog'));
+    const toggle = dialog.getByRole('switch', { name: translations.showCategoryInFilter.en.replace('{name}', CATEGORY.name) });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+    await userEvent.click(toggle);
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('button', { name: CATEGORY.name })).toBeNull());
+
+    // Back on, so the shared preference does not leak into the next test.
+    await userEvent.click(screen.getByRole('button', { name: translations.manageCategories.en }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('switch'));
+    await userEvent.keyboard('{Escape}');
+    expect(await screen.findByRole('button', { name: CATEGORY.name })).toBeInTheDocument();
+  });
+});
+
+describe('MyTopicsView filter chips', () => {
+  const personal: KnowledgeBase = { ...baseKb, id: 'kb-p', name: 'Nur ich', myRole: 'owner', memberCount: 1 };
+  const shared: KnowledgeBase = { ...baseKb, id: 'kb-s', name: 'Mit Team', myRole: 'owner', memberCount: 4 };
+
+  function names(): string[] {
+    return Array.from(document.querySelectorAll('.home-view__kb-name-btn')).map(el => el.textContent ?? '');
+  }
+
+  it('narrows to the chosen chip and clears on a second press', async () => {
+    renderView(<MyTopicsView kbs={[personal, shared]} {...noopProps} />);
+    await screen.findByText('Nur ich');
+    expect(names()).toHaveLength(2);
+
+    const personalChip = screen.getByRole('button', { name: translations.filterPersonal.en });
+    await userEvent.click(personalChip);
+    expect(names()).toEqual(['Nur ich']);
+
+    /* The same chip again — not „Alle" — and the full list is back. This is the
+       half that distinguishes a toggle from a plain radio row. */
+    await userEvent.click(screen.getByRole('button', { name: translations.filterPersonal.en }));
+    expect(names()).toHaveLength(2);
+  });
+
+  it('is a no-op to press Alle while it is already active', async () => {
+    renderView(<MyTopicsView kbs={[personal, shared]} {...noopProps} />);
+    await screen.findByText('Nur ich');
+
+    await userEvent.click(screen.getByRole('button', { name: translations.filterAll.en }));
+    expect(names()).toHaveLength(2);
+  });
+});
+
+describe('MyTopicsView empty state', () => {
+  const personal: KnowledgeBase = { ...baseKb, id: 'kb-p', name: 'Nur ich', myRole: 'owner', memberCount: 1 };
+  const emptyTitle = () => screen.queryByRole('heading', { name: translations.myTopicsEmptyTitle.en });
+  const filterTitle = () => screen.queryByRole('heading', { name: translations.topicsFilterEmptyTitle.en });
+
+  it('shows a placeholder that creates a topic when the user owns none', async () => {
+    const onCreateKB = vi.fn();
+    renderView(<MyTopicsView kbs={[]} {...noopProps} onCreateKB={onCreateKB} />);
+
+    expect(emptyTitle()).toBeInTheDocument();
+    // The toolbar button and the placeholder's own.
+    const create = screen.getAllByRole('button', { name: translations.newTopic.en });
+    expect(create).toHaveLength(2);
+    await userEvent.click(create[1]);
+    expect(onCreateKB).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts only owned topics: one shared with the user leaves the page empty', () => {
+    renderView(<MyTopicsView kbs={[{ ...personal, myRole: 'edit' }]} {...noopProps} />);
+
+    expect(emptyTitle()).toBeInTheDocument();
+  });
+
+  it('shows no placeholder while the list is still loading', () => {
+    renderView(<MyTopicsView kbs={[]} {...noopProps} loading />);
+
+    expect(emptyTitle()).toBeNull();
+  });
+
+  it('says the list could not be loaded, and retries', async () => {
+    const onRetryLoad = vi.fn();
+    renderView(<MyTopicsView kbs={[]} {...noopProps} loadFailed onRetryLoad={onRetryLoad} />);
+
+    expect(screen.getByRole('heading', { name: translations.topicsLoadFailedTitle.en })).toBeInTheDocument();
+    // Not „no topics": nothing is known about the list.
+    expect(emptyTitle()).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: translations.topicsLoadRetry.en }));
+    expect(onRetryLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no placeholder beside a topic', async () => {
+    renderView(<MyTopicsView kbs={[personal]} {...noopProps} />);
+    await screen.findByText('Nur ich');
+
+    expect(emptyTitle()).toBeNull();
+    expect(filterTitle()).toBeNull();
+  });
+
+  it('says the filter matches nothing, and returns to all topics', async () => {
+    renderView(<MyTopicsView kbs={[personal]} {...noopProps} />);
+    await screen.findByText('Nur ich');
+
+    await userEvent.click(screen.getByRole('button', { name: translations.filterShared.en }));
+    expect(filterTitle()).toBeInTheDocument();
+    expect(emptyTitle()).toBeNull();
+    expect(screen.queryByText('Nur ich')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: translations.topicsFilterShowAll.en }));
+    expect(filterTitle()).toBeNull();
+    expect(screen.getByText('Nur ich')).toBeInTheDocument();
+  });
+});
+
+describe('MyTopicsView ordering', () => {
+  const plain: KnowledgeBase = { ...baseKb, id: 'kb-plain', name: 'Zuletzt', myRole: 'owner', isFavorite: false };
+  const starred: KnowledgeBase = { ...baseKb, id: 'kb-star', name: 'Zuerst', myRole: 'owner', isFavorite: true };
+
+  function renderedOrder(): string[] {
+    return Array.from(document.querySelectorAll('.home-view__kb-name-btn'))
+      .map(el => el.textContent ?? '');
+  }
+
+  it('puts a favorite ahead of a topic given before it', async () => {
+    renderView(<MyTopicsView kbs={[plain, starred]} {...noopProps} />);
+    await screen.findByText('Zuletzt');
+
+    expect(renderedOrder()).toEqual(['Zuerst', 'Zuletzt']);
+  });
+
+  it('leaves the order alone when nothing is starred', async () => {
+    renderView(<MyTopicsView kbs={[plain, { ...starred, isFavorite: false }]} {...noopProps} />);
+    await screen.findByText('Zuletzt');
+
+    // The server's order is the only ordering promise the API makes, so an
+    // all-or-nothing list must come through untouched.
+    expect(renderedOrder()).toEqual(['Zuletzt', 'Zuerst']);
+  });
+});
+
+describe('KB visibility badge', () => {
+  it('shows "private" for a private KB with only the owner', async () => {
+    renderMyTopicsView({ kbs: [{ ...baseKb, id: 'kb-1', name: 'Meine KB', visibility: 'private', memberCount: 1, myRole: 'owner' }] });
+    // The harness's `t` answers in English, so wait on the fixture's own name.
+    await screen.findByText('Meine KB');
+    expect(inCards().getByText(/^privat(e)?$/i)).toBeInTheDocument();
+  });
+
+  it('shows the member count for a shared private KB', async () => {
+    renderMyTopicsView({ kbs: [{ ...baseKb, id: 'kb-1', name: 'Team-KB', visibility: 'private', memberCount: 4, myRole: 'owner' }] });
+    expect(await screen.findByText(/geteilt \(4\)|shared \(4\)/i)).toBeInTheDocument();
+  });
+
+
+});
+
+// Task 10: the KB card's message chip and „Used" line read the usage
+// ledger's turnCount/lastActivityAt, not the old messageCount/lastMessageAt
+// pair the backend no longer sends. Since KI-848 the line is „Used {relative}"
+// (it was „Last active …"); the fixed-clock checks of its wording live in
+// KbCard.test.tsx.
+describe('KB card turn chip and meta lines', () => {
+  it('counts turns and reads lastActivityAt for the „Used" line', async () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    renderMyTopicsView({
+      kbs: [{
+        ...baseKb, id: 'kb-1', name: 'Meine KB', memberCount: 1, myRole: 'owner',
+        turnCount: 9, lastActivityAt: twoHoursAgo,
+      }],
+    });
+    expect(await screen.findByText(translations.kbMessagesChip.en.replace('{n}', '9'))).toBeInTheDocument();
+    // Assert the relative-time UNIT, not just the constant label: the line
+    // falls back to kb.createdAt (baseKb's 2026-01-01, months before "now")
+    // whenever lastActivityAt isn't read, which would still satisfy a
+    // label-only match. Only the real read renders an "hour" unit.
+    const used = screen.getByTestId('kb-meta-used');
+    expect(used).toHaveTextContent(new RegExp(`^${translations.kbCardUsed.en}.*hour`, 'i'));
+  });
+
+  // The freshness chip is gone. „Updated" is a meta line, keyed on
+  // lastIngestedAt (API.md: omitted while nothing has been ingested), and
+  // absent for a KB without it.
+  it('renders the „Updated" line from lastIngestedAt, and no freshness chip', async () => {
+    renderMyTopicsView({
+      kbs: [{
+        ...baseKb, id: 'kb-2', name: 'Alte KB', memberCount: 1, myRole: 'owner', fileCount: 4,
+        oldestFileAt: '2025-01-01T00:00:00Z', lastIngestedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      }],
+    });
+    await screen.findByText('Alte KB');
+    expect(screen.getByTestId('kb-meta-updated')).toHaveTextContent(new RegExp(`^${translations.kbCardUpdated.en}.*hour`, 'i'));
+    expect(screen.queryByText(/Oldest content/i)).toBeNull();
+  });
+
+  it('renders no chips and no „Updated" line when the KB has no files or messages', async () => {
+    renderMyTopicsView({
+      kbs: [{ ...baseKb, id: 'kb-3', name: 'Leere KB', memberCount: 1, myRole: 'owner' }],
+    });
+    await screen.findByText('Leere KB');
+    expect(screen.queryByTestId('kb-meta-updated')).toBeNull();
+    expect(screen.queryByText(translations.kbFilesChip.en.replace('{n}', '0'))).toBeNull();
+  });
+});

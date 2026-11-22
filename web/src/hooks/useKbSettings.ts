@@ -6,29 +6,17 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { userErrorMessage } from '../utils/userErrors';
 
-// Per-chat-session sticky agent/team selection for the chat send path.
-// `teamId`/`agentId` are mutually exclusive; an empty object means Standard
-// (no agent/team) and omits both fields from the chat POST body.
-export interface AgentSelection {
-  teamId?: string;
-  agentId?: string;
-}
-
 export function useKbSettings() {
   const { t } = useTheme();
   const toast = useToast();
 
   const [isPro, setIsPro] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [enhance, setEnhance] = useState<'rewrite' | 'expand' | 'spell' | null>(null);
   const [availableConfigs, setAvailableConfigs] = useState<SafeAIConfig[]>([]);
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
   // Per-turn web search (composer + menu → badge); sent as `webSearch`.
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [reasoningLevel, setReasoningLevel] = useState<'low' | 'medium' | 'high'>('low');
-  const [researchRunning, setResearchRunning] = useState(false);
-  const [academicResearchRunning, setAcademicResearchRunning] = useState(false);
-  const [agentSelection, setAgentSelection] = useState<AgentSelection>({});
 
   const fetchAvailableConfigs = useCallback(async () => {
     try {
@@ -42,15 +30,11 @@ export function useKbSettings() {
 
   return {
     isPro, setIsPro,
-    showSettings, setShowSettings,
     enhance, setEnhance,
     availableConfigs,
     reasoningEnabled, setReasoningEnabled,
     webSearchEnabled, setWebSearchEnabled,
     reasoningLevel, setReasoningLevel,
-    researchRunning, setResearchRunning,
-    academicResearchRunning, setAcademicResearchRunning,
-    agentSelection, setAgentSelection,
     fetchAvailableConfigs,
   };
 }

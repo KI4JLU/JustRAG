@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { useModal, type ConfirmOptions } from '../hooks/useModal';
-import { Modal } from '../components/Modal';
-import type { ModalState } from '../components/Modal';
+import { Modal } from '../components/ui/Modal';
+import type { ModalState } from '../components/ui/Modal';
 
 interface ModalContextValue {
   modal: ModalState;

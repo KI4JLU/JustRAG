@@ -4,12 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { openSettingsDialog } from './settingsDialog';
 import { openAdminDialog } from './adminDialog';
-import type { SearchDefaultGroup } from '../components/GlobalSearch';
+import type { SearchDefaultGroup } from '../components/search/GlobalSearch';
 
 /**
  * The account group of the search field's default list — the user menu's
  * entries (`AppUserMenu`), in its order, so ⌘K reaches them too. Shared by the
- * shell header and the topic workspace search, and always their LAST group:
+ * shell header and the topic search, and always their LAST group:
  * „Abmelden" ends the list.
  */
 export function useAccountSearchGroup(): SearchDefaultGroup {

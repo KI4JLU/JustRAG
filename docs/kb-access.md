@@ -1,20 +1,293 @@
 # KB access, visibility and topic filters
 
-Moved out of `CLAUDE.md`. Code: `internal/kbaccess`, `internal/kbvisibility`, `internal/kbsubs`,
-`internal/kbcategories`, `internal/kbfilters`, `internal/kbmembers`, `internal/kbinvites`.
+Code: `internal/kbaccess`, `internal/kbvisibility`, `internal/kbsubs`, `internal/kbcategories`,
+`internal/kbfilters`, `internal/kbmembers`, `internal/kbinvites`.
 
-## KB permission model
+## Roles
 
-**KB permission model (four roles):** `view < edit < admin < owner`, strictly ordered. `edit` fills the corpus (upload/delete files, RSS/Confluence/git sources, crawl — adding is additionally gated by the per-KB `editor_add_sources` flag, see source permissions below; a viewer never adds); `admin` decides how it is processed and answered (description/prompt/models/tuning knobs, agents/teams, eval, canonicalize, communities, member management) — the dividing line is: anything that can force a re-ingest or change answer quality system-wide is `admin`, not `edit`. **Renaming is the one field of `PATCH /api/kb/{id}` that is stricter than the route's `admin` gate**: `kbaccess.CanRename` allows only the `owner` on a private KB (superadmin resolves to owner) and only a system `admin`/`superadmin` on a public, ownerless KB — a `kb_members` `admin` row alone gets 403 on `name`. The UI mirrors it with `canRenameKb` (pencil on the Home card; public KBs also keep the name field in `GlobalKbSettings`). `owner` is unique per KB (partial unique index) and moves only through the explicit transfer endpoint, never through `/members`. `kb_members(kb_id, user_id, role)` is the **sole authority**; `knowledge_bases.user_id` survives only as a trigger-maintained mirror (`kb_members_sync_owner_trg`, fires on `INSERT OR UPDATE ... WHERE role='owner'`) that ~40 pre-existing owner-display queries still join through — never write it directly. **Invite links** (`kb_invite_links`, migration 0067): a KB admin can mint permanent, revocable links that grant `view`/`edit`/`admin` on redemption (`POST /api/invites/{token}/redeem`, authenticated-only + rate-limited — the redeemer has no KB role yet, so `kbViewChain` would 403 them). Redeeming raises the caller's `kb_members` role and **never lowers it**, never touches an `owner` row, and deletes an `opted_out` `kb_subscriptions` row in the same transaction — without that last step the joiner would be a member of a KB the overview still hides from them. Revoking stops future joins only; existing members stay. Tracking is `redemption_count` plus `last_used_at`; since migration 0087 the count is the number of distinct **people** who redeemed the link (one `kb_invite_link_redemptions` row per link and person, the count rises only on a person's first redemption), not the number of visits, and `last_used_at` still moves on every redemption. Counts from before 0087 were kept as they were. Frontend: the invite-links tab of the Mitglieder section in Thema-Einstellungen (`KbMembersPanel`), entry route `/join/<token>` parked in `sessionStorage` so it survives the SSO round trip. `internal/kbinvites`; `web/src/hooks/useJoinLink.ts`, `useJoinRedeem.ts`. Caveat: a system-role admin who redeems an invite link on a public KB writes an explicit `kb_members` row that shadows their implicit admin (rule 2 beats rule 3 below) — the never-downgrade guard compares only `kb_members.role` and cannot see effective role. Recoverable via the global-KB editor endpoint. `kbaccess.RequireKBRole(min)` is the only route gate (beside it, `RequireOperableKB` / `RequireKBRoleOrOperable` admit system admins to shared, global or their own KBs on `kbAdvancedChain` / `kbAgentListChain` only) and `kbaccess.EffectiveRole(kb, sysRole, memberRole)` the only resolution ladder (`internal/kbaccess/middleware.go`); `internal/files`, `internal/openaicompat`, and `internal/academic` call `EffectiveRole` directly for their second, handler-internal check instead of hand-rolling one. The ladder has exactly **one SQL mirror**, `kbaccess.VisibleKBsCTE` (`internal/kbaccess/visible_sql.go`), for queries that must filter many KBs per row (`internal/globalsearch`); it carries a keep-in-sync note, and any change to `EffectiveRole` changes it in the same commit. Its parity test, `TestVisibilityAgreesWithEffectiveRole` (`internal/globalsearch`, integration), checks every rung against the real `EffectiveRole`. No feature package writes its own copy of the ladder in SQL. **Per-KB source permissions** (migration 0089) sit on top of the ladder, never inside it: `kbaccess.CapabilitiesFor(kb, role)` (next to `EffectiveRole`) turns the resolved role plus the KB's seven flags (`viewer_`/`editor_` × `see_sources`, `download_sources`, `see_citations`, plus `editor_add_sources` — there is no viewer add flag) into `Capabilities{seeSources, addSources, downloadSources, seeCitations, manageSources}`, as a **pyramid**: chatting with the KB's sources (and restricting a turn to chosen files — `selectedFileIds`/`fileIds` is not a permission) needs only KB access; `seeSources` and `seeCitations` are independent level-1 flags; `downloadSources`, `addSources` and `manageSources` all require `seeSources`. Admin/owner (incl. superadmin and a system admin on a public KB) get everything; `edit` and `view` follow their own role's flags (download = flag AND see); `addSources` is `edit` AND `editor_add_sources` (default true) AND see, never `view`; `manageSources` ("edit sources": change/sync/poll/delete/retry) has no flag — `edit` with `seeSources`, never `view` (a viewer who could add or delete would be an editor). An editor without `editor_see_sources` can do nothing with sources. The `api-user` system role has no rung of its own (it governs only use of the outgoing API; an explicit `kb_members` row, admin included, counts as for anyone). It is the only reader of the flags and the only place the pyramid is applied: `kbaccess.RequireKBCapability` (route chains `kbSourceListChain` / `kbSourceDownloadChain` / `kbAddSourcesChain` / `kbManageSourcesChain` (both gated at edit) in `routes.go`), the handler-internal checks in `internal/files` (download/delete/retry by file id) and `internal/academic` (`papers/add`, KB in the body), the agent chat's KB-writing actions (`adkbridge.Scope.Capabilities`, policy `RequiresCapability: addSources` on `library_add_to_kb`/`confluence_import`), the `capabilities` object on the KB list/detail rows (`internal/kb`) and on `GET /api/v1/kb` (`internal/publicapi`, resolved for the key's owner), and the header search's file hits. The seeSources rule has exactly one SQL mirror, `kbaccess.SeeSourcesSQL` (`visible_sql.go`, over a `VisibleKBsCTE` row, which passes `viewer_see_sources` and `editor_see_sources` through), with keep-in-sync notes on both sides; `TestVisibilityAgreesWithEffectiveRole` (`internal/globalsearch`, integration) checks it against the real `CapabilitiesFor` + `EffectiveRole` over a matrix in which the two columns always disagree, so reading the wrong role's column fails. Flags are written via `PATCH /api/kb/{id}` (`kbAdminChain`); `seeCitations` is enforced on the way out only (`internal/chat/citation_visibility.go`): sources, conflicts, verification and the `[n]` markers are always stored in full and stripped per response for the current reader — web SSE/JSON via a `CitationFilter` on the request context that `writeSSE` applies to every frame, `GET /api/chats/{id}/messages` via `RedactMessagesForReader` (capability resolved through `kbaccess.ResolveCapabilities`, since that route is not KB-scoped), the agent chat via an `agui.Config.NewEventFilter`, and `internal/publicapi` / `internal/mcpserver` / `internal/openaicompat` for the API key's owner; research, generated content and `/owui` are not covered (API.md § Citations). Five rules, in order — order is load-bearing (an explicit `kb_members` row must beat the implicit public-KB roles, or an editor on a public KB would be demoted to view): (1) system role `superadmin` → `owner`; (2) a `kb_members` row → that role; (3) `IsGlobal` + system role `admin` → `admin`; (4) `IsGlobal` + `IsPublished` → `view`; (5) else → 403. `knowledge_base_shares` and `global_kb_editors` are **legacy remnants** — Phase 1 (migration 0064) backfilled them into `kb_members` and left them in place (expand/contract); they are dropped only in the cleanup release that follows Phase 2 (`docs/superpowers/specs/2026-08-12-kb-rollen-und-sichtbarkeit-design.md`). Nothing consults either table for an access decision any more: the `/share*` surface was deleted, and the admin global-KB **editor** endpoints (`/api/admin/global-kbs/{id}/editors*`) now read and write `kb_members` with `role='admin'` — while they still touched `global_kb_editors`, adding an editor was a silent no-op grant and removing one left the backfilled `kb_members` admin row behind, i.e. an invisible and un-revokable KB-`admin` privilege. `internal/cascade` still DELETEs from both tables; that is cleanup, not access. Operator-visible behavior changes from Phase 1: a plain user can now reach their own KB's basic settings (`kbAdminChain` replaced `kbTuningChain`), but the advanced surface — RAG settings, agents & teams, evals, workflow, per-KB re-embed — sits on `kbAdvancedChain`, which makes the system role `admin`/`superadmin` the whole permission, on global KBs, shared ones and their own (`kbaccess.SystemAdminMayOperate`; shared = a `kb_members` row besides the owner's, `kbaccess.SharedSQL`, the one expression the access lookup and the admin KB overview both select; own = their raw `kb_members` row is `owner`, not the effective role, which makes a superadmin owner of everything) and no KB role needed otherwise — somebody else's private KB nobody shares stays closed to everyone, superadmin included, because the evals read its content; no KB role opens the surface to anybody else, an api-user included. Its entry point is „RAG-Settings" in the admin console's KB-Übersicht, and `GET /api/kb/{id}/agents` (`kbAgentListChain`) opens to system admins on the same KBs; **unpublished** global KBs are no longer readable by ordinary users on *any* `view`-gated route — the whole `kbViewChain` (chat, graph, studio/generated content, files, research, export) plus the `/api/v1/*` public API and the KB-as-MCP endpoint, which wrap `RequireKBRole(kbaccess.RoleView)` directly. The old `RequireKBPermission` granted `view` on any `IsGlobal` KB regardless of `IsPublished`; rule 4 now requires both (`files`, `openaicompat` and `academic` additionally repeat the check handler-internally, which is why they get named — the tightening is not limited to them).
+Four roles, strictly ordered: `view < edit < admin < owner`.
 
-## KB visibility model
+| Role | May |
+|---|---|
+| `view` | Chat with the KB. Never adds sources. |
+| `edit` | Fill the corpus: upload and delete files, RSS / Confluence / git sources, crawl. Adding also needs the `editor_add_sources` flag. |
+| `admin` | Everything that can force a re-ingest or change answer quality: description, prompt, models, canonicalize, knowledge-graph communities, member management. Tuning knobs, evals, workflow and agents and teams are the advanced surface, open to system admins only (see Role resolution). |
+| `owner` | Everything, plus rename. At most one per KB (partial unique index); a public KB has none. Moves only through the transfer endpoint, never through `/members`. |
 
-**KB visibility model (Phase 2):** `knowledge_bases.visibility` (`private` | `public`) is the write-side truth; `is_global` survives only as a `GENERATED ALWAYS AS (visibility = 'public') STORED` column so pods from the previous image survive the rolling deploy, and it is dropped in the cleanup release — no Go code reads it. A public KB has **no owner**: publishing (`POST /api/admin/kb/{id}/publish`, system admin, offered per row in the admin KB-Übersicht) demotes the owner's `kb_members` row to `admin` and NULLs `knowledge_bases.user_id` by hand, because `kb_members_sync_owner_trg` fires only `WHEN (NEW.role = 'owner')` and stays silent on a demotion. Publishing is **staged**: it also forces `is_published = false`, so the KB is public but not yet live — visible only to its KB admins (any `kb_members` row, e.g. the demoted ex-owner or a curator) and to system admins, until an operator flips the catalog toggle in the global-KB admin tab. This is a list-visibility rule, not a route-access one: `ListGlobalKnowledgeBases`'s non-admin overview query OR's a `kb_members` EXISTS check ahead of, and independent of, `is_published` — that arm is what bypasses the flag for members while it stays staged. `is_published` DEFAULTs to true (migration 0012), so without that write a first publish would go world-readable instantly and a re-publish after an unpublish would land silently invisible. Unpublishing requires an explicit new owner and deletes every `kb_subscriptions` row for the KB (chats are kept — losing access is not the same as asking to be removed). Overview visibility for a public KB is **no `opted_out` row** AND (`kb_members` row (regardless of `is_published`) OR (`is_published = true` AND (`kb_subscriptions.state='subscribed'` OR `auto_subscribe`))) — an ordinary subscriber or auto-subscribe candidate never sees a staged KB, only a member does. The opt-out beats *every* arm, membership included, because the star on a Favoriten card is a pure favorites toggle: `useKbRemoval` routes every public KB to `DELETE /api/kb/{id}/subscription`, never to leave-or-delete, so it drops no membership and no chats (that is what "remove from Favoriten deleted my chats" was). To keep that reversible, `GET /api/kb/catalog` lists published public KBs **plus staged ones the caller is a member of**, and `PUT/DELETE …/subscription` accept a staged public KB (only a member reaches the view-gated route for one). `auto_subscribe` **defaults to false**, so a newly published KB is catalog-discoverable but pushed to nobody — the 0065 backfill sets it only for KBs that were global *and* published before. Because of that third arm, `kbmembers.LeaveKB` ("remove from my overview" for a member) must drop the membership, the caller's chats **and** write an `opted_out` subscription row in one transaction: deleting the subscription row instead would let `auto_subscribe` re-match and the tile would return with the chats already gone. `GET /api/kb/catalog` is the discovery surface, `kb_categories`/`kb_category_links` its filter tabs — single-select with a leftmost "Alle", read through the authentication-only `GET /api/kb-categories` (the `/api/admin/` twin 403s for ordinary users, which had made the filter invisible to exactly the people the catalog is for; system admins curate the list, any KB admin assigns their own KB). The catalog search spans `name`, `description` **and `header_text`**, and displays `COALESCE(description, header_text)`: `description` has no editor in the UI, so searching it alone matched nothing users could see. **The overview is subscription-filtered for system admins too**: `kb.Handler.ListGlobalKnowledgeBases` passes `isAdmin=false` unconditionally, because the store's admin arm (every public KB, staged or not, regardless of subscription) made the section un-curatable — an admin's "remove" click was undone by the next fetch. The store's `isAdmin` arm stays live for `internal/openaicompat`, which deliberately keeps addressing every public KB. Consequence: `adminglobalkbs.CreateGlobalKB` now enrols the creating admin as a `kb_members` `admin` row in the same transaction (`GlobalKBCreate.CreatedBy`), since a fresh public KB has no owner, no subscribers and `auto_subscribe=false` — without that row the creator would not see the KB they just made. `internal/kbvisibility`, `internal/kbsubs`, `internal/kbcategories`.
+**Rename** (`name`) is the one field of `PATCH /api/kb/{id}` that is stricter than the route's
+`admin` gate (`kbaccess.CanRename`). UI mirror `canRenameKb`: the pencil on the topic card; public
+KBs also have the name field in `GlobalKbSettings`.
+
+- Private KB: `owner` only (superadmin resolves to owner).
+- Public KB: system `admin` / `superadmin` only.
+- A `kb_members` `admin` row alone gets 403.
+
+**Storage**
+
+- `kb_members(kb_id, user_id, role)` is the sole authority.
+- `knowledge_bases.user_id` is a mirror maintained by the trigger `kb_members_sync_owner_trg`
+  (fires on `INSERT OR UPDATE ... WHERE role='owner'`). Owner-display queries still join through
+  it. Never write it directly.
+- `knowledge_base_shares` and `global_kb_editors` are legacy tables (backfilled into `kb_members`
+  by migration 0064). No access decision reads them; `internal/cascade` still deletes from them.
+  There are no `/share*` routes.
+- The admin global-KB editor endpoints (`/api/admin/global-kbs/{id}/editors*`) read and write
+  `kb_members` with `role='admin'`.
+
+## Role resolution
+
+`kbaccess.EffectiveRole(kb, sysRole, memberRole)` is the only ladder
+(`internal/kbaccess/middleware.go`). First match wins; the order is load-bearing:
+
+1. System role `superadmin` → `owner`
+2. A `kb_members` row → that role
+3. `IsGlobal` + system role `admin` → `admin`
+4. `IsGlobal` + `IsPublished` → `view`
+5. Otherwise → 403
+
+Consequences:
+
+- An explicit `kb_members` row beats the implicit public-KB roles (rule 2 before 3 and 4).
+- An unpublished public KB is readable only through rules 1 to 3 (superadmin, a `kb_members` row
+  of any role, system admin), not through rule 4. That holds on every `view`-gated route: the whole
+  `kbViewChain` (chat, graph, generated content, files, research, export), plus `/api/v1/*` and
+  the KB-as-MCP endpoint, which wrap `RequireKBRole(kbaccess.RoleView)` directly.
+
+**Route gates**
+
+- `kbaccess.RequireKBRole(min)` is the only route gate. It answers 404 for a missing KB and 403
+  for a hidden one.
+- `RequireOperableKB` / `RequireKBRoleOrOperable` admit system admins on `kbAdvancedChain` and
+  `kbAgentListChain` only.
+- `internal/files`, `internal/openaicompat` and `internal/academic` call `EffectiveRole` directly
+  for their handler-internal second check.
+
+**SQL mirror**
+
+- `kbaccess.VisibleKBsCTE` (`internal/kbaccess/visible_sql.go`) is the only SQL copy of the
+  ladder, used where a query filters many KBs per row (`internal/globalsearch`).
+- Change it in the same commit as `EffectiveRole`.
+- Parity test: `TestVisibilityAgreesWithEffectiveRole` (`internal/globalsearch`, integration).
+- No feature package writes its own SQL copy.
+
+**Advanced surface** (`kbAdvancedChain`: RAG settings, agents and teams (deprecated, API only), evals,
+workflow, per-KB re-embed)
+
+- The system role `admin` / `superadmin` is the whole permission; no KB role is needed and no KB
+  role opens it to anyone else (an api-user included).
+- Applies to global KBs, shared KBs and the admin's own KBs (`kbaccess.SystemAdminMayOperate`).
+  - Shared = a `kb_members` row besides the owner's (`kbaccess.SharedSQL`, the one expression
+    both the access lookup and the admin KB overview select).
+  - Own = the raw `kb_members` row is `owner`, not the effective role.
+- Somebody else's private, unshared KB stays closed to everyone, superadmin included.
+- Entry point: „RAG-Settings" in the admin console's KB-Übersicht.
+- `GET /api/kb/{id}/agents` (`kbAgentListChain`, deprecated with agents and teams, no web caller)
+  opens to system admins on the same KBs.
+- Basic settings of one's own KB sit on `kbAdminChain` and are open to a plain user.
+
+## Source permissions
+
+Migration 0089. On top of the ladder, never inside it.
+
+`kbaccess.CapabilitiesFor(kb, role)` turns the resolved role and the KB's seven flags into
+`Capabilities{seeSources, addSources, downloadSources, seeCitations, manageSources}`.
+
+**Flags:** `viewer_` and `editor_` × `see_sources`, `download_sources`, `see_citations`, plus
+`editor_add_sources` (default true). There is no viewer add flag. Written via `PATCH /api/kb/{id}`
+(`kbAdminChain`).
+
+**Rules**
+
+| Capability | Granted when |
+|---|---|
+| Chat with the sources, restrict a turn to chosen files (`selectedFileIds` / `fileIds`) | KB access; not a permission |
+| `seeSources` | The role's `see_sources` flag |
+| `seeCitations` | The role's `see_citations` flag; independent of `seeSources` |
+| `downloadSources` | The role's `download_sources` flag AND `seeSources` |
+| `addSources` | `edit` AND `editor_add_sources` AND `seeSources`; never `view` |
+| `manageSources` (change, sync, poll, delete, retry) | `edit` AND `seeSources`; no flag; never `view` |
+
+- `admin` and `owner` get everything (incl. superadmin, and a system admin on a public KB).
+- An editor without `editor_see_sources` can do nothing with sources.
+- The `api-user` system role has no rung of its own: it governs only use of the outgoing API
+  (API-key management). An explicit `kb_members` row counts as for anyone.
+
+**Where it is applied** (`CapabilitiesFor` is the only reader of the flags)
+
+- `kbaccess.RequireKBCapability` on the route chains `kbSourceListChain`,
+  `kbSourceDownloadChain`, `kbAddSourcesChain`, `kbManageSourcesChain` (the last two gated at
+  `edit`) in `routes.go`.
+- Handler-internal checks in `internal/files` (download, delete, retry by file id) and
+  `internal/academic` (`papers/add`, KB in the body).
+- The agent chat's KB-writing actions: `adkbridge.Scope.Capabilities`, policy
+  `RequiresCapability: addSources` on `library_add_to_kb` / `confluence_import`.
+- The `capabilities` object on the KB list and detail rows (`internal/kb`) and on
+  `GET /api/v1/kb` (`internal/publicapi`, resolved for the key's owner).
+- The header search's file hits.
+
+**SQL mirror:** `kbaccess.SeeSourcesSQL` (`visible_sql.go`, over a `VisibleKBsCTE` row) is the
+only SQL copy of the `seeSources` rule; the CTE passes `viewer_see_sources` and
+`editor_see_sources` through. Change it in the same commit as `CapabilitiesFor`.
+`TestVisibilityAgreesWithEffectiveRole` checks it against `CapabilitiesFor` + `EffectiveRole` over
+a matrix in which the two columns always disagree, so reading the wrong role's column fails.
+
+**`seeCitations`** is enforced on output only (`internal/chat/citation_visibility.go`). Sources,
+conflicts, verification and `[n]` markers are always stored in full and stripped per response:
+
+| Surface | Mechanism |
+|---|---|
+| Web SSE / JSON | `CitationFilter` on the request context, applied by `writeSSE` to every frame |
+| `GET /api/chats/{id}/messages` | `RedactMessagesForReader` (capability via `kbaccess.ResolveCapabilities`; the route is not KB-scoped) |
+| Agent chat | `agui.Config.NewEventFilter` |
+| `internal/publicapi`, `internal/mcpserver`, `internal/openaicompat` | Resolved for the API key's owner |
+| Research, generated content, `/owui` | Not covered (API.md § Citations) |
+
+## Invite links
+
+`kb_invite_links` (migration 0067), `internal/kbinvites`.
+
+- A KB admin mints permanent, revocable links that grant `view`, `edit` or `admin`.
+- Redeem: `POST /api/invites/{token}/redeem`, authentication-only and rate-limited (the redeemer
+  has no KB role yet).
+- Redeeming raises the caller's `kb_members` role, never lowers it and never touches an `owner`
+  row.
+- It deletes an `opted_out` `kb_subscriptions` row in the same transaction, so the KB shows in
+  the joiner's overview.
+- Revoking stops future joins; existing members stay.
+- Tracking: `redemption_count` = distinct people who redeemed (one `kb_invite_link_redemptions`
+  row per link and person, since migration 0087; earlier counts were kept). `last_used_at` moves
+  on every redemption.
+- Frontend: the invite-links tab of the Mitglieder section in Thema-Einstellungen
+  (`KbMembersPanel`); entry route `/join/<token>`, parked in `sessionStorage` across the SSO round
+  trip (`web/src/hooks/useJoinLink.ts`, `useJoinRedeem.ts`).
+- Caveat: a system admin who redeems a link on a public KB gets an explicit `kb_members` row that
+  shadows their implicit admin (rule 2 beats rule 3). The never-downgrade guard compares
+  `kb_members.role` only. Recoverable via the global-KB editor endpoint.
+
+## Visibility and publishing
+
+`internal/kbvisibility`, `internal/kbsubs`, `internal/kbcategories`.
+
+- `knowledge_bases.visibility` (`private` | `public`) is the truth.
+- `is_global` is a stored generated column (`visibility = 'public'`). No Go code reads it.
+- A public KB has no owner.
+
+**Publish** (`POST /api/admin/kb/{id}/publish`, system admin; offered per row in the admin
+KB-Übersicht)
+
+- Demotes the owner's `kb_members` row to `admin` and NULLs `knowledge_bases.user_id` by hand
+  (the owner trigger does not fire on a demotion).
+- Forces `is_published = false`: the KB is public but staged.
+- A staged KB is visible to its `kb_members` and to system admins only, until an operator flips
+  the catalog toggle in the global-KB admin tab.
+- `is_published` defaults to true (migration 0012), hence the explicit write.
+
+**Unpublish**
+
+- Requires an explicit new owner.
+- Deletes every `kb_subscriptions` row for the KB. Chats are kept.
+
+**Overview visibility of a public KB**
+
+Visible when there is no `opted_out` row AND one of:
+
+- a `kb_members` row (regardless of `is_published`), or
+- `is_published = true` AND (`kb_subscriptions.state = 'subscribed'` OR `auto_subscribe`).
+
+Details:
+
+- This is a list rule, not a route-access rule (`ListGlobalKnowledgeBases`).
+- The opt-out beats every arm, membership included.
+- `auto_subscribe` defaults to false. The 0065 backfill set it only for KBs that were global and
+  published before.
+- The overview is subscription-filtered for system admins too:
+  `kb.Handler.ListGlobalKnowledgeBases` always passes `isAdmin=false`. The store's `isAdmin` arm
+  (every public KB, staged or not, regardless of subscription) stays in use by
+  `internal/openaicompat` for system admins.
+- `adminglobalkbs.CreateGlobalKB` enrols the creating admin as a `kb_members` `admin` row in the
+  same transaction (`GlobalKBCreate.CreatedBy`).
+
+**Removing a public KB from the overview**
+
+- The star on a card is a favorites toggle (`/favorite`). Removing is a separate action:
+  `useKbRemoval` routes every public KB to `DELETE /api/kb/{id}/subscription`, which drops no
+  membership and no chats.
+- `PUT` / `DELETE …/subscription` sit on `kbViewChain` and accept a staged public KB; a member
+  or a system admin reaches the route for one.
+- `kbmembers.LeaveKB` (a member removes the KB) drops the membership and the caller's chats and
+  writes an `opted_out` subscription row, in one transaction. Without the `opted_out` row,
+  `auto_subscribe` would bring the tile back.
+
+**Catalog** (`GET /api/kb/catalog`)
+
+- Lists published public KBs plus staged ones the caller is a member of.
+- Filter tabs: `kb_categories` / `kb_category_links`, single-select with a leftmost "Alle", read
+  through the authentication-only `GET /api/kb-categories` (the `/api/admin/` twin is
+  admin-only).
+- System admins curate the category list; any KB admin assigns their own KB.
+- Search spans `name`, `description` and `header_text`; the card shows `description`, or
+  `header_text` when the description is NULL or empty.
 
 ## Per-user topic filters
 
-**Per-user topic filters (migration 0086, `internal/kbfilters`):** the shell's chip row — "Alle" / "Favoriten" / the caller's own categories with a "+". Three tables, all personal state and never an access grant: `kb_favorites` (row existence IS the star; there is no `is_favorite = false`), `kb_user_categories` (unique on `(user_id, LOWER(name))` — two chips reading "Studium" and "studium" are indistinguishable in a filter row; at most `kbfilters.MaxCategoriesPerUser` = 50 per user, checked in the INSERT itself → 409), and `kb_user_category_links`. A **favorite is not a subscription**: subscribing (`internal/kbsubs`) decides whether a global topic is in the overview at all, the star pins any topic — private or global — to the "Favoriten" chip; both coexist. Deliberately separate from `kb_categories`/`kb_category_links`: those are one system-admin-curated taxonomy over PUBLIC KBs (the catalog's filter tabs), these belong to one user and may point at any topic that user can see. `kb_user_category_links.user_id` is redundant next to `category_id` on purpose — the composite FK `(category_id, user_id) REFERENCES kb_user_categories (id, user_id)` makes "assigned somebody else's category" **unrepresentable in the database** rather than merely unreachable through the handler; `kbfilters` maps that 23503 to a 404. Eight favorite and category routes: `PUT`/`DELETE /api/kb/{id}/favorite`, CRUD on `/api/kb-user-categories[/{catId}]`, `PUT`/`DELETE /api/kb/{id}/user-categories/{catId}`. The `{id}` half sits on `kbViewChain` (starring is not a privilege, but only a topic the caller can open may be starred; `RequireKBRole` answers 404 for a missing KB and 403 for a hidden one, as on every `{id}` route); the rest is authentication-only. `isFavorite` + `userCategoryIds` (`kb.KBRow.UserFilters`, an embedded pointer — both keys absent when nil) ride along as joins on the session-facing reads only: `GET /api/kb`, `/api/kb/global`, `/api/kb/{id}`, `PATCH /api/kb/{id}` (re-read through `GetKnowledgeBase`) and `/api/kb/catalog` — the chip row filters one payload client-side, so a per-card request would be an N+1. The API-key listings (`GET /api/v1/kb`, `/openai/v1/models`, the KB router) call the plain `ListKnowledgeBases`/`ListGlobalKnowledgeBases`, which skip the per-user subqueries and leave both keys out. Leaving a KB or being removed from it (`kbmembers.LeaveKB`/`RemoveMember`) drops that user's star and links on it in the same transaction (`kbfilters.ForgetKB`) **only if they can no longer see it** — decided by `kbaccess.EffectiveRole(kb, sysRole, "")` after the membership row is gone, so a published public KB keeps its star; their categories stay. **Topic order (migration 0103):** `kb_user_order` holds each user's drag order of the views `my` and `shared` as one `uuid[]` per user and view, rewritten whole by every save (`GET /api/kb-user-order`, `PUT /api/kb-user-order/{view}`, authentication-only). It is display state too: the ids carry no FK and are not checked against access — the views only sort the topics they list — so `ForgetKB` and a KB delete leave them, and the user's next save drops them; a user delete removes the rows (`internal/cascade`).
+Migration 0086, `internal/kbfilters`: favorites and per-user categories. Personal state, never an
+access grant. The web app's chip row filters by favorite and by the topic's platform category
+(`web/src/hooks/useTopicFilters.ts`).
+
+**Tables**
+
+| Table | Holds |
+|---|---|
+| `kb_favorites` | A row is the star. There is no `is_favorite = false`. |
+| `kb_user_categories` | Unique on `(user_id, LOWER(name))`. At most `kbfilters.MaxCategoriesPerUser` = 50 per user, checked in the INSERT → 409. |
+| `kb_user_category_links` | Composite FK `(category_id, user_id) REFERENCES kb_user_categories (id, user_id)`; a violation (23503) maps to 404. |
+| `kb_user_order` (migration 0103) | Drag order of the views `my` and `shared`, one `uuid[]` per user and view, rewritten whole on every save. |
+
+- A favorite is not a subscription: subscribing decides whether a public topic is in the overview
+  at all; the star pins any visible topic to "Favoriten".
+- Separate from `kb_categories` / `kb_category_links`, which are the admin-curated taxonomy over
+  public KBs.
+
+**Routes**
+
+| Route | Gate |
+|---|---|
+| `PUT` / `DELETE /api/kb/{id}/favorite` | `kbViewChain` |
+| `PUT` / `DELETE /api/kb/{id}/user-categories/{catId}` | `kbViewChain` |
+| CRUD `/api/kb-user-categories[/{catId}]` | Authentication only |
+| `GET /api/kb-user-order`, `PUT /api/kb-user-order/{view}` | Authentication only |
+
+**Payload**
+
+- `isFavorite` and `userCategoryIds` (`kb.KBRow.UserFilters`, both keys absent when nil) ride
+  along on the session-facing reads: `GET /api/kb`, `/api/kb/global`, `/api/kb/{id}`,
+  `PATCH /api/kb/{id}` (re-read through `GetKnowledgeBase`), `/api/kb/catalog`. The chip row
+  filters that one payload client-side.
+- The API-key listings (`GET /api/v1/kb`, `/openai/v1/models`, the KB router) call the plain
+  `ListKnowledgeBases` / `ListGlobalKnowledgeBases`, which skip the per-user subqueries and leave
+  both keys out.
+
+**Cleanup**
+
+- Leaving a KB or being removed (`kbmembers.LeaveKB` / `RemoveMember`) drops that user's star and
+  category links in the same transaction (`kbfilters.ForgetKB`), but only if they can no longer
+  see the KB (`kbaccess.EffectiveRole(kb, sysRole, "")` after the membership row is gone). A
+  published public KB keeps its star. The user's categories stay.
+- `kb_user_order` ids carry no FK and are not checked against access; the views only sort the
+  topics they list. `ForgetKB` and a KB delete
+  leave them; the user's next save drops them. A user delete removes the rows
+  (`internal/cascade`).
 
 ## Overview UI
 
-**Overview UI (`web/src/components/HomeView.tsx`):** four `KbAccordion` sections — Favoriten (public KBs, open), KBs entdecken (`KbCatalogPanel`, closed), Mit mir geteilt (closed), Meine KBs (open). Open/closed state persists per section in `localStorage`; a collapsed section is **unmounted**, which is what makes expanding "KBs entdecken" re-read the catalog so a newly published KB needs no page reload. The owned/shared split is client-side on `myRole === 'owner'` — `GET /api/kb` stays one request. `AuthenticatedApp` also refetches both lists whenever `view` returns to `'home'`, so a publish performed in the admin UI lands on the overview. All four sections render the same card; the discovery card carries a star toggle (outline = add to Favoriten, filled = remove) instead of the chips/badges, because the catalog projection has no stats to show. The discovery grid folds at **8 cards** with a "show N more" button (client-side — the request is already capped at 200 rows, so the count in the button is exact); the fold re-closes whenever the query or the category tab changes. **`GET /api/kb/{id}`** (view-gated, `kbViewChain`) exists for that panel: a not-yet-subscribed public KB is by construction absent from `GET /api/kb/global`, so opening one needs the full row fetched on click — the handler and store carry no visibility predicate of their own, `RequireKBRole(view)` is the whole access decision.
+| View | URL | Shows |
+|---|---|---|
+| `MyTopicsView` | `/` | Topics the user owns |
+| `SharedTopicsView` | `/shared` | Private shares plus the public topics `GET /api/kb/global` returns for the user |
+| `DiscoverView` | `/discover` | The catalog (`KbCatalogPanel`) of public topics |
+
+- `AuthenticatedApp` refetches the topic lists whenever one of the three views opens.
+- The catalog folds after 8 cards with a "show more" button (client-side).
+- `GET /api/kb/{id}` (`kbViewChain`) serves the catalog: a public KB that is not in the user's
+  overview is absent from `GET /api/kb/global`, so opening one fetches the full row. Access is
+  decided by `RequireKBRole(view)` alone.

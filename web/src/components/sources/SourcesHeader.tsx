@@ -4,7 +4,7 @@ import { RefreshCw, ShieldAlert } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useKbData } from '../../contexts/KbDataContext';
 import { useKbSourceRights } from '../../hooks/useKbSourceRights';
-import '../sidebar-primitives.css';
+import '../shell/sidebar-primitives.css';
 import './SourcesPanel.css';
 
 /* ---------------------------------------------------------------------------

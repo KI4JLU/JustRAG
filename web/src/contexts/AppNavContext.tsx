@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { SearchChatTarget, SearchSourceTarget } from '../hooks/useSearchNavigation';
 import type { KbSettingsSection, KnowledgeBase } from '../types';
-import type { LegalPageType } from '../components/LegalPage';
+import type { LegalPageType } from '../pages/LegalPage';
 
 /**
  * Top-level navigation destinations that are reachable from a chrome element
@@ -25,11 +25,7 @@ import type { LegalPageType } from '../components/LegalPage';
  * the drilling layer KI-770 removed.
  *
  * Deliberately NOT extended to the legal pages (`Footer` keeps its own
- * `onNavigate`) or to `handleGoHome`/`handleViewHome` (KB-workspace
- * navigation, already on `KbCoreContext`). `onViewMyTopics` below is NOT those
- * two: they also reset `kbView` and close the settings panel on the way out of
- * a KB workspace, while this one is a plain jump between chrome-level views
- * that never entered one.
+ * `onNavigate`).
  */
 export interface AppNavContextValue {
   /** „Mein Wissen" — the topics this user owns. */
@@ -38,8 +34,6 @@ export interface AppNavContextValue {
   onViewSharedTopics: () => void;
   /** „Entdecken" — the catalog of global topics not held yet. */
   onViewDiscover: () => void;
-  /** „Werkzeuge" — placeholder for the workspace tools that move here. */
-  onViewTools: () => void;
   /** „Mein Profil" — the settings window on its Profil tab. */
   onViewProfile: () => void;
   /**
@@ -65,7 +59,7 @@ export interface AppNavContextValue {
   /**
    * Open a topic with its „Thema-Einstellungen" on `section` — „Teilen" on the
    * topic cards opens Mitglieder. The caller gates the entry point with
-   * canOpenKbTopicSettings; the workspace applies the same gate again.
+   * canOpenKbTopicSettings; the topic view applies the same gate again.
    */
   onOpenTopicSettings: (kb: KnowledgeBase, section: KbSettingsSection) => void;
   /**

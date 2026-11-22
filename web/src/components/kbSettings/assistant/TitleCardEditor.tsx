@@ -4,7 +4,7 @@ import { Button, Select, SelectContent, SelectItem, SelectTrigger, Shimmer, Text
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { KbCategory } from '../../../types';
 import { DESCRIPTION_MAX_LEN, TITLE_MAX_LEN, generateDescription } from './api';
-import { CategoryDot } from '../../CategoryPill';
+import { CategoryDot } from '../../topics/CategoryPill';
 import { TitleCardFrame, TitleCardMeta } from './StartPageParts';
 import { useAssistantSettings } from './useAssistantSettings';
 

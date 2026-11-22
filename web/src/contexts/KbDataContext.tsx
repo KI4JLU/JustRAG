@@ -1,13 +1,11 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import type { RssFeed, GeneratedContent, ConfluenceSource, ConfluenceConnectionInfo, ConfluenceSpace, ConfluencePage, ConfluencePageWithPath, GitRepoSource, SyncSchedule } from '../types';
+import type { RssFeed, ConfluenceSource, ConfluenceConnectionInfo, ConfluenceSpace, ConfluencePage, ConfluencePageWithPath, GitRepoSource, SyncSchedule } from '../types';
 import type { useFileManagement } from '../hooks/useFileManagement';
 import type { useWebTools } from '../hooks/useWebTools';
-import type { useGeneratedContent } from '../hooks/useGeneratedContent';
 
 export interface KbDataContextValue {
   fileMgmt: ReturnType<typeof useFileManagement>;
   webTools: ReturnType<typeof useWebTools>;
-  content: ReturnType<typeof useGeneratedContent>;
   // RSS
   rssFeeds: RssFeed[];
   rssLoading: boolean;
@@ -42,8 +40,6 @@ export interface KbDataContextValue {
   updateGitRepoSource: (sourceId: string, updates: { syncSchedule?: SyncSchedule; status?: 'active' | 'paused' }) => void;
   deleteGitRepoSources: (sourceIds: string[]) => Promise<void>;
   syncGitRepoNow: (sourceId: string) => void;
-  // Actions
-  handleSelectContent: (item: GeneratedContent) => void;
 }
 
 const KbDataContext = createContext<KbDataContextValue | null>(null);

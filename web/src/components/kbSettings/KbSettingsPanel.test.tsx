@@ -1,0 +1,215 @@
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { stubViewport } from '../../test/viewport';
+import userEvent from '@testing-library/user-event';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { KbSettingsPanel } from './KbSettingsPanel';
+import { API_BASE_URL } from '../../api';
+import { translations } from '../../i18n/translations';
+
+// The tabs' children reach for ThemeContext (labels) and ToastContext (write
+// failures); both are stubbed so this suite tests the panel itself.
+vi.mock('../../contexts/ThemeContext', () => ({
+  useTheme: () => ({
+    t: (key: string) => {
+      const entry = translations[key as keyof typeof translations];
+      return entry ? entry.de : key;
+    },
+  }),
+}));
+vi.mock('../../contexts/ToastContext', () => ({
+  useToast: () => ({ error: vi.fn(), success: vi.fn() }),
+}));
+
+// The Workflow tab mounts the real (unmocked) React Flow canvas, whose internal
+// node-measuring hook requires ResizeObserver — absent in jsdom, stubbed once
+// globally in src/test/setup.ts.
+
+const showConfirm = vi.fn(async () => true);
+const showAlert = vi.fn(async () => {});
+vi.mock('../../contexts/ModalContext', () => ({
+  useModalContext: () => ({ showConfirm, showAlert }),
+}));
+
+vi.mock('./workflow/api', () => ({
+  fetchWorkflow: vi.fn().mockResolvedValue({
+    lane: 'complex_reasoning', nodes: [], edges: [], orchestrators: [],
+    estLlmCalls: 0, estLatencyMs: 0, presetBase: '', presetBaseKnown: true, deviations: [],
+  }),
+  // PresetPicker (Task 5) fetches this on mount, unconditionally, once the
+  // Workflow tab renders — this suite doesn't exercise the picker itself
+  // (see PresetPicker.test.tsx), so an empty list keeps it present but inert.
+  fetchPresets: vi.fn().mockResolvedValue([]),
+}));
+
+const sample = {
+  registry: [
+    { key: 'rerank_blend_alpha', type: 'float', group: 'Retrieval', label: 'Reranker blend α', help: 'h', min: 0, max: 1 },
+    { key: 'crag_enabled', type: 'bool', group: 'Corrective', label: 'Corrective RAG', help: 'h' },
+    { key: 'chat_graph_routing_path_mode', type: 'enum', group: 'Knowledge graph', label: 'Graph mode', help: 'h', enum: ['neighbors', 'ppr', 'paths'] },
+    { key: 'raptor_enabled', type: 'bool', group: 'Ingestion', label: 'RAPTOR indexing', help: 'h', requiresReingest: true },
+    { key: 'workspace_analysis_presets', type: 'json', group: 'Workspace', label: 'Presets', help: 'h' },
+  ],
+  values: {
+    rerank_blend_alpha: { override: '0.3', global: '0.8', effective: '0.3' },
+    crag_enabled: { override: null, global: 'true', effective: 'true' },
+    chat_graph_routing_path_mode: { override: null, global: 'neighbors', effective: 'neighbors' },
+    raptor_enabled: { override: null, global: 'false', effective: 'false' },
+    workspace_analysis_presets: { override: null, global: '', effective: '' },
+  },
+};
+
+beforeEach(() => {
+  showConfirm.mockClear();
+  showAlert.mockClear();
+  vi.stubGlobal('localStorage', {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+    clear: () => {},
+  });
+  stubViewport();
+  global.fetch = vi.fn(async (url: string, opts?: RequestInit) => {
+    if (opts?.method === 'POST' && String(url).endsWith('/reembed')) {
+      return { ok: true, json: async () => ({ queued: 3 }) } as Response;
+    }
+    if (opts?.method === 'PUT') return { ok: true, json: async () => ({ success: true }) } as Response;
+    return { ok: true, json: async () => sample } as Response;
+  }) as unknown as typeof fetch;
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('KbSettingsPanel', () => {
+  // The OpenAI-compatible endpoint only accepts "kb-{uuid}" in `model`
+  // (extractKBID in internal/openaicompat/handler.go), so the panel shows the
+  // prefixed form rather than the raw KB uuid.
+  it('shows the kb- prefixed API model name and copies it to the clipboard', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    render(<KbSettingsPanel kbId="kb1" />);
+    expect(screen.getByTestId('kb-model-value').textContent).toBe('kb-kb1');
+    fireEvent.click(screen.getByLabelText('Copy API model name'));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('kb-kb1'));
+    await waitFor(() => screen.getByText('Copied'));
+  });
+
+  it('renders effective values and marks overridden fields', async () => {
+    render(<KbSettingsPanel kbId="kb1" />);
+    await waitFor(() => screen.getByText('Reranker blend α'));
+    expect(screen.getByTestId('override-badge-rerank_blend_alpha')).toBeTruthy();
+    expect(screen.queryByTestId('override-badge-crag_enabled')).toBeNull();
+  });
+
+  it('rendert JSON-Felder als Textarea', async () => {
+    render(<KbSettingsPanel kbId="kb1" />);
+    expect(await screen.findByTestId('field-workspace_analysis_presets')).toHaveProperty('tagName', 'TEXTAREA');
+  });
+
+  it('saves changed values via PUT without prompting re-ingest for non-ingest keys', async () => {
+    render(<KbSettingsPanel kbId="kb1" />);
+    await waitFor(() => screen.getByText('Corrective RAG'));
+    fireEvent.click(screen.getByTestId('field-crag_enabled') as HTMLInputElement);
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        `${API_BASE_URL}/api/kb/kb1/settings`,
+        expect.objectContaining({ method: 'PUT' }),
+      );
+    });
+    expect(showConfirm).not.toHaveBeenCalled();
+  });
+
+  it('does not call /reembed or showAlert when user cancels the re-ingest prompt', async () => {
+    showConfirm.mockResolvedValueOnce(false);
+    render(<KbSettingsPanel kbId="kb1" />);
+    await waitFor(() => screen.getByText('RAPTOR indexing'));
+    fireEvent.click(screen.getByTestId('field-raptor_enabled') as HTMLInputElement);
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(showConfirm).toHaveBeenCalled());
+    // Settings PUT must have been called.
+    expect(global.fetch).toHaveBeenCalledWith(
+      `${API_BASE_URL}/api/kb/kb1/settings`,
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    // No /reembed POST when the user declines.
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>;
+    const reembedCall = fetchMock.mock.calls.find(
+      (call) => String(call[0]).endsWith('/reembed'),
+    );
+    expect(reembedCall).toBeUndefined();
+    expect(showAlert).not.toHaveBeenCalled();
+  });
+
+  it('prompts and schedules re-ingest when an ingest key changes', async () => {
+    render(<KbSettingsPanel kbId="kb1" />);
+    await waitFor(() => screen.getByText('RAPTOR indexing'));
+    fireEvent.click(screen.getByTestId('field-raptor_enabled') as HTMLInputElement);
+    fireEvent.click(screen.getByText('Save'));
+    await waitFor(() => expect(showConfirm).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        `${API_BASE_URL}/api/kb/kb1/reembed`,
+        expect.objectContaining({ method: 'POST' }),
+      );
+    });
+    await waitFor(() => expect(showAlert).toHaveBeenCalled());
+  });
+
+  it('shows the workflow tab and renders the canvas when selected', async () => {
+    render(<KbSettingsPanel kbId="kb-1" />);
+
+    const tab = await screen.findByRole('button', { name: /workflow/i });
+    await userEvent.click(tab);
+
+    expect(await screen.findByRole('button', { name: 'Komplexe Frage' })).toBeInTheDocument();
+  });
+
+  // Every endpoint this panel calls sits on kbAdvancedChain, which wants a
+  // system role in {api-user, admin, superadmin} on top of KB role admin. The
+  // entry points are gated on the same predicate, so a caller only lands here
+  // without it through a stale tab or a hand-typed route — but "only" is not
+  // "never", and the honest failure is the point: no blank screen, no tab bar
+  // offering three controls that would each 403 in turn, and no spinner that
+  // never resolves.
+  describe('on a 403 from the settings endpoint', () => {
+    beforeEach(() => {
+      global.fetch = vi.fn(async () => (
+        { ok: false, status: 403, json: async () => ({ error: 'Insufficient permissions' }) } as Response
+      )) as unknown as typeof fetch;
+    });
+
+    it('explains the missing permission instead of leaving the panel empty', async () => {
+      render(<KbSettingsPanel kbId="kb-1" />);
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('Keine Berechtigung');
+      // Names the rule (developer rulings 2026-11-05: system admins, shared or
+      // public topics), so the reader knows why rather than only that
+      // something went wrong.
+      expect(alert).toHaveTextContent(/Systemadmins/);
+      expect(alert).toHaveTextContent(/eigenen, geteilten oder öffentlichen Themen/);
+    });
+
+    it('drops the tab bar and the loading state', async () => {
+      render(<KbSettingsPanel kbId="kb-1" />);
+
+      await screen.findByRole('alert');
+      expect(screen.queryByRole('button', { name: /RAG Settings/ })).not.toBeInTheDocument();
+      expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+    });
+
+    it('does not mistake an ordinary failure for a permission problem', async () => {
+      global.fetch = vi.fn(async () => (
+        { ok: false, status: 500, json: async () => ({}) } as Response
+      )) as unknown as typeof fetch;
+
+      render(<KbSettingsPanel kbId="kb-1" />);
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).not.toHaveTextContent('Keine Berechtigung');
+      expect(alert).toHaveTextContent(/500/);
+    });
+  });
+});

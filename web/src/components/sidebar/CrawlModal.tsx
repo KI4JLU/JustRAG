@@ -11,12 +11,12 @@ interface CrawlModalProps {
     crawlMaxPages: number;
     setCrawlMaxPages: (n: number) => void;
     crawlResults: { title: string; content: string; url: string; isEdited?: boolean }[];
-    onOpenWorkspace: () => void;
+    onOpenWebResults: () => void;
 }
 
 const CrawlModalContent: React.FC<Omit<CrawlModalProps, 'show'>> = ({
     onClose, toolLoading, onToolSubmit,
-    crawlMaxPages, setCrawlMaxPages, crawlResults, onOpenWorkspace,
+    crawlMaxPages, setCrawlMaxPages, crawlResults, onOpenWebResults,
 }) => {
     const { t } = useTheme();
     // Own local state — isolated from the web search input.
@@ -59,12 +59,12 @@ const CrawlModalContent: React.FC<Omit<CrawlModalProps, 'show'>> = ({
                 {t('startCrawl')}
             </button>
             {crawlResults.length > 0 && (
-                <div className="sidebar-left__workspace-card">
-                    <div className="sidebar-left__workspace-header">
-                        <span className="sidebar-left__workspace-count">{crawlResults.length} {t('foundPages')}</span>
+                <div className="sidebar-left__web-results-card">
+                    <div className="sidebar-left__web-results-header">
+                        <span className="sidebar-left__web-results-count">{crawlResults.length} {t('foundPages')}</span>
                     </div>
-                    <button onClick={onOpenWorkspace} className="sidebar-left__workspace-btn">
-                        <Layout size={14} /> {t('openWorkspace')}
+                    <button onClick={onOpenWebResults} className="sidebar-left__web-results-btn">
+                        <Layout size={14} /> {t('editWebResults')}
                     </button>
                 </div>
             )}

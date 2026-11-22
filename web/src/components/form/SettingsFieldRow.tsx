@@ -11,7 +11,7 @@ import { Choice } from './Choice';
 
 /*
  * The settings-window flavour of the form rows in ./FieldRow (same names, same props), for the
- * admin console: the sign-in page and the text tools keep the framed form look.
+ * admin console: the sign-in page keeps the framed form look.
  *
  * LAYOUT (developer, 2026-10-26): the rows follow the user settings window. A row is
  * a `SettingsRow` — label and help on the left, the control on the right for a choice

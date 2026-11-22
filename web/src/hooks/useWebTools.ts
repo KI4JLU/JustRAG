@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import type { PreviewBack } from '../components/PreviewHeader';
+import type { PreviewBack } from '../components/preview/PreviewHeader';
 import axios from 'axios';
 import type { FileEntry, KnowledgeBase } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
@@ -9,7 +9,7 @@ import { parseSseStream } from '../utils/sseParser';
 import { getApiErrorMessage } from '../utils/apiError';
 import { previewKindOf } from '../utils/previewKind';
 import { userErrorMessage } from '../utils/userErrors';
-import type { MediaKind } from '../components/MediaPreviewModal';
+import type { MediaKind } from '../components/preview/MediaPreviewModal';
 
 interface UseWebToolsParams {
   currentKb: KnowledgeBase | null;
@@ -44,7 +44,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
   useEffect(() => { filesRef.current = files; }, [files]);
   const [showTabularModal, setShowTabularModal] = useState(false);
   const [toolLoading, setToolLoading] = useState(false);
-  const [showWebWorkspace, setShowWebWorkspace] = useState(false);
+  const [showWebResults, setShowWebResults] = useState(false);
   const [sourcesAddedCount, setSourcesAddedCount] = useState(0);
 
   const [webResearchRunning, setWebResearchRunning] = useState(false);
@@ -173,7 +173,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
         const results = res.data.results || [];
         setSearchResults(results);
         setSelectedPages(new Set(results.map((r: { url: string }) => r.url)));
-        setShowWebWorkspace(true);
+        setShowWebResults(true);
       } else if (tab === 'crawl') {
         // Async crawl: enqueue a job, then poll the status endpoint until
         // it reaches a terminal state. The crawl runs in a worker (not
@@ -221,7 +221,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
 
         setCrawlResults(pages);
         setSelectedPages(new Set(pages.map(p => p.url)));
-        setShowWebWorkspace(true);
+        setShowWebResults(true);
       }
     } catch (err: unknown) {
       console.error(`${tab} failed:`, err);
@@ -273,7 +273,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
       }
       setSelectedPages(new Set());
       setToolInput('');
-      setShowWebWorkspace(false);
+      setShowWebResults(false);
       fetchFiles(currentKb.id);
       if (!hadPartialFailure) toast.success(t('sourcesAddedProcessing'));
       setSourcesAddedCount(c => c + 1);
@@ -431,7 +431,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
     pdfPreview, showPdfPreview, setShowPdfPreview,
     tabularFile, showTabularModal, setShowTabularModal,
     mediaPreview, closeMediaPreview,
-    toolLoading, showWebWorkspace, setShowWebWorkspace,
+    toolLoading, showWebResults, setShowWebResults,
     webResearchRunning, webResearchStatus, webResearchProgress,
     handleWebResearch, handleCancelWebResearch, handleToolSubmit,
     handleAddSources, handleUpdateWebResult, handleStartEditWebResult,
@@ -443,7 +443,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
     pdfPreview, showPdfPreview,
     tabularFile, showTabularModal,
     mediaPreview, closeMediaPreview,
-    toolLoading, showWebWorkspace,
+    toolLoading, showWebResults,
     webResearchRunning, webResearchStatus, webResearchProgress,
     handleWebResearch, handleCancelWebResearch, handleToolSubmit,
     handleAddSources, handleUpdateWebResult, handleStartEditWebResult,

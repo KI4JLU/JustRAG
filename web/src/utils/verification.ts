@@ -17,7 +17,7 @@ export function flaggedClaimsFor(
 // citationSpanFor returns the span-verifier's RUNE offsets for citation `n`,
 // or undefined when the entry is missing, unverified, or was verified by a
 // method that doesn't carry a span (ngram/semantic). The offsets index
-// `sources[n-1].content` — see the CitationStatus doc comment in types.ts.
+// `sources[n-1].content` — see the CitationStatus doc comment in types/index.ts.
 export function citationSpanFor(
     v: MessageVerification | null | undefined,
     n: number,

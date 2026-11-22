@@ -4,7 +4,7 @@ import { Button, Input, Kbd } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { nextSort, type SortState } from '../../utils/tableFormat';
 import { searchRows, sortRows, toLocalTable } from '../../utils/localTable';
-import { PreviewDialog } from '../PreviewDialog';
+import { PreviewDialog } from '../preview/PreviewDialog';
 import { SheetTable } from './SheetTable';
 import { ViewMenu } from './ViewMenu';
 import type { DetailMode, ViewRow } from './types';

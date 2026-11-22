@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { IngestStageIndicator } from './IngestStageIndicator';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 
 vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({
