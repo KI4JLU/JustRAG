@@ -47,6 +47,7 @@ vi.mock('../../contexts/ChatHistoryContext', () => ({
       { id: 'a1', kbId: 'kb1', title: 'Paper', createdAt: '2026-08-12T00:00:00Z', type: 'academic_research' },
     ],
     activeChatId,
+    openTopicId: hasTopic ? 'kb1' : null,
     sectionOf,
     openChat: handleSelectChat,
     deleteChats: handleDeleteChats,
@@ -244,6 +245,24 @@ describe('HistoryPanel', () => {
       await userEvent.click(await screen.findByRole('menuitemradio', { name: 'myTopics' }));
       await userEvent.keyboard('{Escape}{Escape}');
       expect(titles()).toEqual(['Median?', 'Budget?']);
+    });
+
+    // ORACLE: the fixture — c1 lives in kb1, the open topic; outside a
+    // topic „only the open topic" matches no chat, pinned ones stay.
+    it('lists only the open topic\'s chats, and none while no topic is open', async () => {
+      extraChats = [pinned, { id: 's1', kbId: 'kb3', kbName: 'Lehre', kbVisibility: 'private', kbRole: 'view', title: 'Klausur?', createdAt: '2026-08-11T00:00:00Z' }];
+      const { unmount } = render(<HistoryPanel />);
+      await userEvent.click(screen.getByRole('button', { name: /^historyFilter/ }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: /^historyFilterTopic/ }));
+      await userEvent.click(await screen.findByRole('menuitemradio', { name: 'historyFilterTopicOpen' }));
+      await userEvent.keyboard('{Escape}{Escape}');
+      expect(titles()).toEqual(['Median?', 'Budget?']);
+      // The filter is remembered: a view without a topic opens with it set.
+      unmount();
+      hasTopic = false;
+      render(<HistoryPanel />);
+      expect(titles()).toEqual(['Median?']);
+      expect(screen.getByText('historyFilterEmpty')).toBeInTheDocument();
     });
 
     it('puts pinned chats first in the collapsed rail', () => {
