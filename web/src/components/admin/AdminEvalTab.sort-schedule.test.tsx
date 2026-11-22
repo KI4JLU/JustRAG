@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import axios from 'axios';
 import AdminEvalTab from './AdminEvalTab';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);

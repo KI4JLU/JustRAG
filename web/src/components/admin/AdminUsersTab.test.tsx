@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AdminUsersTab from './AdminUsersTab';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 
 // Real English strings, so the assertions read like the screen (and the range label's placeholders resolve).
 const t = (k: string) => (translations as Record<string, { en: string }>)[k]?.en ?? k;

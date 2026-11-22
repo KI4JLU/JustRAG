@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { AgentSteps, type AgentStepsProps } from './AgentSteps';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 import * as ThemeContext from '../../contexts/ThemeContext';
 import type { TrajectoryEvent } from '../../types';
 

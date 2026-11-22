@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import { Button } from '@ki4jlu/design-system';
 import { GlobalSearch, type GlobalSearchProps, type SearchDefaultGroup } from './GlobalSearch';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 import type { SearchResponse } from '../../types';
 
 /* ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import { expect, fn, waitFor } from 'storybook/test';
 import { Grid } from '@ki4jlu/design-system';
 import { PrivateKbCard } from './KbCard';
 import { TopicGridPage } from './TopicGridPage';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 import { expectFooterInsideCard, expectUniformCardHeights } from '../../test/kbCardGeometry';
 import type { KnowledgeBase } from '../../types';
 

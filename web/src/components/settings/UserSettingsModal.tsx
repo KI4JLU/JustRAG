@@ -12,7 +12,7 @@ import ApiKeyManager from '../apiKeys/ApiKeyManager';
 import { Choice } from '../form/Choice';
 import ConfluenceTokenManager from './ConfluenceTokenManager';
 import { userSettingsKeywords } from './userSettingsSearchKeywords';
-import type { Language } from '../../translations';
+import type { Language } from '../../i18n/translations';
 import { roleLabel } from '../../utils/roleLabel';
 import { useAutoScrollEnabled, useChatWidth, useFollowUpsEnabled, usePromptSuggestionsEnabled, type ChatWidth } from '../../hooks/useChatSuggestionPrefs';
 

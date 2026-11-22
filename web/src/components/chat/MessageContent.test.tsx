@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import MessageContent from './MessageContent';
 import type { TrajectoryEvent } from '../../types';
 import { SourcePanelContext, type SourcePanelApi } from '../../contexts/SourcePanelContext';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 import * as ThemeContext from '../../contexts/ThemeContext';
 
 // Mock the module

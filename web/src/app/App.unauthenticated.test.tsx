@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
-import { translations, type Language } from '../translations';
+import { translations, type Language } from '../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * The test that did not exist (card KI-740).

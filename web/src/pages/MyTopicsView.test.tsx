@@ -6,7 +6,7 @@ import { ThemeProvider as DesignSystemThemeProvider } from '@ki4jlu/design-syste
 import axios from 'axios';
 import type { KnowledgeBase } from '../types';
 import { MyTopicsView, type MyTopicsViewProps } from './MyTopicsView';
-import { translations } from '../translations';
+import { translations } from '../i18n/translations';
 import { ModalProvider } from '../contexts/ModalContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { AppNavProvider } from '../contexts/AppNavContext';
@@ -264,7 +264,7 @@ function renderMyTopicsView(overrides: Partial<MyTopicsViewProps> & { kbs?: Know
  *
  * ORACLES, all independent of the code under test: WAI-ARIA's `navigation` /
  * `complementary` / `button` role mappings as @testing-library implements them,
- * the DOM's own id semantics, and src/translations.ts for every accessible name.
+ * the DOM's own id semantics, and src/i18n/translations.ts for every accessible name.
  * ------------------------------------------------------------------------- */
 describe('AppChrome, through the view that mounts it', () => {
   it('reaches the nav column and the user menu through the narrow-screen drawer', async () => {
@@ -357,7 +357,7 @@ describe('AppChrome, through the view that mounts it', () => {
    *  the name resolves — is what distinguishes the collapsed row from a row
    *  that quietly declined to collapse. All three rows, hence the admin fixture.
    *
-   * ORACLES: `src/translations.ts` for every name, and WAI-ARIA's button role
+   * ORACLES: `src/i18n/translations.ts` for every name, and WAI-ARIA's button role
    * and accessible-name mappings as jsdom implements them. Neither is derived
    * from this repo's components.
    * ------------------------------------------------------------------- */
@@ -487,7 +487,7 @@ describe('AppChrome, through the view that mounts it', () => {
    * the one carrying the behaviour change — a non-admin loses the agents
    * screen, since this row is their only entry to it.
    *
-   * ORACLES: src/translations.ts for every accessible name and WAI-ARIA's
+   * ORACLES: src/i18n/translations.ts for every accessible name and WAI-ARIA's
    * button/menuitem role mappings — neither derived from the component. The
    * role axis is `authState`, the same mutable fixture the KB-role tests use.
    * ------------------------------------------------------------------- */

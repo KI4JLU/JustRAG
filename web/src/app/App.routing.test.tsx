@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
-import { translations } from '../translations';
+import { translations } from '../i18n/translations';
 import { POST_LOGIN_PATH_KEY } from '../routing/postLoginPath';
 import { toShortId } from '../routing/shortId';
 
