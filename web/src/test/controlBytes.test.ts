@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
  * Control-byte guard for the frontend sources (card KI-766).
  *
  * THE BUG THIS EXISTS FOR
- * `web/src/components/ChatView.tsx` carried a single raw 0x00 byte inside a
+ * `web/src/components/chat/ChatView.tsx` carried a single raw 0x00 byte inside a
  * template literal (the `promptResetKey` separator, written as the byte rather
  * than as the escape `\0`). One byte was enough to make `file(1)` classify the
  * repo's largest component as `data`, and everything downstream of that
@@ -174,7 +174,7 @@ describe('web/src and web/.storybook', () => {
     // guard above green.
     expect(files.length).toBeGreaterThan(300);
     expect(files.map(f => path.relative(webRoot, f))).toContain(
-      path.join('src', 'components', 'ChatView.tsx'),
+      path.join('src', 'components', 'chat', 'ChatView.tsx'),
     );
   });
 });

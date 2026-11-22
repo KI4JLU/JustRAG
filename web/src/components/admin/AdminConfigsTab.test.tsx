@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import AdminConfigsTab from './AdminConfigsTab';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 import { labelledControls } from '../../test/labelledControls';
 
 /* ---------------------------------------------------------------------------

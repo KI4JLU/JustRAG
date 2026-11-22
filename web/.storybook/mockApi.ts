@@ -6,7 +6,7 @@ import MockAdapter from 'axios-mock-adapter';
  *
  * The login page has no props that describe its state: everything visible on
  * it is derived inside the component from ONE response, `GET
- * /api/auth/providers` (see src/Login.tsx — `oidcProvider = providers.find(p
+ * /api/auth/providers` (see src/pages/Login.tsx — `oidcProvider = providers.find(p
  * => p.type === 'oidc')`, `ldapActive = providers.some(p => p.type ===
  * 'ldap')`). So a story must supply that response and nothing else. Handing
  * `Login` a doubled child, a fake hook or a pre-computed `showOidcButton`

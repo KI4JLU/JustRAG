@@ -1,4 +1,4 @@
-import { ShortcutHint } from '../ShortcutHint';
+import { ShortcutHint } from '../ui/ShortcutHint';
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     GitBranch, SquarePen, Trash2, Pencil, FolderPlus, ArrowUp, ArrowDown, ChevronsDownUp,
@@ -20,7 +20,7 @@ import { useFoldedSections } from '../../hooks/useFoldedSections';
 import { splitLeadingEmoji } from './leadingEmoji';
 import { KIND_ICON, OVERVIEW_ICON, OVERVIEW_LABEL } from './historyIcons';
 import { HistoryRow } from './HistoryRow';
-import '../sidebar-primitives.css';
+import '../shell/sidebar-primitives.css';
 import './HistoryPanel.css';
 
 /** The fold keys of the two built-in sections; a section of the user's own folds under its id. */

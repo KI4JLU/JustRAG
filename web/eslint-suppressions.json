@@ -1,50 +1,50 @@
 {
-  "src/components/ChatView.tsx": {
+  "src/components/chat/ChatView.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 1
     }
   },
-  "src/components/ComparisonView.tsx": {
+  "src/components/chat/ComparisonView.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 3
     }
   },
-  "src/components/ConfluenceTokenManager.tsx": {
+  "src/components/settings/ConfluenceTokenManager.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 6
     }
   },
-  "src/components/ErrorBoundary.tsx": {
+  "src/components/ui/ErrorBoundary.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 2
     }
   },
-  "src/components/Footer.tsx": {
+  "src/components/shell/Footer.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 3
     }
   },
-  "src/components/GlobalKbSettings.tsx": {
+  "src/pages/GlobalKbSettings.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 19
     }
   },
-  "src/components/InlineMessageEditor.tsx": {
+  "src/components/chat/InlineMessageEditor.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 2
     }
   },
-  "src/components/KbCard.tsx": {
+  "src/components/topics/KbCard.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 1
     }
   },
-  "src/components/KbCatalogPanel.tsx": {
+  "src/components/topics/KbCatalogPanel.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 3
     }
   },
-  "src/components/WebResultsEditor.tsx": {
+  "src/components/sources/WebResultsEditor.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 8
     }

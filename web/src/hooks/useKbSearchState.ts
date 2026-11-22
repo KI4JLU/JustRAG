@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { KbSearchContextValue } from '../contexts/KbSearchContext';
-import type { AppChromeView } from '../components/AppChrome';
+import type { AppChromeView } from '../components/shell/AppChrome';
 
 /**
  * The state behind `KbSearchContext` (cards KI-787, KI-837).

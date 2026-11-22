@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { openSettingsDialog } from './settingsDialog';
 import { openAdminDialog } from './adminDialog';
-import type { SearchDefaultGroup } from '../components/GlobalSearch';
+import type { SearchDefaultGroup } from '../components/search/GlobalSearch';
 
 /**
  * The account group of the search field's default list — the user menu's

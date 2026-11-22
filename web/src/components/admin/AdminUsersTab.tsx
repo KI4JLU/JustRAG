@@ -11,7 +11,7 @@ import { roleLabel } from '../../utils/roleLabel';
 import { PersonList, PersonRow } from '../people/PersonList';
 import { Choice } from '../form/Choice';
 import { COMPACT_INPUT } from '../form/SettingsFieldRow';
-import { ListPagination } from '../ListPagination';
+import { ListPagination } from '../ui/ListPagination';
 
 // Role pill tones. Was raw hex per role (#6a1b9a, #2563eb); superadmin →
 // secondary is a pick, not a spec: the DS has no purple status tone.

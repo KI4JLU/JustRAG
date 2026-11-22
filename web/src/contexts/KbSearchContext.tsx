@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import type { AppChromeView } from '../components/AppChrome';
+import type { AppChromeView } from '../components/shell/AppChrome';
 
 /**
  * The header search's state: the field text, the query handed to „Entdecken",

@@ -57,7 +57,7 @@ const STORAGE_KEY = 'admin-agent-sections-open-v1';
 
 /**
  * The 20 section titles, in render order, as German source strings from
- * src/translations.ts.
+ * src/i18n/translations.ts.
  *
  * ORACLE, and why it is independent: the component holds section IDENTIFIERS
  * (`SECTION_CONFIGS[].titleKey`) and resolves them through `t()` at render

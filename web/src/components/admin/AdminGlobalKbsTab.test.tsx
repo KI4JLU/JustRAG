@@ -3,7 +3,7 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import AdminGlobalKbsTab from './AdminGlobalKbsTab';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
