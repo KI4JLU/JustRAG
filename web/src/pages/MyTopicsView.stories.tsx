@@ -837,7 +837,7 @@ export const SharingDoesNotAlsoOpenTheKb: Story = {
  * item, and the dialog has to take focus after the menu hands it back.
  *
  * ORACLES: the browser's focus navigation, WAI-ARIA's menu/menuitem/dialog
- * mapping, and src/translations.ts for the names.
+ * mapping, and src/i18n/translations.ts for the names.
  */
 export const SettingsOpenFromTheUserMenu: Story = {
   play: async ({ canvas, userEvent }) => {

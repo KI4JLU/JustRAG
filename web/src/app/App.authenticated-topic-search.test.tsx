@@ -4,7 +4,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
-import { translations } from '../translations';
+import { translations } from '../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * The topic header's scoped search, on the real route.

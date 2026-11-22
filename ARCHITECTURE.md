@@ -127,6 +127,8 @@ The frontend lives in `web/src/` and is organized around:
 - `contexts/`: auth, theme, modal, toast, topic view state
 - `hooks/`: chat, file management, RSS, Confluence, sharing, version checks, UI behavior
 - `utils/`: SSE parsing, message tree helpers, clipboard, viewport, error handling
+- `i18n/`: the German and English UI strings (`translations.ts` and its split-out parts)
+- `types/`: the shared TypeScript types (`index.ts`) and the ambient desktop-host types
 
 The production build is generated in `web/dist` and copied into `/app/client/dist` by the root [`Dockerfile`](Dockerfile).
 

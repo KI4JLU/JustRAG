@@ -20,7 +20,7 @@ import { useSidebarResize } from '../hooks/useSidebarResize';
 import { useChat } from '../hooks/useChat';
 import { useFileManagement } from '../hooks/useFileManagement';
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
-import { UploadStorageNoticeDialog } from '../components/UploadStorageNoticeDialog';
+import { UploadStorageNoticeDialog } from '../components/sources/UploadStorageNoticeDialog';
 import { useWebTools } from '../hooks/useWebTools';
 import { useKnowledgeBases } from '../hooks/useKnowledgeBases';
 import { useJoinRedeem } from '../hooks/useJoinRedeem';
@@ -42,16 +42,16 @@ import { useChatRoute, useChatTopic } from '../hooks/useChatRoute';
 import { MyTopicsView } from '../pages/MyTopicsView';
 import { SharedTopicsView } from '../pages/SharedTopicsView';
 import { DiscoverView } from '../pages/DiscoverView';
-import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from '../components/AppChrome';
-import { ChatView } from '../components/ChatView';
-import { TopicModals } from '../components/TopicModals';
+import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from '../components/shell/AppChrome';
+import { ChatView } from '../components/chat/ChatView';
+import { TopicModals } from '../components/topics/TopicModals';
 
 // Lazy load heavy components
 const GlobalKbSettings = lazy(() => import('../pages/GlobalKbSettings').then(module => ({ default: module.GlobalKbSettings })));
 const KbSettingsPanel = lazy(() => import('../components/kbSettings/KbSettingsPanel').then(module => ({ default: module.KbSettingsPanel })));
 
 import { LegalPage } from '../pages/LegalPage';
-import { PolicyAcceptanceGate } from '../components/PolicyAcceptanceDialog';
+import { PolicyAcceptanceGate } from '../components/shell/PolicyAcceptanceDialog';
 import { viewportHeight } from '../utils/viewport';
 import { chatWebSearchRequestField } from '../utils/chatWebSearch';
 import { kbSourceRights } from '../utils/kbAccess';

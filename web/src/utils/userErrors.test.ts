@@ -9,7 +9,7 @@ import {
   userErrorKey,
   userErrorMessage,
 } from './userErrors';
-import { translations } from '../translations';
+import { translations } from '../i18n/translations';
 
 // Oracle: the error-case list in docs/user-error-messages.md and the codes in
 // API.md § Error codes.

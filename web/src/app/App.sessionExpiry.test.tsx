@@ -4,7 +4,7 @@ import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import App from './App';
-import { translations } from '../translations';
+import { translations } from '../i18n/translations';
 import { goToSsoLogin, reloadPage } from '../routing/sessionExpiry';
 import { POST_LOGIN_PATH_KEY } from '../routing/postLoginPath';
 

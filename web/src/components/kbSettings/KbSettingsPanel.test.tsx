@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { KbSettingsPanel } from './KbSettingsPanel';
 import { API_BASE_URL } from '../../api';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 
 // The tabs' children reach for ThemeContext (labels) and ToastContext (write
 // failures); both are stubbed so this suite tests the panel itself.

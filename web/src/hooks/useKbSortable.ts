@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { Announcements } from '@dnd-kit/core';
 import type { KnowledgeBase } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
-import { PINNED_GROUP, type TopicGridPageProps } from '../components/TopicGridPage';
+import { PINNED_GROUP, type TopicGridPageProps } from '../components/topics/TopicGridPage';
 import { placeAfter, moveId, type KbOrder } from './useKbOrder';
 
 export interface KbSortableInput {

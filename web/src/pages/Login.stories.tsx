@@ -117,7 +117,7 @@ export const FieldValidationErrors: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(await canvas.findByRole('button', { name: 'Anmelden' }));
-    // Oracle: the German source string in src/translations.ts (`fieldRequired`),
+    // Oracle: the German source string in src/i18n/translations.ts (`fieldRequired`),
     // one message per empty row. Read from the accessibility tree, not from
     // component state.
     await waitFor(async () => {

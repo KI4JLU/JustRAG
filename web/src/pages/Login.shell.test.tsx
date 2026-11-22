@@ -5,7 +5,7 @@ import axios from 'axios';
 import Login from './Login';
 import { withRouter } from '../test/withRouter';
 import { API_BASE_URL } from '../api';
-import { translations } from '../translations';
+import { translations } from '../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * This suite exists because of card KI-693, which replaced this page's

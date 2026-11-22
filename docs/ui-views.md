@@ -20,8 +20,8 @@ Every view the web app renders and how each one is reached. Code: `web/src/`.
 | `/` | `my-topics` | `pages/MyTopicsView.tsx` | `AppFrame` |
 | `/shared` | `shared-topics` | `pages/SharedTopicsView.tsx` | `AppFrame` |
 | `/discover` | `discover` | `pages/DiscoverView.tsx` | `AppFrame` |
-| `/kb/<id>` | `kb` | `components/ChatView.tsx` on a new chat | `AppFrame` with a topic |
-| `/c/<id>` | `chat` | `components/ChatView.tsx` on that chat; the chat names its topic | `AppFrame` with a topic |
+| `/kb/<id>` | `kb` | `components/chat/ChatView.tsx` on a new chat | `AppFrame` with a topic |
+| `/c/<id>` | `chat` | `components/chat/ChatView.tsx` on that chat; the chat names its topic | `AppFrame` with a topic |
 | `/kb/<id>/admin` | `global-kb-settings` | `pages/GlobalKbSettings.tsx` | Full page |
 | `/terms`, `/privacy`, `/accessibility` | same as path | `pages/LegalPage.tsx` | Full page |
 | Anything else, or an id segment that is no id | `not-found` | See redirects | — |
@@ -48,12 +48,12 @@ a join link is replaced with `/`.
 |---|---|---|
 | Login | `pages/Login.tsx` | Password form when local auth or LDAP is enabled (also the fallback when provider discovery fails); SSO button when OIDC is configured. Variants: session expired, pending invite. |
 | Password login | `pages/Login.tsx` on `/admin` | Forces the password form and hides SSO; the same login endpoint. Replaces the URL with `/` on success. Signed in, `/admin` is an unknown path. |
-| Legal pages | `pages/LegalPage.tsx` | `/terms`, `/privacy`, `/accessibility`, linked from the login footer (`components/Footer.tsx`). |
+| Legal pages | `pages/LegalPage.tsx` | `/terms`, `/privacy`, `/accessibility`, linked from the login footer (`components/shell/Footer.tsx`). |
 | Join link | — | `/join/<token>` is captured before the router starts, kept in `sessionStorage`, and the URL replaced with `/`. `useJoinRedeem` redeems it and opens the topic, after sign-in or at once in an existing session. |
 
 ## The shell (`AppFrame`)
 
-`components/AppChrome.tsx`. One shell for the three overview pages and the topic view, so
+`components/shell/AppChrome.tsx`. One shell for the three overview pages and the topic view, so
 the sidebar stays mounted when the main area changes. Layout comes from the design system's
 `AppShellLayout`. Full pages render without it.
 
@@ -64,7 +64,7 @@ the sidebar stays mounted when the main area changes. Layout comes from the desi
 | Logo | The configured app name. Inside a topic it is a button to `/`. |
 | Navigation | Search (opens the palette), „Mein Wissen" (`/`), „Geteiltes Wissen" (`/shared`), „Entdecken" (`/discover`) |
 | Chat history | `components/history/HistoryPanel.tsx`: filters, empty and filtered-empty states, hover previews, rename |
-| Footer | The user menu (`components/AppUserMenu.tsx`); it also hosts the `?settings=` and `?admin=` dialogs |
+| Footer | The user menu (`components/shell/AppUserMenu.tsx`); it also hosts the `?settings=` and `?admin=` dialogs |
 
 **User menu**
 
@@ -81,7 +81,7 @@ the sidebar stays mounted when the main area changes. Layout comes from the desi
 | Where | Search | Empty field offers |
 |---|---|---|
 | Overview page | `GlobalSearch`: topics, sources, chats, chat content; „show all in Entdecken" on topic hits | The other overview pages, account actions |
-| Topic | `components/TopicSearch.tsx`: the topic's sources, chats and chat content; „search all topics" widens it | New chat, up to three recent chats of the topic, account actions |
+| Topic | `components/search/TopicSearch.tsx`: the topic's sources, chats and chat content; „search all topics" widens it | New chat, up to three recent chats of the topic, account actions |
 
 The palette has loading, empty, error, rate-limited and unavailable states.
 
@@ -119,7 +119,7 @@ Rendered for `/kb/<id>` and `/c/<id>`. While the topic resolves, the main area s
 | Area | Component | Shown |
 |---|---|---|
 | Top bar | Breadcrumb „section / topic" and the topic-settings gear | Gear: users with topic-settings rights |
-| Main | `components/ChatView.tsx` | Always |
+| Main | `components/chat/ChatView.tsx` | Always |
 | Right column | `components/sources/SourcesPanel.tsx` | With `seeSources`; without it the desktop shows a locked sources control |
 
 **Topic-settings rights** (`utils/kbAccess.ts`): the topic's owner and KB admins, superadmins, and
@@ -156,7 +156,7 @@ action needs the site flag `chat_web_search_enabled`.
 
 | Dialog | Component | Opened from |
 |---|---|---|
-| Topic settings | `components/KbSettingsDialog.tsx` | The gear, the first-source prompt, a topic card; `?topic=` |
+| Topic settings | `components/topics/KbSettingsDialog.tsx` | The gear, the first-source prompt, a topic card; `?topic=` |
 | Add source | `TextSourceModal`, `CrawlModal`, `RssModal`, `ConfluenceModal` (connection, space, scope, options, confirmation), `GitRepoModal` | The sources column, with `addSources`. Confluence, git and web search need their site flags. Upload opens the system file picker or takes a drop. |
 | Source details | `SourceDetailsModal` | An RSS, Confluence or git source row |
 | Hover preview | `sidebar/SourceHoverPreview` | A file or synced-source row |
@@ -183,7 +183,7 @@ text, Markdown, image, audio or video; Word files and spreadsheets do not.
 
 ### `?settings=` — user settings
 
-`components/UserSettingsModal.tsx`
+`components/settings/UserSettingsModal.tsx`
 
 | Tab | Content |
 |---|---|
@@ -194,7 +194,7 @@ text, Markdown, image, audio or video; Word files and spreadsheets do not.
 
 ### `?topic=` — topic settings
 
-`components/KbSettingsDialog.tsx`. Works on `/kb/<id>` and `/c/<id>` once the topic is resolved
+`components/topics/KbSettingsDialog.tsx`. Works on `/kb/<id>` and `/c/<id>` once the topic is resolved
 and the user has topic-settings rights. Navigating to another topic drops the parameter.
 
 | Section | Component | Sub-screens |
@@ -244,8 +244,8 @@ A section the user may not see falls back to `configs`.
 | Element | Component | When |
 |---|---|---|
 | Loading screen | `LoadingFallback` in `app/AppRoot.tsx` and in `app/AuthenticatedApp.tsx` | While the sign-in split loads; during a redirect and while a lazy full page loads |
-| Error screen | `components/ErrorBoundary.tsx` | A render crash: full screen, with „Try Again" and „Reload Page" |
-| Usage-policy notice | `components/PolicyAcceptanceDialog.tsx` | The configured policy version is not accepted yet. Until the lookup answers, the signed-in app is inert except the legal pages; a failed lookup offers retry or sign-out. |
-| System notice | `components/SystemNotice.tsx` | Enabled with a text; a dismissible one hides once dismissed. Banner above the app, pill over the main area, or toast. |
+| Error screen | `components/ui/ErrorBoundary.tsx` | A render crash: full screen, with „Try Again" and „Reload Page" |
+| Usage-policy notice | `components/shell/PolicyAcceptanceDialog.tsx` | The configured policy version is not accepted yet. Until the lookup answers, the signed-in app is inert except the legal pages; a failed lookup offers retry or sign-out. |
+| System notice | `components/shell/SystemNotice.tsx` | Enabled with a text; a dismissible one hides once dismissed. Banner above the app, pill over the main area, or toast. |
 | App update | `hooks/useSystemNoticeBanner.tsx` | A new version is waiting: an alert in the shell that applies it and reloads |
 | Toasts | `ToastContainer` | Mounted above the sign-in split, so they work on both sides |

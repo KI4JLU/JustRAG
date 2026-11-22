@@ -10,7 +10,7 @@ import type { EntryKind, RoleEntry, StartColors } from './api';
 import { KindIcon } from './entryKinds';
 import { IconTile } from './roles';
 import type { RoleView } from './roleModel';
-import { CategoryPill } from '../../CategoryPill';
+import { CategoryPill } from '../../topics/CategoryPill';
 import { MAX_SKELETON_CARDS, categoryGlowStyle, roleAccent, roleCardCover } from './startPageModel';
 
 /*
