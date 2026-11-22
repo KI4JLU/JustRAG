@@ -16,7 +16,7 @@ import {
     COMPACT_INPUT,
     type SelectFieldRowOption,
 } from '../form/SettingsFieldRow';
-import type { ChatModelOption } from '../../AdminUI';
+import type { ChatModelOption } from './AdminUI';
 import { useSearchMatches, useSearchRevealForm } from '../../hooks/useSearchReveal';
 
 /** Labels of the form's own fields (translation keys), for the settings search. */

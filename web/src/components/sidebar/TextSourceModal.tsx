@@ -10,8 +10,8 @@ import { renderHtmlBlocks } from '../../utils/htmlBlocks';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormValidation } from '../../hooks/useFormValidation';
-import { usePreviewBackLink, type PreviewBack } from '../PreviewHeader';
-import { PreviewDialog } from '../PreviewDialog';
+import { usePreviewBackLink, type PreviewBack } from '../preview/PreviewHeader';
+import { PreviewDialog } from '../preview/PreviewDialog';
 
 /**
  * Text sources in the DS `RichTextEditor` (Tiptap, markdown in and out), in

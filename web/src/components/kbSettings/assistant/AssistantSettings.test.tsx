@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { KbSettingsDialog } from '../../KbSettingsDialog';
+import { KbSettingsDialog } from '../../topics/KbSettingsDialog';
 import { SOURCE_FLAG_DEFAULTS } from '../../../utils/kbRoleRights';
 import type { KnowledgeBase } from '../../../types';
 import type { AssistantSettingsInput, AssistantSettingsResponse, Behavior, SettingsVersion, StartPage } from './api';

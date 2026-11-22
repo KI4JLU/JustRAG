@@ -3,7 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import AdminEvalTab from './AdminEvalTab';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 import { labelledControls } from '../../test/labelledControls';
 
 /* ---------------------------------------------------------------------------
@@ -327,7 +327,7 @@ describe('AdminEvalTab — the golden-set select', () => {
         //     the control case above).
         //   * WAI-ARIA: an aria-describedby IDREF must resolve, and the
         //     description is what carries the reason to a screen reader.
-        //   * web/src/translations.ts for the wording (`evalSelectGoldenSet`),
+        //   * web/src/i18n/translations.ts for the wording (`evalSelectGoldenSet`),
         //     which is a different file from the one under test.
         await renderTab();
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import type { PreviewBack } from '../components/PreviewHeader';
+import type { PreviewBack } from '../components/preview/PreviewHeader';
 import axios from 'axios';
 import type { FileEntry, KnowledgeBase } from '../types';
 import { API_BASE_URL, authFetch } from '../api';
@@ -9,7 +9,7 @@ import { parseSseStream } from '../utils/sseParser';
 import { getApiErrorMessage } from '../utils/apiError';
 import { previewKindOf } from '../utils/previewKind';
 import { userErrorMessage } from '../utils/userErrors';
-import type { MediaKind } from '../components/MediaPreviewModal';
+import type { MediaKind } from '../components/preview/MediaPreviewModal';
 
 interface UseWebToolsParams {
   currentKb: KnowledgeBase | null;
