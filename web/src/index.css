@@ -438,7 +438,7 @@ body {
  * `npm run build` (therefore in CI) and fails on any unlayered rule whose
  * selector is also emitted inside `@layer utilities`. The behavioural half —
  * that an `lg:` breakpoint now actually applies — is asserted in a real
- * browser by src/components/ResponsiveCascade.stories.tsx. */
+ * browser by src/components/shell/ResponsiveCascade.stories.tsx. */
 
 /* Sidebar Styling */
 .sidebar {
@@ -731,7 +731,7 @@ button.source-card {
 }
 
 /* Rendered markdown — the product's main surface (the call sites wrap
- * ReactMarkdown in `.markdown-content`; Studio/MarkdownEditor's
+ * ReactMarkdown in `.markdown-content`; editor/MarkdownEditor's
  * `.markdown-preview` has its own inline \3c style>).
  *
  * This block is deliberately UNCHANGED by the Preflight switch-on. Everything

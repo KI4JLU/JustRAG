@@ -1,6 +1,6 @@
 import type { KbSettingsSection } from '../../types';
 import { RIGHT_LABEL_KEY } from '../../utils/kbRoleRights';
-import { assistantTranslations } from '../../translations.assistant';
+import { assistantTranslations } from '../../i18n/translations.assistant';
 
 /*
  * What the KB settings search matches besides a section's name: the labels, headings and

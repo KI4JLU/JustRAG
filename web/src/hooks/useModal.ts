@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { ModalState } from '../components/Modal';
+import type { ModalState } from '../components/ui/Modal';
 
 /** How a confirmation reads: its button label, and whether the action is destructive. */
 export interface ConfirmOptions {

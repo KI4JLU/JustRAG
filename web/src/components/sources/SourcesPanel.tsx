@@ -6,7 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { Check, CheckCheck, Trash2 } from 'lucide-react';
 import { Button, FileDropzone, SidebarPanel, SidebarSelectionBar, useWindowFileDrag } from '@ki4jlu/design-system';
 import { useModalContext } from '../../contexts/ModalContext';
-import '../sidebar-primitives.css';
+import '../shell/sidebar-primitives.css';
 import { SourceDetailsModal } from './SourceDetailsModal';
 import { sourceDetailsTitle, type SourceDetailsTarget } from './sourceDetails';
 import { closeSourceDetails, openSourceDetails, useSourceDetails } from '../../hooks/sourceDetails';

@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { SearchChatTarget, SearchSourceTarget } from '../hooks/useSearchNavigation';
 import type { KbSettingsSection, KnowledgeBase } from '../types';
-import type { LegalPageType } from '../components/LegalPage';
+import type { LegalPageType } from '../pages/LegalPage';
 
 /**
  * Top-level navigation destinations that are reachable from a chrome element

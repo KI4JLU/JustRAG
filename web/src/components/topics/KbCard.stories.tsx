@@ -1,0 +1,276 @@
+import type { ReactNode } from 'react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
+import { expect, fn, waitFor } from 'storybook/test';
+import { Grid } from '@ki4jlu/design-system';
+import { PrivateKbCard } from './KbCard';
+import { TopicGridPage } from './TopicGridPage';
+import { translations } from '../../i18n/translations';
+import { expectFooterInsideCard, expectUniformCardHeights } from '../../test/kbCardGeometry';
+import type { KnowledgeBase } from '../../types';
+
+/* ---------------------------------------------------------------------------
+ * GEOMETRY stories for the KB card's footer (bug card KI-843).
+ *
+ * THE BUG, from the developer's screenshot: on „Mein Wissen" the footer chips
+ * (files, messages, and the freshness chip the upstream merge ported in) plus
+ * the „Privat" badge were wider than the card, and the badge was pushed out
+ * over the neighbouring card. The footer is an unlayered `display: flex`
+ * without wrap, and the chip group in it was `shrink-0` without wrap.
+ *
+ * WHAT IS REAL: `PrivateKbCard` itself, its stylesheet (`HomeView.css`, the
+ * unlayered legacy rules included — they are half of the bug), the design
+ * system's `Grid cols="auto"` that `TopicGridPage` lays the cards out with,
+ * and Chromium's box model. Only the handlers are spies.
+ *
+ * THE NARROWEST CARD. `Grid cols="auto"` is
+ * `repeat(auto-fill, minmax(min(17.5rem, 100%), 1fr))`: a track is never
+ * narrower than 280px (unless the whole grid is), so 280px is the floor of
+ * every card width the grid renders at any viewport, 1280px included. The
+ * grid below is given exactly 280px, which yields exactly that one track.
+ * The page-level cases (the real grid on „Mein Wissen" at the runner's width,
+ * cards and list rows) are `CardFooterInsideCard` and `ListRowChipsInsideRow`
+ * in `MyTopicsView.stories.tsx`.
+ *
+ * ORACLE: Chromium's layout via `getBoundingClientRect()` / `scrollWidth`,
+ * compared against the CARD's own box measured in the same frame — never a
+ * number copied from the stylesheet. NEGATIVE CONTROL: on the claim-base code
+ * (55631d78) this story fails; see the card for the recorded run.
+ * ------------------------------------------------------------------------- */
+
+const t = (k: string) => (translations as Record<string, { de: string }>)[k]?.de ?? k;
+
+function kb(over: Partial<KnowledgeBase> & { id: string; name: string }): KnowledgeBase {
+  return {
+    description: null,
+    userId: 'user-1',
+    createdAt: '2026-01-05T09:00:00Z',
+    isPro: false,
+    aiConfigId: null,
+    chatModel: null,
+    embeddingModel: null,
+    rerankModel: null,
+    ttsModel: null,
+    visibility: 'private',
+    memberCount: 1,
+    myRole: 'owner',
+    ...over,
+  };
+}
+
+/** The screenshot's case: files, messages, freshness, „Privat". */
+const SCREENSHOT_KB = kb({
+  id: 'kb-1', name: 'Mikrobiologie Notizen', fileCount: 36, turnCount: 1284,
+  lastActivityAt: new Date(Date.now() - 86_400_000).toISOString(),
+  lastIngestedAt: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+});
+/** A wider badge („Geteilt (12)") and a processing chip on top: the worst case. */
+const WORST_KB = kb({
+  id: 'kb-2', name: 'Prüfungsordnungen des Fachbereichs', fileCount: 1204, turnCount: 98765,
+  processingFileCount: 3, lastIngestedAt: '2019-03-01T00:00:00Z', memberCount: 12,
+});
+
+function Card({ item, compact = false }: { item: KnowledgeBase; compact?: boolean }) {
+  return (
+    <PrivateKbCard
+      kb={item}
+      currentUserId="user-1"
+      systemRole="user"
+      removingKb={false}
+      t={t}
+      language="de"
+      compact={compact}
+      onSelectKB={fn()}
+      onOpenShare={fn()}
+      onToggleFavorite={fn()}
+      onOpenSettings={fn()}
+      onRenameKB={fn()}
+      onDeleteKB={fn()}
+    />
+  );
+}
+
+function Frame({ width, children }: { width: number; children: ReactNode }) {
+  return <div style={{ width }} data-testid="frame">{children}</div>;
+}
+
+const meta = {
+  title: 'Views/KbCard',
+  component: Card,
+  parameters: { layout: 'padded' },
+  beforeEach: () => {
+    localStorage.setItem('language', 'de');
+  },
+} satisfies Meta<typeof Card>;
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+/** Two cards at the grid's narrowest track (280px): the screenshot and the worst case. */
+export const FooterInsideCardAtNarrowestTrack: Story = {
+  args: { item: SCREENSHOT_KB },
+  render: () => (
+    <Frame width={280}>
+      <Grid cols="auto" gap="gutter">
+        <Card item={SCREENSHOT_KB} />
+        <Card item={WORST_KB} />
+      </Grid>
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
+    await expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      // The track really is the 280px floor, not a wider accident.
+      await expect(Math.round(card.getBoundingClientRect().width)).toBe(280);
+      await expectFooterInsideCard(card);
+    }
+  },
+};
+
+/* ---------------------------------------------------------------------------
+ * The developer's mockup (card KI-848): title + ⋮, then „Genutzt gestern",
+ * „Aktualisiert vor 7 Tagen", and a footer of count chips left and „Privat"
+ * right. Rendered in `TopicGridPage` with `uniformRows` — the exact grid
+ * „Mein Wissen" and „Geteiltes Wissen" use — next to the three other shapes a
+ * card can take: shared (with the owner line), no files (no „Aktualisiert"
+ * line, no chips) and the create tile. Four cells, so at least two rows.
+ *
+ * ORACLES: Chromium's layout through the two shared helpers — everything
+ * inside each card, meta lines above the footer, the badge right-aligned, one
+ * height for all cells across rows and the footers at one distance from the
+ * bottom (`expectFooterInsideCard`, `expectUniformCardHeights`) — plus the
+ * visible label text, spelled out in German here.
+ * ------------------------------------------------------------------------- */
+
+const now = Date.now();
+const MOCKUP_KB = kb({
+  id: 'kb-m1', name: 'FAQ Test', fileCount: 36, turnCount: 53,
+  lastActivityAt: new Date(now - 86_400_000).toISOString(),
+  lastIngestedAt: new Date(now - 7 * 86_400_000).toISOString(),
+});
+const SHARED_KB = kb({
+  id: 'kb-m2', name: 'Fakultätsprotokolle', userId: 'user-9', myRole: 'edit', memberCount: 3,
+  ownerFirstName: 'Ada', ownerLastName: 'Lovelace', fileCount: 8, turnCount: 2,
+  lastActivityAt: new Date(now - 3 * 3_600_000).toISOString(),
+  lastIngestedAt: new Date(now - 40 * 86_400_000).toISOString(),
+});
+const NO_FILES_KB = kb({ id: 'kb-m3', name: 'Neues leeres Thema' });
+
+export const MockupCardsInUniformGrid: Story = {
+  args: { item: MOCKUP_KB },
+  render: () => (
+    // Two columns, so the three cards take two rows (the uniform-height check needs two).
+    <Frame width={680}>
+      <TopicGridPage
+        id="kb-card-mockup"
+        title="Mein Wissen"
+        uniformRows
+        items={[MOCKUP_KB, SHARED_KB, NO_FILES_KB].map((item) => <Card key={item.id} item={item} />)}
+      />
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
+    await expect(cards).toHaveLength(3);
+    for (const card of cards) await expectFooterInsideCard(card);
+    await expectUniformCardHeights(canvasElement);
+
+    const [mockup, shared, noFiles] = cards;
+    // The mockup's two lines, label then value.
+    await expect(mockup.querySelector('[data-testid="kb-meta-used"]')).toHaveTextContent(/^Genutzt gestern$/);
+    await expect(mockup.querySelector('[data-testid="kb-meta-updated"]')).toHaveTextContent(/^Aktualisiert vor 7 Tagen$/);
+    await expect(mockup.querySelector('.home-view__badge')).toHaveTextContent('Privat');
+    // Shared: the owner line; no files: no „Aktualisiert" line and no chips.
+    await expect(shared.querySelector('[data-testid="kb-meta-owner"]')).toHaveTextContent('von Ada Lovelace');
+    await expect(noFiles.querySelector('[data-testid="kb-meta-updated"]')).toBeNull();
+    await expect(noFiles.querySelectorAll('.home-view__chip')).toHaveLength(0);
+  },
+};
+
+/** A description much longer than the card's description box. */
+const LONG_KB = kb({
+  id: 'kb-d', name: 'Rollen-Test', fileCount: 3, turnCount: 12,
+  description: 'Die Plone-Infrastruktur und deren Firewall-Anpassungen, einschließlich aktueller Wartungsarbeiten. Du erfährst, wann und warum Netzwerkeinstellungen geändert wurden und welche Dienste davon betroffen sind.',
+  lastActivityAt: new Date(Date.now() - 86_400_000).toISOString(),
+});
+
+/**
+ * The hover description ends on a whole line: its text is no taller than the
+ * box it lies in (so no line after the ellipsis shows cut in half), and it
+ * uses the lines the box has (so it is not clamped shorter than it fits).
+ * ORACLE: Chromium's layout of the real card, measured in one frame.
+ */
+export const HoverDescriptionEndsOnWholeLine: Story = {
+  args: { item: LONG_KB },
+  render: () => (
+    <Frame width={680}>
+      <TopicGridPage id="kb-card-description" title="Mein Wissen" uniformRows items={[LONG_KB, SCREENSHOT_KB].map(i => <Card key={i.id} item={i} />)} />
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    const text = canvasElement.querySelector<HTMLElement>('[data-testid="kb-card-description"]')!;
+    const box = text.parentElement!;
+    const lineHeight = parseFloat(getComputedStyle(text).lineHeight);
+    await waitFor(() => expect(text.style.webkitLineClamp).not.toBe(''));
+    const textRect = text.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
+    await expect(textRect.bottom).toBeLessThanOrEqual(boxRect.bottom);
+    await expect(boxRect.bottom - textRect.bottom).toBeLessThan(lineHeight);
+    await expect(text.scrollHeight).toBeGreaterThan(text.clientHeight);
+  },
+};
+
+/* ---------------------------------------------------------------------------
+ * A long topic name. The card's header is one line: the name is cut with an
+ * ellipsis (and scrolls to its end under a resting pointer), so the band — and the rule with the category under it — is at the
+ * same height on every card, and the star and the menu stay inside it.
+ * ORACLE: the short-named card's band and title, measured in the same frame.
+ * ------------------------------------------------------------------------- */
+const SHORT_NAME_KB = kb({ id: 'kb-t1', name: 'FAQ Test 3', fileCount: 36, turnCount: 57 });
+const LONG_NAME_KB = kb({ id: 'kb-t2', name: 'Briefing-Tool Selbstbericht Systemakkreditierung', fileCount: 1, turnCount: 5 });
+const UNBROKEN_NAME_KB = kb({ id: 'kb-t3', name: 'Einführungsveranstaltungsverzeichnisübersichtsseite_2026_final', fileCount: 2 });
+
+export const LongTitleStaysOnOneLine: Story = {
+  args: { item: LONG_NAME_KB },
+  render: () => (
+    // One 280px track: the grid's narrowest card, three rows.
+    <Frame width={280}>
+      <Grid cols="auto" gap="gutter">
+        {[SHORT_NAME_KB, LONG_NAME_KB, UNBROKEN_NAME_KB].map((item) => <Card key={item.id} item={item} />)}
+      </Grid>
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    const cards = Array.from(canvasElement.querySelectorAll<HTMLElement>('[data-testid="kb-card"]'));
+    await expect(cards).toHaveLength(3);
+    const band = (card: HTMLElement) => card.querySelector<HTMLElement>('[data-testid="kb-card-band"]')!;
+    const name = (card: HTMLElement) => card.querySelector<HTMLElement>('.home-view__kb-name-btn')!;
+    const [short, ...long] = cards;
+    const bandHeight = band(short).getBoundingClientRect().height;
+    const nameHeight = name(short).getBoundingClientRect().height;
+    for (const card of long) {
+      await expect(Math.abs(band(card).getBoundingClientRect().height - bandHeight), name(card).textContent ?? '').toBeLessThanOrEqual(0.5);
+      await expect(Math.abs(name(card).getBoundingClientRect().height - nameHeight)).toBeLessThanOrEqual(0.5);
+      // The name really is cut.
+      await expect(name(card).scrollWidth).toBeGreaterThan(name(card).clientWidth);
+      // The star and the menu stay inside the band, right of the name.
+      const bandBox = band(card).getBoundingClientRect();
+      for (const control of Array.from(band(card).querySelectorAll<HTMLElement>('button')).filter((b) => b !== name(card))) {
+        const r = control.getBoundingClientRect();
+        await expect(r.right).toBeLessThanOrEqual(bandBox.right + 0.5);
+        await expect(r.left).toBeGreaterThanOrEqual(name(card).getBoundingClientRect().right - 0.5);
+      }
+      await expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+    }
+    // Holding the focus (as under a resting pointer) the name scrolls until
+    // its last letter is in view, and is back at once on blur.
+    const button = name(long[0]);
+    const overflow = button.scrollWidth - button.clientWidth;
+    button.focus();
+    await waitFor(() => expect(parseFloat(getComputedStyle(button).textIndent)).toBeCloseTo(-overflow, 0), { timeout: 5000 });
+    const text = document.createRange();
+    text.selectNodeContents(button);
+    await expect(text.getBoundingClientRect().right).toBeLessThanOrEqual(button.getBoundingClientRect().right + 1);
+    button.blur();
+    await waitFor(() => expect(parseFloat(getComputedStyle(button).textIndent)).toBe(0));
+  },
+};

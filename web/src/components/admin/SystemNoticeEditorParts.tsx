@@ -6,7 +6,7 @@ import {
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalContext } from '../../contexts/ModalContext';
 import { COMPACT_INPUT } from '../form/SettingsFieldRow';
-import { SystemNoticeAlert } from '../SystemNotice';
+import { SystemNoticeAlert } from '../shell/SystemNotice';
 import { systemNoticePlacement, type SystemNotice, type SystemNoticePlacement, type SystemNoticeTone } from '../../utils/systemNotice';
 import { PLACEMENT_LABEL_KEYS, TONE_LABEL_KEYS } from './systemNoticeLabels';
 import {
