@@ -9,7 +9,7 @@ import { useToast } from '../../contexts/ToastContext';
 /** What the app shell knows and the history needs: the open topic, and the chat actions that live with it. */
 export type ChatHistoryHost = Pick<
   ChatHistoryContextValue,
-  'activeChatId' | 'openTopicId' | 'sectionOf' | 'openChat' | 'deleteChats' | 'newChat' | 'newTopic'
+  'activeChatId' | 'openTopicId' | 'openTopicPending' | 'sectionOf' | 'openChat' | 'deleteChats' | 'newChat' | 'newTopic'
 > & {
   /** Rename a chat (asks for the title); resolves when it is done. */
   renameChat: (id: string, currentTitle: string) => Promise<unknown>;
@@ -81,13 +81,13 @@ export function ChatHistoryStore({ host, liveChats, currentKb, refreshKey, child
     } satisfies Partial<ChatHistoryContextValue>;
   }, []);
 
-  const { activeChatId, openTopicId, sectionOf, newChat, newTopic } = host;
+  const { activeChatId, openTopicId, openTopicPending, sectionOf, newChat, newTopic } = host;
   const value = useMemo<ChatHistoryContextValue>(() => ({
     ...actions,
     chats: store.chats,
     sections: store.sections,
-    activeChatId, openTopicId, sectionOf, newChat, newTopic,
-  }), [actions, store.chats, store.sections, activeChatId, openTopicId, sectionOf, newChat, newTopic]);
+    activeChatId, openTopicId, openTopicPending, sectionOf, newChat, newTopic,
+  }), [actions, store.chats, store.sections, activeChatId, openTopicId, openTopicPending, sectionOf, newChat, newTopic]);
 
   return <ChatHistoryProvider value={value}>{children}</ChatHistoryProvider>;
 }

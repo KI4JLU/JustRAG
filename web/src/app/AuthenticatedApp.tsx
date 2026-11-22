@@ -528,7 +528,11 @@ function AuthenticatedAppInner() {
   const subscribedIds = new Set(kbMgmt.globalKbs.map(kb => kb.id));
   const chatHistory: ChatHistoryHost = {
     activeChatId: topic ? chat.activeChatId : null,
-    openTopicId: topic ? topic.core.currentKb.id : null,
+    // From the URL, not the loaded topic: after back/forward the record of
+    // the next topic arrives a moment later, and „only the open topic" would
+    // hide its chats meanwhile.
+    openTopicId: onTopic ? routeKbId : null,
+    openTopicPending: onTopic && routeKbId === null,
     sectionOf: (c) => topicSection({
       isPublic: c.kbVisibility === 'public',
       isOwner: c.kbRole === 'owner',

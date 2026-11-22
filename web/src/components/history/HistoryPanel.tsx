@@ -72,7 +72,7 @@ const HistoryPanelComp: React.FC<HistoryPanelProps> = ({ nav }) => {
     // App-Zustand verließe, bekäme dort die Schiene über die volle Breite.
     const collapsed = useSidebarCollapsed();
     const {
-        chats, activeChatId, openTopicId, sectionOf, openChat, deleteChats, renameChat, pinChat, reorderPinned, fileChat,
+        chats, activeChatId, openTopicId, openTopicPending, sectionOf, openChat, deleteChats, renameChat, pinChat, reorderPinned, fileChat,
         sections, createSection, renameSection, reorderSections, deleteSection,
     } = useChatHistory();
     const primary = usePrimaryAction();
@@ -458,8 +458,9 @@ const HistoryPanelComp: React.FC<HistoryPanelProps> = ({ nav }) => {
                                 </SidebarCardGroup>
                             ))}
                             {/* Nothing below the pinned section: no chats at all, or the
-                                filter hides the rest. Pinned chats alone need no line. */}
-                            {items.length === 0 && (allItems.length === 0 || unpinnedItems.length > 0) && (
+                                filter hides the rest. Pinned chats alone need no line, and
+                                neither does a topic still being looked up. */}
+                            {items.length === 0 && !openTopicPending && (allItems.length === 0 || unpinnedItems.length > 0) && (
                                 <p className="sidebar-ui__empty">
                                     {allItems.length === 0 ? t('noHistory') : t('historyFilterEmpty')}
                                 </p>

@@ -23,6 +23,8 @@ let activeChatId: string | null = null;
 let extraChats: Record<string, string>[] = [];
 // A topic is open: only then is there a chat to start.
 let hasTopic = true;
+// A chat URL whose topic is still being looked up.
+let topicPending = false;
 
 // Der Einklapp-Zustand kommt vom `SidePanel` des Design-Systems, nicht aus dem
 // App-Zustand. Nur diesen einen Export ersetzen — `Button` und alles andere
@@ -48,6 +50,7 @@ vi.mock('../../contexts/ChatHistoryContext', () => ({
     ],
     activeChatId,
     openTopicId: hasTopic ? 'kb1' : null,
+    openTopicPending: topicPending,
     sectionOf,
     openChat: handleSelectChat,
     deleteChats: handleDeleteChats,
@@ -89,6 +92,7 @@ beforeEach(() => {
   extraChats = [];
   userSections = [];
   hasTopic = true;
+  topicPending = false;
   collapsed = false;
 });
 
@@ -263,6 +267,21 @@ describe('HistoryPanel', () => {
       render(<HistoryPanel />);
       expect(titles()).toEqual(['Median?']);
       expect(screen.getByText('historyFilterEmpty')).toBeInTheDocument();
+    });
+
+    // ORACLE: a topic not known yet is no empty filter result — no line until it is.
+    it('says nothing about the filter while the open topic is still being looked up', async () => {
+      const { unmount } = render(<HistoryPanel />);
+      await userEvent.click(screen.getByRole('button', { name: /^historyFilter/ }));
+      await userEvent.click(await screen.findByRole('menuitem', { name: /^historyFilterTopic/ }));
+      await userEvent.click(await screen.findByRole('menuitemradio', { name: 'historyFilterTopicOpen' }));
+      await userEvent.keyboard('{Escape}{Escape}');
+      unmount();
+      hasTopic = false;
+      topicPending = true;
+      render(<HistoryPanel />);
+      expect(titles()).toEqual([]);
+      expect(screen.queryByText('historyFilterEmpty')).toBeNull();
     });
 
     it('puts pinned chats first in the collapsed rail', () => {

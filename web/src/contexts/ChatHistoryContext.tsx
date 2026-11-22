@@ -12,8 +12,10 @@ export interface ChatHistoryContextValue {
   chats: ChatListEntry[];
   /** The chat on screen; null when no topic is open. */
   activeChatId: string | null;
-  /** The open topic; null on the overview pages. */
+  /** The topic the URL names, before its record has loaded; null on the overview pages. */
   openTopicId: string | null;
+  /** A chat URL whose topic is still being looked up: the open topic is not known yet. */
+  openTopicPending: boolean;
   /** The overview a chat's topic is listed in. */
   sectionOf: (chat: ChatListEntry) => TopicSection;
   /** Open a chat, in whichever topic it belongs to. */
@@ -49,6 +51,7 @@ const EMPTY: ChatHistoryContextValue = {
   chats: [],
   activeChatId: null,
   openTopicId: null,
+  openTopicPending: false,
   sectionOf: () => 'my-topics',
   openChat: () => {},
   deleteChats: async () => false,
