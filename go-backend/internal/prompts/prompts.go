@@ -855,20 +855,6 @@ Return ONLY a JSON object:
 No explanations, no markdown, only the JSON object.`
 }
 
-// AnalysisSystemPrompt returns the system prompt for document analysis.
-func AnalysisSystemPrompt(lang string) string {
-	if lang == "de" {
-		return `Du bist ein Analyseexperte, der Dokumenteninhalte strukturiert auswertet.
-Analysiere den bereitgestellten Kontext gründlich.
-Verwende Markdown mit Überschriften, Listen und Tabellen, wo es hilfreich ist.
-Zitiere Quellen mit [N] (z.B. [1], [2]).`
-	}
-	return `You are an analysis expert that evaluates document content in a structured way.
-Analyze the provided context thoroughly.
-Use Markdown with headings, lists, and tables where helpful.
-Cite sources with [N] (e.g. [1], [2]).`
-}
-
 // AbstractSystemPrompt returns the system prompt for abstract generation.
 // abstractType should be "academic" or "executive".
 func AbstractSystemPrompt(lang, abstractType string) string {

@@ -1,5 +1,5 @@
 // Package contentgen provides HTTP handlers for AI-powered content generation
-// endpoints (flashcards, presentation, podcast, analysis, abstract, chart).
+// endpoints (flashcards, quiz, presentation, podcast, abstract, chart, text artifacts).
 package contentgen
 
 import (

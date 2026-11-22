@@ -92,6 +92,37 @@ func TestAdvancedSurfaceIsOnKbAdvancedChain(t *testing.T) {
 // non-test sources, not only the rc.<chain>(...) shape routeChains reads.
 func TestNoAgentTeamRoutes(t *testing.T) {
 	agentRoute := regexp.MustCompile(`"(?:[A-Z]+ )?/api/(?:agents|agent-teams|kb/\{id\}/(?:agents|teams))(?:/[^"]*)?"`)
+	assertNoRouteLiteral(t, agentRoute, "the agents and teams routes were removed")
+	// Self-check: the pattern still catches the forms it guards against.
+	for _, s := range []string{`"GET /api/agents"`, `"/api/agent-teams/"`, `"DELETE /api/kb/{id}/teams/{teamId}"`, `"POST /api/kb/{id}/agents"`} {
+		if !agentRoute.MatchString(s) {
+			t.Errorf("pattern misses %s", s)
+		}
+	}
+	if agentRoute.MatchString(`"POST /api/kb/{id}/agui/chat"`) {
+		t.Error("pattern matches the AG-UI agent chat route")
+	}
+}
+
+// TestNoWorkspaceRoutes pins the removal of the old workspace's prompt
+// presets and analysis generation. Oracle: as TestNoAgentTeamRoutes.
+func TestNoWorkspaceRoutes(t *testing.T) {
+	workspaceRoute := regexp.MustCompile(`"(?:[A-Z]+ )?/api/kb/\{id\}/(?:workspace(?:/[^"]*)?|generate/analysis)"`)
+	assertNoRouteLiteral(t, workspaceRoute, "the workspace presets and analysis routes were removed")
+	for _, s := range []string{`"GET /api/kb/{id}/workspace/presets"`, `"POST /api/kb/{id}/generate/analysis"`} {
+		if !workspaceRoute.MatchString(s) {
+			t.Errorf("pattern misses %s", s)
+		}
+	}
+	if workspaceRoute.MatchString(`"POST /api/kb/{id}/generate/faq"`) {
+		t.Error("pattern matches a remaining generate route")
+	}
+}
+
+// assertNoRouteLiteral fails for every match of pattern in the package's
+// non-test Go sources.
+func assertNoRouteLiteral(t *testing.T, pattern *regexp.Regexp, why string) {
+	t.Helper()
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -106,20 +137,11 @@ func TestNoAgentTeamRoutes(t *testing.T) {
 			t.Fatalf("read %s: %v", f, err)
 		}
 		scanned++
-		for _, m := range agentRoute.FindAllString(string(src), -1) {
-			t.Errorf("%s registers %s — the agents and teams routes were removed", f, m)
+		for _, m := range pattern.FindAllString(string(src), -1) {
+			t.Errorf("%s registers %s — %s", f, m, why)
 		}
 	}
 	if scanned == 0 {
 		t.Fatal("no source files scanned")
-	}
-	// Self-check: the pattern still catches the forms it guards against.
-	for _, s := range []string{`"GET /api/agents"`, `"/api/agent-teams/"`, `"DELETE /api/kb/{id}/teams/{teamId}"`, `"POST /api/kb/{id}/agents"`} {
-		if !agentRoute.MatchString(s) {
-			t.Errorf("pattern misses %s", s)
-		}
-	}
-	if agentRoute.MatchString(`"POST /api/kb/{id}/agui/chat"`) {
-		t.Error("pattern matches the AG-UI agent chat route")
 	}
 }
