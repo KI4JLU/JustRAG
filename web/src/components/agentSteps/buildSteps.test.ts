@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildSteps, firstLine, hasAgentSteps, summarizeSteps } from './buildSteps';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 import type { TrajectoryEvent } from '../../types';
 
 const de = (k: string) => translations[k as keyof typeof translations]?.de ?? k;

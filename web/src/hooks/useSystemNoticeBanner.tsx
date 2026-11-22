@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Stack } from '@ki4jlu/design-system';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppUpdate } from '../contexts/AppUpdateContext';
-import { AppUpdateAlert, NoticeHeight, SystemNoticeAlert } from '../components/SystemNotice';
+import { AppUpdateAlert, NoticeHeight, SystemNoticeAlert } from '../components/shell/SystemNotice';
 import { readSystemNotice } from '../utils/systemNotice';
 import { STORAGE_NAMESPACE } from './useStoredFlag';
 

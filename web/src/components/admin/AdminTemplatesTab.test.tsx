@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import AdminTemplatesTab from './AdminTemplatesTab';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 import type { RoleTemplate } from './roleTemplatesApi';
 
 vi.mock('axios');

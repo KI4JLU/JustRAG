@@ -8,8 +8,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LegalPage } from './LegalPage';
 import { ToastProvider } from '../contexts/ToastContext';
-import { ToastContainer } from '../components/ToastContainer';
-import { translations, type Language } from '../translations';
+import { ToastContainer } from '../components/ui/ToastContainer';
+import { translations, type Language } from '../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * There was no test on this file before card KI-693, which replaced its
@@ -42,7 +42,7 @@ import { translations, type Language } from '../translations';
  * authenticated half of the tree only. The mock was not a shortcut, it was
  * the blind spot: every render below now goes through the REAL provider, the
  * REAL hook and the REAL container, so the wiring is part of what is asserted
- * rather than part of what is assumed. See `src/App.unauthenticated.test.tsx`
+ * rather than part of what is assumed. See `src/app/App.unauthenticated.test.tsx`
  * for the route-level guard.
  * ------------------------------------------------------------------------- */
 

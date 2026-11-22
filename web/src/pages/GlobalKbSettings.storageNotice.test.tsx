@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axios from 'axios';
 import { GlobalKbSettings } from './GlobalKbSettings';
-import { UploadStorageNoticeDialog } from '../components/UploadStorageNoticeDialog';
+import { UploadStorageNoticeDialog } from '../components/sources/UploadStorageNoticeDialog';
 import type { KnowledgeBase } from '../types';
 
 vi.mock('axios');

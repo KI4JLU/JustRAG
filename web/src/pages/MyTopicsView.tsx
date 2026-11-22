@@ -4,17 +4,17 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
 import { splitKbsByOwnership } from '../utils/kbAccess';
-import { AppChrome } from '../components/AppChrome';
-import { KbListHeader, PrivateKbCard } from '../components/KbCard';
+import { AppChrome } from '../components/shell/AppChrome';
+import { KbListHeader, PrivateKbCard } from '../components/topics/KbCard';
 import { Button } from '@ki4jlu/design-system';
 import { FolderPlus, Plus } from 'lucide-react';
-import { TopicGridPage } from '../components/TopicGridPage';
-import { TopicFilterBar } from '../components/TopicFilterBar';
-import { TopicListEmptyState, TopicsEmptyState } from '../components/TopicsEmptyState';
+import { TopicGridPage } from '../components/topics/TopicGridPage';
+import { TopicFilterBar } from '../components/topics/TopicFilterBar';
+import { TopicListEmptyState, TopicsEmptyState } from '../components/topics/TopicsEmptyState';
 import { favoritesFirst, useTopicFilters } from '../hooks/useTopicFilters';
 import { useKbOrder } from '../hooks/useKbOrder';
 import { useKbSortable } from '../hooks/useKbSortable';
-import '../components/HomeView.css';
+import '../components/topics/HomeView.css';
 
 /* ---------------------------------------------------------------------------
  * „Mein Wissen" — the topics you own. Renamed from `HomeView` (developer

@@ -67,7 +67,7 @@ const withAppShell: Decorator = (Story, context) => {
         * structural limit: a story renders a component under whatever this
         * file supplies, so no story can ever catch a provider that production
         * mounts on only some routes. That guard is a route-level test —
-        * `src/App.unauthenticated.test.tsx`, which renders the real App and
+        * `src/app/App.unauthenticated.test.tsx`, which renders the real App and
         * the real provider tree — and any new globally provided context here
         * needs the same kind of test rather than the assurance of a green
         * story. The container is deliberately NOT added: it would make

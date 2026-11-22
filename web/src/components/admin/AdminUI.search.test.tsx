@@ -5,7 +5,7 @@ import axios from 'axios';
 import { AdminHarness } from '../../test/AdminHarness';
 import { ADMIN_SEARCH_KEYS } from './adminSearchKeywords';
 import { ADMIN_SECTIONS } from '../../hooks/adminDialog';
-import { translations } from '../../translations';
+import { translations } from '../../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * Every section of the admin dialog is searchable by what is inside it, not only by its name

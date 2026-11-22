@@ -1,5 +1,5 @@
 import { createUrlDialog } from '../routing/urlDialog';
-import type { SettingsTab } from '../components/UserSettingsModal';
+import type { SettingsTab } from '../components/settings/UserSettingsModal';
 
 /*
  * Open state of the user settings dialog (`UserSettingsModal`), shared by the

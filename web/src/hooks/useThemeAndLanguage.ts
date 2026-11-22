@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTheme as useDesignSystemTheme, type Theme, type ResolvedTheme } from '@ki4jlu/design-system';
-import { translations, type Language } from '../translations';
+import { translations, type Language } from '../i18n/translations';
 
 /**
  * The app's theme + language hook.
