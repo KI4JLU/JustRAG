@@ -69,29 +69,6 @@
   justify-content: space-between;
 }
 
-/* Chat message skeleton layout */
-.skeleton-message {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  max-width: 70%;
-  padding: 1rem 1.25rem;
-  border-radius: 4px 20px 20px 20px;
-  background: var(--msg-ai-bg);
-}
-
-.skeleton-message--user {
-  align-self: flex-end;
-  border-radius: 20px 20px 4px 20px;
-  background: var(--msg-user-bg);
-  max-width: 50%;
-}
-
-.skeleton-message--ai {
-  align-self: flex-start;
-  border-radius: 0;
-}
-
 /* Fade-in for content replacing skeletons */
 @keyframes content-fade-in {
   from { opacity: 0; }

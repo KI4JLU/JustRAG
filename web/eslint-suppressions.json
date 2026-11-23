@@ -4,11 +4,6 @@
       "count": 1
     }
   },
-  "src/components/chat/ComparisonView.tsx": {
-    "design-system/no-raw-ui-elements": {
-      "count": 3
-    }
-  },
   "src/components/settings/ConfluenceTokenManager.tsx": {
     "design-system/no-raw-ui-elements": {
       "count": 6

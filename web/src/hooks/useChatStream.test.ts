@@ -3,7 +3,6 @@ import { renderHook, act } from '@testing-library/react';
 import { useState, useRef, useEffect } from 'react';
 import { useChatStream } from './useChatStream';
 import type { KnowledgeBase, FileEntry, Message } from '../types';
-import { getBranchInfo } from '../utils/messageTree';
 
 // `authFetch` is mocked to return a tiny fake SSE stream; `parseSseStream`,
 // `messageTree` utils and `triggerHaptic` are the real implementations (all
@@ -120,11 +119,9 @@ describe('useChatStream.handleSendMessage — regenerate', () => {
       );
     });
 
-    // This is requirement "‹1/2› sits on the answers": both answers are
-    // children of the one question, so getBranchInfo reports two siblings.
-    const info = getBranchInfo(result.current.messageTree, 'ai-new');
-    expect(info?.total).toBe(2);
-    expect(info?.siblingIds).toEqual(['ai-old', 'ai-new']);
+    // Both answers hang under the one question: no second copy of it.
+    expect(result.current.messageTree.get('ai-new')?.parentMessageId).toBe('u1');
+    expect(result.current.messageTree.get('u1')?.childIds).toEqual(['ai-old', 'ai-new']);
   });
 
   it('legt keine zweite Frage im Nachrichtenbaum an', async () => {

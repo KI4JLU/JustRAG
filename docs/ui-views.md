@@ -137,7 +137,6 @@ All inside `ChatView`.
 | No sources | A non-public topic whose file list is loaded, visible to the user and holds no completed file: sending is blocked. With `addSources` and an empty chat, the first-source prompt shows; its pencil opens the topic settings. |
 | Conversation | A chat with messages. While a turn runs and neither text nor reasoning has arrived, a status line shows. |
 | Editing a message | The user message's bubble becomes an inline editor |
-| Comparison | Two answer branches side by side (`ComparisonView`), from a message with at least two branches |
 
 The composer blocks sending while an attachment is uploading or has failed. Its web-search
 action needs the site flag `chat_web_search_enabled`.

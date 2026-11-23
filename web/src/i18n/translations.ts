@@ -1129,15 +1129,9 @@ export const translations = {
     editMessage: { de: 'Nachricht bearbeiten', en: 'Edit message' },
     forkFromHere: { de: 'Von hier abzweigen', en: 'Fork from here' },
     regenerateResponse: { de: 'Antwort neu generieren', en: 'Regenerate response' },
-    compareBranches: { de: 'Zweige vergleichen', en: 'Compare branches' },
     helpfulAnswer: { de: 'Hilfreiche Antwort', en: 'Helpful answer' },
     unhelpfulAnswer: { de: 'Nicht hilfreiche Antwort', en: 'Unhelpful answer' },
 
-    // Branch Navigation
-    answerVersions: { de: 'Versionen', en: 'Versions' },
-    versionPage: { de: '{current} von {total}', en: '{current} of {total}' },
-    previousVersion: { de: 'Vorherige Version ({target} von {total})', en: 'Previous version ({target} of {total})' },
-    nextVersion: { de: 'Nächste Version ({target} von {total})', en: 'Next version ({target} of {total})' },
     messageActions: { de: 'Aktionen zur Nachricht', en: 'Message actions' },
 
     // Chat Header Tabs
@@ -1185,13 +1179,6 @@ export const translations = {
 
     // Inline Editor
     saveAndSubmit: { de: 'Speichern & Absenden', en: 'Save & Submit' },
-
-    // Comparison View
-    branchACurrent: { de: 'Zweig A (aktuell)', en: 'Branch A (current)' },
-    branchB: { de: 'Zweig B', en: 'Branch B' },
-    useThisBranch: { de: 'Diesen Zweig verwenden', en: 'Use this branch' },
-    branchComparison: { de: 'Zweig-Vergleich', en: 'Branch Comparison' },
-    forkPoint: { de: 'Abzweigungspunkt', en: 'Fork point' },
 
     // Upload
     or: { de: 'oder', en: 'or' },

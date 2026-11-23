@@ -237,13 +237,6 @@ export interface MessageConflict {
     fileB: string;
 }
 
-export interface BranchInfo {
-    parentMessageId: string;
-    siblingIds: string[];
-    currentIndex: number;
-    total: number;
-}
-
 export interface User {
     id: string;
     username: string;
@@ -579,9 +572,6 @@ export interface ChatEntry {
     /** The chat lists only: the user's section a kept chat is filed in;
      *  absent for one in the built-in „Angepinnt" and for a chat not kept. */
     sectionId?: string | null;
-    /** The chat list only: the chat forks INSIDE itself — versions from
-     *  before branching opened a new chat. Absent means false. */
-    hasBranches?: boolean;
 }
 
 /** One of the user's own sections of the chat history (GET /api/chat-sections). */

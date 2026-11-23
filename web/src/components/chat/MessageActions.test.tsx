@@ -13,7 +13,6 @@ vi.mock('../../contexts/ThemeContext', () => ({
         forkConversation: 'Fork from here',
         forkFromHere: 'Fork from here',
         regenerateResponse: 'Regenerate response',
-        compareBranches: 'Compare branches',
         helpfulAnswer: 'Helpful answer',
         unhelpfulAnswer: 'Unhelpful answer',
         feedbackCommentPlaceholder: 'Optional comment (max 2000 chars)',
@@ -86,26 +85,13 @@ describe('MessageActions', () => {
     expect(screen.queryByRole('button', { name: 'Regenerate response' })).not.toBeInTheDocument();
   });
 
-  it('shows Compare button for both roles when onCompare provided', () => {
-    const { unmount } = render(<MessageActions message={userMsg} onCompare={() => {}} />);
-    expect(screen.getByRole('button', { name: 'Compare branches' })).toBeInTheDocument();
-    unmount();
-
-    render(<MessageActions message={aiMsg} onCompare={() => {}} />);
-    expect(screen.getByRole('button', { name: 'Compare branches' })).toBeInTheDocument();
-  });
-
   it('calls correct callback on click', async () => {
     const user = userEvent.setup();
     const onEdit = vi.fn();
-    const onCompare = vi.fn();
-    render(<MessageActions message={userMsg} onEdit={onEdit} onCompare={onCompare} />);
+    render(<MessageActions message={userMsg} onEdit={onEdit} />);
 
     await user.click(screen.getByRole('button', { name: 'Edit message' }));
     expect(onEdit).toHaveBeenCalledOnce();
-
-    await user.click(screen.getByRole('button', { name: 'Compare branches' }));
-    expect(onCompare).toHaveBeenCalledOnce();
   });
 
   it('renders no buttons when no callbacks provided', () => {

@@ -91,8 +91,7 @@ export function useChatStream({
       roleId?: string;
       // "Antwort neu generieren": no new question is written. The answer
       // hangs under the named, already-persisted question as a sibling of
-      // `aiMessageId`, so the prompt appears exactly once and the ‹1/2›
-      // switcher lands on the answers.
+      // `aiMessageId`, so the prompt appears exactly once.
       regenerateOf?: { aiMessageId: string; userMessageId: string };
     },
   ): Promise<boolean> => {

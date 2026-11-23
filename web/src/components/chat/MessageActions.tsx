@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Copy, Pencil, GitBranch, Columns, RefreshCw, ThumbsUp, ThumbsDown, ExternalLink, Network } from 'lucide-react';
+import { Copy, Pencil, GitBranch, RefreshCw, ThumbsUp, ThumbsDown, ExternalLink, Network } from 'lucide-react';
 import { Button, MessageAction, MessageActions as DsMessageActions, Textarea } from '@ki4jlu/design-system';
 import type { Message } from '../../types';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../../utils/haptics';
@@ -13,7 +13,6 @@ interface MessageActionsProps {
     message: Message;
     onEdit?: () => void;
     onFork?: () => void;
-    onCompare?: () => void;
     onRegenerate?: () => void;
     onFeedback?: (feedback: 'positive' | 'negative' | null, comment?: string) => void;
     onViewGraph?: () => void;
@@ -138,9 +137,9 @@ function FeedbackThumbs({ message, onFeedback, onOpenChange, t }: FeedbackThumbs
     );
 }
 
-export function MessageActions({ message, onEdit, onFork, onCompare, onRegenerate, onFeedback, onViewGraph, canCopy, kbId, questionText, contentRef, onPopoverOpenChange, turnRunning = false }: MessageActionsProps) {
+export function MessageActions({ message, onEdit, onFork, onRegenerate, onFeedback, onViewGraph, canCopy, kbId, questionText, contentRef, onPopoverOpenChange, turnRunning = false }: MessageActionsProps) {
     const { t } = useTheme();
-    const rules = useMessageActionRules(message, { onEdit, onFork, onCompare, onRegenerate, onFeedback, onViewGraph, contentRef });
+    const rules = useMessageActionRules(message, { onEdit, onFork, onRegenerate, onFeedback, onViewGraph, contentRef });
     const exporter = useMessageExport(message);
     const [feedbackOpen, setFeedbackOpen] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
@@ -178,11 +177,6 @@ export function MessageActions({ message, onEdit, onFork, onCompare, onRegenerat
             {rules.fork && onFork && (
                 <MessageAction tooltip={t('forkFromHere')} onClick={act(onFork)} disabled={turnRunning}>
                     <GitBranch className="size-4" aria-hidden="true" />
-                </MessageAction>
-            )}
-            {rules.compare && onCompare && (
-                <MessageAction tooltip={t('compareBranches')} onClick={act(onCompare)}>
-                    <Columns className="size-4" aria-hidden="true" />
                 </MessageAction>
             )}
             {rules.export && contentRef && (
