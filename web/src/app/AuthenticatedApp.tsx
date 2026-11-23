@@ -23,7 +23,7 @@ import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { UploadStorageNoticeDialog } from '../components/sources/UploadStorageNoticeDialog';
 import { useWebTools } from '../hooks/useWebTools';
 import { useKnowledgeBases } from '../hooks/useKnowledgeBases';
-import { useJoinRedeem } from '../hooks/useJoinRedeem';
+import { useJoinInvite } from '../hooks/useJoinInvite';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 import { useSearchNavigation } from '../hooks/useSearchNavigation';
 import { useRssFeeds } from '../hooks/useRssFeeds';
@@ -52,6 +52,7 @@ const KbSettingsPanel = lazy(() => import('../components/kbSettings/KbSettingsPa
 
 import { LegalPage } from '../pages/LegalPage';
 import { PolicyAcceptanceGate } from '../components/shell/PolicyAcceptanceDialog';
+import { JoinInviteDialog } from '../components/shell/JoinInviteDialog';
 import { viewportHeight } from '../utils/viewport';
 import { chatWebSearchRequestField } from '../utils/chatWebSearch';
 import { kbSourceRights } from '../utils/kbAccess';
@@ -285,8 +286,12 @@ function AuthenticatedAppInner() {
     navigateTo,
   });
 
-  // Redeem an invite link the user arrived with, now that they are signed in.
-  useJoinRedeem({ openKbById: kbMgmt.handleOpenKbById });
+  // The invite link the user arrived with, resolved once they are signed in;
+  // the join dialog below asks before anything is joined.
+  const joinInvite = useJoinInvite({
+    openKbById: kbMgmt.handleOpenKbById,
+    refreshKbs: () => kbMgmt.fetchKBs({ silent: true }),
+  });
 
   /* The header search's state (cards KI-787, KI-837). Held HERE rather than
      inside a provider component, exactly like `appNav` below:
@@ -619,6 +624,14 @@ function AuthenticatedAppInner() {
             <TopicModals />
           </TopicProviders>
         )}
+        <JoinInviteDialog
+          invite={joinInvite.invite}
+          busy={joinInvite.busy}
+          onAccept={() => void joinInvite.accept()}
+          onClose={joinInvite.close}
+          onAddFavorite={() => void joinInvite.addFavorite()}
+          onOpenKb={() => void joinInvite.openKb()}
+        />
       </KbSearchProvider>
     </AppNavProvider>
   );

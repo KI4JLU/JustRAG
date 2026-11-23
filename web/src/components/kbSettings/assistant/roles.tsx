@@ -1,5 +1,5 @@
 import { BookOpen, Building2, Copy, FileCheck, FileText, GraduationCap, LifeBuoy, PenLine, Sparkles, UserRound, type LucideProps } from 'lucide-react';
-import { cn } from '@ki4jlu/design-system';
+import { IconTile as DsIconTile } from '@ki4jlu/design-system';
 
 /** A role's icon by name — the names the backend allows (kbbehavior.knownIcons). */
 export function RoleIcon({ name, ...props }: { name?: string } & LucideProps) {
@@ -19,7 +19,8 @@ export function RoleIcon({ name, ...props }: { name?: string } & LucideProps) {
 
 /**
  * The square icon field of a role (template: primary, own role: neutral,
- * solid: a role entry, accent: on a hairline card's rule, in the card's colour).
+ * solid: a role entry, accent: on a hairline card's rule, in the card's colour)
+ * — the DS IconTile with the role's icon as its glyph.
  */
 export function IconTile({ icon, glyph, tone = 'primary', size = 'md', className }: {
     icon?: string;
@@ -30,20 +31,8 @@ export function IconTile({ icon, glyph, tone = 'primary', size = 'md', className
     className?: string;
 }) {
     return (
-        <span
-            aria-hidden="true"
-            className={cn(
-                'flex shrink-0 items-center justify-center rounded-[var(--ui-radius-tile)]',
-                size === 'sm' ? 'size-7 [&_svg]:size-4' : size === 'lg' ? 'size-12 [&_svg]:size-6' : 'size-9 [&_svg]:size-[18px]',
-                tone === 'primary' && 'bg-primary-container text-on-primary-container',
-                tone === 'neutral' && 'bg-surface-container-high text-on-surface-variant',
-                tone === 'solid' && 'bg-primary text-on-primary',
-                // The glyph black or white, whichever reads on the card's colour (DS cardAccentStyle).
-                tone === 'accent' && 'bg-[var(--card-accent,var(--color-primary))] text-[var(--card-on-accent,var(--color-on-primary))]',
-                className,
-            )}
-        >
+        <DsIconTile tone={tone} size={size} className={className}>
             {glyph ?? <RoleIcon name={icon} />}
-        </span>
+        </DsIconTile>
     );
 }
