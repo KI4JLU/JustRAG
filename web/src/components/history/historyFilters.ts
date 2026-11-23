@@ -63,7 +63,7 @@ export function isDefaultHistoryFilters(filters: HistoryFilters): boolean {
 }
 
 export interface HistoryFilterContext {
-  /** The open topic, or null: „only the open topic" then filters nothing. */
+  /** The open topic, or null: „only the open topic" then lets no chat through. */
   openTopicId: string | null;
   sectionOf: (chat: ChatListEntry) => TopicSection;
   now?: Date;
@@ -93,7 +93,7 @@ export function filterHistory(items: HistoryItem[], filters: HistoryFilters, ctx
   return items
     .filter((item) => {
       const chat = item.source as ChatListEntry;
-      if (filters.topic === 'open' && ctx.openTopicId && chat.kbId !== ctx.openTopicId) return false;
+      if (filters.topic === 'open' && chat.kbId !== ctx.openTopicId) return false;
       if (filters.section !== 'all' && ctx.sectionOf(chat) !== filters.section) return false;
       if (since !== null && new Date(item.updatedAt).getTime() < since) return false;
       return true;

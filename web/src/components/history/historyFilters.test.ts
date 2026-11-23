@@ -43,9 +43,9 @@ describe('filterHistory', () => {
     expect(ids(filterHistory(ITEMS, withFilters({ sortBy: 'created' }), ctx))).toEqual(['shared-new', 'own-week', 'shared-month', 'own-old']);
   });
 
-  it('narrows to the open topic, and to nothing less while none is open', () => {
+  it('narrows to the open topic, and to no chat at all while none is open', () => {
     expect(ids(filterHistory(ITEMS, withFilters({ topic: 'open' }), ctx))).toEqual(['own-old', 'own-week']);
-    expect(filterHistory(ITEMS, withFilters({ topic: 'open' }), { ...ctx, openTopicId: null })).toHaveLength(4);
+    expect(filterHistory(ITEMS, withFilters({ topic: 'open' }), { ...ctx, openTopicId: null })).toEqual([]);
   });
 
   it('narrows to the chats of one overview', () => {
