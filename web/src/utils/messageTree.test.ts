@@ -4,8 +4,6 @@ import {
   buildMessageMap,
   getPathToRoot,
   findDefaultLeaf,
-  getBranchInfo,
-  findCommonAncestor,
   addMessageToTree,
   updateMessageInTree,
   remapMessageId,
@@ -124,78 +122,25 @@ describe('findDefaultLeaf', () => {
   it('returns null for an empty map', () => {
     expect(findDefaultLeaf(new Map())).toBeNull();
   });
-});
 
-// ---------------------------------------------------------------------------
-// getBranchInfo
-// ---------------------------------------------------------------------------
-describe('getBranchInfo', () => {
-  it('returns null for an only-child (no branching)', () => {
-    const map = buildMessageMap(linearMessages);
-    expect(getBranchInfo(map, 'a1')).toBeNull();
+  // A2 was generated after A1, then the user went back to A1 and kept
+  // chatting under it: the chat opens on that newest continuation, not on A2.
+  it('opens on the newest leaf even when it hangs under an older sibling', () => {
+    const at = (m: Message, createdAt: string): Message => ({ ...m, createdAt });
+    const map = buildMessageMap([
+      at(msg('u1', 'user'), '2026-11-01T10:00:00Z'),
+      at(msg('a1', 'ai', 'u1'), '2026-11-01T10:01:00Z'),
+      at(msg('a2', 'ai', 'u1'), '2026-11-01T10:02:00Z'),
+      at(msg('u2', 'user', 'a1'), '2026-11-01T10:03:00Z'),
+      at(msg('a3', 'ai', 'u2'), '2026-11-01T10:04:00Z'),
+    ]);
+    expect(findDefaultLeaf(map)).toBe('a3');
   });
 
-  it('returns sibling info at a branch point', () => {
-    const map = buildMessageMap(branchingMessages);
-    const info = getBranchInfo(map, 'u2');
-    expect(info).toEqual({
-      parentMessageId: 'a1',
-      siblingIds: ['u2', 'u3'],
-      currentIndex: 0,
-      total: 2,
-    });
-  });
-
-  it('returns correct index for second sibling', () => {
-    const map = buildMessageMap(branchingMessages);
-    const info = getBranchInfo(map, 'u3');
-    expect(info).toEqual({
-      parentMessageId: 'a1',
-      siblingIds: ['u2', 'u3'],
-      currentIndex: 1,
-      total: 2,
-    });
-  });
-
-  it('returns null for unknown messageId', () => {
-    const map = buildMessageMap(linearMessages);
-    expect(getBranchInfo(map, 'nonexistent')).toBeNull();
-  });
-
-  it('handles root-level branches', () => {
-    const msgs: Message[] = [msg('r1', 'user'), msg('r2', 'user')];
-    const map = buildMessageMap(msgs);
-    const info = getBranchInfo(map, 'r1');
-    expect(info).not.toBeNull();
-    expect(info!.siblingIds).toEqual(['r1', 'r2']);
-    expect(info!.total).toBe(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// findCommonAncestor
-// ---------------------------------------------------------------------------
-describe('findCommonAncestor', () => {
-  it('finds the fork point for two branches', () => {
-    const map = buildMessageMap(branchingMessages);
-    // u2 and u3 both descend from a1
-    expect(findCommonAncestor(map, 'a2', 'a3')).toBe('a1');
-  });
-
-  it('returns the node itself when it is an ancestor of the other', () => {
-    const map = buildMessageMap(linearMessages);
-    expect(findCommonAncestor(map, 'u1', 'a2')).toBe('u1');
-  });
-
-  it('returns null when no common ancestor exists', () => {
-    const msgs: Message[] = [msg('x', 'user'), msg('y', 'user')];
-    const map = buildMessageMap(msgs);
-    expect(findCommonAncestor(map, 'x', 'y')).toBeNull();
-  });
-
-  it('returns the id itself when both ids are the same', () => {
-    const map = buildMessageMap(linearMessages);
-    expect(findCommonAncestor(map, 'a1', 'a1')).toBe('a1');
+  it('keeps the last-child leaf on equal timestamps', () => {
+    const t = '2026-11-01T10:00:00Z';
+    const map = buildMessageMap(branchingMessages.map(m => ({ ...m, createdAt: t })));
+    expect(findDefaultLeaf(map)).toBe('a3');
   });
 });
 

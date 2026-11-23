@@ -1,4 +1,4 @@
-import { lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain, ArrowUp, ArrowLeft,
   X, Check, Pencil,
@@ -37,7 +37,6 @@ import {
   MessageScrollerProvider, MessageScroller, MessageScrollerViewport, MessageScrollerContent, MessageScrollerItem, MessageScrollerButton,
 } from '@ki4jlu/design-system';
 import MessageBubble from './MessageBubble';
-import { getBranchInfo } from '../../utils/messageTree';
 import { HAPTIC_PATTERNS, triggerHaptic } from '../../utils/haptics';
 import { canOpenKbTopicSettings, chatSourceSelection, kbSourceRights } from '../../utils/kbAccess';
 import { sourceFlagsOf, sourceFlagsPatch } from '../../utils/kbRoleRights';
@@ -46,10 +45,8 @@ import { API_BASE_URL, authFetch } from '../../api';
 import { SourcePanel } from '../sources/SourcePanel';
 import { CitationsPanel } from '../sources/CitationsPanel';
 import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../../contexts/SourcePanelContext';
-import { MessageSkeleton } from '../ui/Skeleton';
 import { formatDaySeparator, sameLocalDay } from '../../utils/chatDates';
 
-const ComparisonView = lazy(() => import('./ComparisonView').then(module => ({ default: module.ComparisonView })));
 
 // Attaches a DOM element to a ref owned by useChat (textareaRef). Done in a module-level helper so the `.current` write — and
 // the ref-typed property itself — stay opaque to the React Compiler lint:
@@ -60,9 +57,6 @@ function attachHookRef<T>(target: unknown, el: T | null) {
   (target as React.MutableRefObject<T | null>).current = el;
 }
 
-// Shared Suspense fallback. `role` on MessageSkeleton is a visual variant
-// ('user' | 'ai'), not an ARIA role; mapping over the variants keeps
-// jsx-a11y from misreading the prop as an (invalid) ARIA role literal.
 // The chat's side panel. Its tab kinds: the source list and a cited source
 // (a browser is to follow). Its width is
 // remembered per device, like the navigation's (useSidebarResize).
@@ -74,12 +68,6 @@ const isSidePanelChord = (e: KeyboardEvent) =>
 const SIDE_PANEL_WIDTH_KEY = `${STORAGE_NAMESPACE}kb.sidepanel.width`;
 const SIDE_PANEL_BOUNDS = { min: 360, max: 900, default: 480 } as const;
 
-const SKELETON_VARIANTS: ReadonlyArray<'user' | 'ai'> = ['user', 'ai'];
-const chatSuspenseFallback = (
-  <div className="messages-container" style={{ justifyContent: 'flex-end' }}>
-    {SKELETON_VARIANTS.map(variant => <MessageSkeleton key={variant} role={variant} />)}
-  </div>
-);
 
 /**
  * Inside the composer: reports how many files are attached and hands out the
@@ -395,7 +383,7 @@ const ChatViewComp = () => {
     setSideTabs(prev => (prev.includes(id) ? prev : [...prev, id]));
     setActiveSideTab(id);
     setSidePanelOpen(true);
-  }, []);
+  }, [setActiveSideTab, setSidePanelOpen]);
   // The tab that takes a closed one's place becomes active; closing the
   // last one hides the panel.
   const closeSideTab = useCallback((id: string) => {
@@ -406,7 +394,7 @@ const ChatViewComp = () => {
     if (id === CITATION_TAB) setSourcePanelTarget(null);
     if (id === activeSideTab) setActiveSideTab(rest[Math.min(index, rest.length - 1)] ?? null);
     if (rest.length === 0) setSidePanelOpen(false);
-  }, [sideTabs, activeSideTab]);
+  }, [sideTabs, activeSideTab, setSourcePanelTarget, setActiveSideTab, setSidePanelOpen]);
   // ⌥⌘B (Ctrl+Alt+B) shows and hides the side panel, ⌥⌘F maximises it.
   // By `code`: with ⌥ held, macOS reports another character as `key`.
   useEffect(() => {
@@ -428,7 +416,7 @@ const ChatViewComp = () => {
     target: sourcePanelTarget,
     open: (target) => { setSourcePanelTarget(target); showSideTab(CITATION_TAB); },
     close: () => closeSideTab(CITATION_TAB),
-  }), [sourcePanelTarget, showSideTab, closeSideTab]);
+  }), [sourcePanelTarget, showSideTab, closeSideTab, setSourcePanelTarget]);
   const sourcePanelFile = sourcePanelTarget?.source.fileId
     ? fileMgmt.files.find(f => f.id === sourcePanelTarget.source.fileId)
     : undefined;
@@ -446,33 +434,6 @@ const ChatViewComp = () => {
           selbst, ein zweiter Abzug hier ließe unten 60px leer. */}
       {/* Kein Zwischen-<div> mehr: `.chat-area` ist selbst die Flex-Spalte mit
           `min-height: 0; overflow: hidden`, die den Scroller unten einsperrt. */}
-      {
-            chat.comparisonMode && chat.comparisonLeafId && chat.activeLeafId ? (
-              <Suspense fallback={chatSuspenseFallback}>
-                <div className="content-fade-in" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                  {/* No source panel here: sources open the document, as without the chat view. */}
-                  <SourcePanelContext.Provider value={null}>
-                  <ComparisonView
-                    messageTree={chat.messageTree}
-                    leafIdA={chat.activeLeafId}
-                    leafIdB={chat.comparisonLeafId}
-                    onUseBranch={(leafId) => {
-                      chat.setActiveLeafId(leafId);
-                      chat.setComparisonMode(false);
-                      chat.setComparisonLeafId(null);
-                    }}
-                    onClose={() => {
-                      chat.setComparisonMode(false);
-                      chat.setComparisonLeafId(null);
-                    }}
-                    onPdfOpen={handlePdfSourceOpen}
-                    onPreviewSource={handlePreviewSource}
-                    showCitations={sourceRights.seeCitations}
-                  />
-                  </SourcePanelContext.Provider>
-                </div>
-              </Suspense>
-            ) : (
               <div className="chat-row">
                 {/* DS ChatStage: an empty chat centres the empty state and the composer
                     together; with messages the composer docks and the disclaimer stays
@@ -883,7 +844,6 @@ const ChatViewComp = () => {
                         >
                           <MessageScrollerContent className="transcript" aria-busy={chat.loading}>
                             {chat.messages.map((msg: Message, index: number) => {
-                              const bi = msg.id ? getBranchInfo(chat.messageTree, msg.id) : null;
                               const questionText = msg.role === 'ai' && msg.parentMessageId
                                 ? (chat.messages.find((m: Message) => m.id === msg.parentMessageId)?.content ?? '')
                                 : '';
@@ -919,12 +879,9 @@ const ChatViewComp = () => {
                                     isStreaming={chat.loading && index === chat.messages.length - 1}
                                     isLatest={index === chat.messages.length - 1}
                                     onPdfOpen={handlePdfSourceOpen}
-                                    branchInfo={bi}
-                                    onSwitchBranch={chat.handleSwitchBranch}
                                     animationDelay={initialRender ? Math.min(index * 0.05, 0.3) : 0}
                                     onEdit={msg.role === 'user' && !msg.isEnhanced ? (chat.editingMessageId === msg.id ? chat.handleEditSubmit : chat.handleStartEdit) : undefined}
                                     onFork={msg.role === 'ai' ? chat.handleForkFromMessage : undefined}
-                                    onCompare={bi ? chat.handleStartComparison : undefined}
                                     onRegenerate={msg.role === 'ai' ? chat.handleRegenerate : undefined}
                                     onFeedback={msg.role === 'ai' ? chat.handleFeedback : undefined}
                                     isEditing={chat.editingMessageId === msg.id}
@@ -1043,8 +1000,6 @@ const ChatViewComp = () => {
                   );
                 })()}
               </div>
-            )
-      }
       {showSystemPrompt && currentKb && canEditSystemPrompt && (
         // Modal over the chat: the chat stays where it was underneath and the
         // rest of the app is inert until the dialog closes.

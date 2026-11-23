@@ -1,4 +1,4 @@
-import type { Message, BranchInfo } from '../types';
+import type { Message } from '../types';
 
 /**
  * Build a map of messages keyed by ID, with computed childIds.
@@ -47,10 +47,35 @@ export function getPathToRoot(map: Map<string, Message>, leafId: string | null):
 }
 
 /**
- * Find the default leaf by following the last child at each branch point,
- * starting from the root(s).
+ * Find the leaf a chat opens on: the newest leaf of the tree, so a chat that
+ * still holds several versions of a turn opens where the user last wrote —
+ * even when that continuation hangs under an older version. Without
+ * timestamps, or on a tie, it follows the last child at each branch point
+ * from the last root.
  */
 export function findDefaultLeaf(map: Map<string, Message>): string | null {
+    const walked = lastChildLeaf(map);
+    if (!walked) return null;
+
+    const time = (m: Message | undefined) => {
+        const t = m?.createdAt ? Date.parse(m.createdAt) : NaN;
+        return Number.isNaN(t) ? -Infinity : t;
+    };
+    let best = walked;
+    let bestTime = time(map.get(walked));
+    for (const m of map.values()) {
+        if (!m.id || (m.childIds ?? []).some(id => map.has(id))) continue;
+        const t = time(m);
+        if (t > bestTime) {
+            best = m.id;
+            bestTime = t;
+        }
+    }
+    return best;
+}
+
+/** The leaf reached by following the last child at each node from the last root. */
+function lastChildLeaf(map: Map<string, Message>): string | null {
     if (map.size === 0) return null;
 
     // Find root messages (no parentMessageId or parent not in map)
@@ -75,70 +100,6 @@ export function findDefaultLeaf(map: Map<string, Message>): string | null {
     }
 
     return current.id || null;
-}
-
-/**
- * Get branch navigation info for a given message.
- * Returns null if the message is not at a branch point (only child of its parent).
- */
-export function getBranchInfo(map: Map<string, Message>, messageId: string): BranchInfo | null {
-    const msg = map.get(messageId);
-    if (!msg) return null;
-
-    // Find siblings: messages with the same parentMessageId
-    const parentId = msg.parentMessageId;
-    if (!parentId) {
-        // Root message - find all roots
-        const roots: string[] = [];
-        for (const m of map.values()) {
-            if (!m.parentMessageId || !map.has(m.parentMessageId)) {
-                if (m.id) roots.push(m.id);
-            }
-        }
-        if (roots.length <= 1) return null;
-        return {
-            parentMessageId: '',
-            siblingIds: roots,
-            currentIndex: roots.indexOf(messageId),
-            total: roots.length,
-        };
-    }
-
-    const parent = map.get(parentId);
-    if (!parent || !parent.childIds || parent.childIds.length <= 1) return null;
-
-    return {
-        parentMessageId: parentId,
-        siblingIds: parent.childIds,
-        currentIndex: parent.childIds.indexOf(messageId),
-        total: parent.childIds.length,
-    };
-}
-
-/**
- * Find the common ancestor of two messages.
- */
-export function findCommonAncestor(map: Map<string, Message>, idA: string, idB: string): string | null {
-    // Build ancestor set for A
-    const ancestorsA = new Set<string>();
-    let current: string | null = idA;
-    while (current) {
-        ancestorsA.add(current);
-        const msg = map.get(current);
-        if (!msg) break;
-        current = msg.parentMessageId || null;
-    }
-
-    // Walk up from B until we find a common ancestor
-    current = idB;
-    while (current) {
-        if (ancestorsA.has(current)) return current;
-        const msg = map.get(current);
-        if (!msg) break;
-        current = msg.parentMessageId || null;
-    }
-
-    return null;
 }
 
 /**

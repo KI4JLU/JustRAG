@@ -954,8 +954,10 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb/{id}/invite-links", rc.kbAdminChain(kbInvitesHandler.ListLinks))
 	rc.mux.Handle("POST /api/kb/{id}/invite-links", rc.kbAdminChain(kbInvitesHandler.CreateLink))
 	rc.mux.Handle("DELETE /api/kb/{id}/invite-links/{linkId}", rc.kbAdminChain(kbInvitesHandler.DeleteLink))
-	// ...but redeeming is not: the caller has no KB role yet, so kbViewChain
+	// ...but resolving and redeeming are not: the caller has no KB role yet, so kbViewChain
 	// would 403 them before they could join. Authenticated + rate-limited.
+	rc.mux.Handle("GET /api/invites/{token}",
+		inviteRL.Middleware(rc.authMw.Authenticate(http.HandlerFunc(kbInvitesHandler.Preview))))
 	rc.mux.Handle("POST /api/invites/{token}/redeem",
 		inviteRL.Middleware(rc.authMw.Authenticate(http.HandlerFunc(kbInvitesHandler.Redeem))))
 

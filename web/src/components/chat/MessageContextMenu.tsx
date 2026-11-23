@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Columns, Copy, Download, ExternalLink, GitBranch, Network, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { Copy, Download, ExternalLink, GitBranch, Network, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react';
 import {
     ContextMenu, ContextMenuCheckboxItem, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
     ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger,
@@ -31,7 +31,7 @@ export function MessageContextMenu({ message, kbId, questionText, enabled, onOpe
     const { t } = useTheme();
     const rules = useMessageActionRules(message, handlers);
     const exporter = useMessageExport(message, kbId, questionText, handlers.contentRef);
-    const { onEdit, onFork, onCompare, onRegenerate, onFeedback, onViewGraph } = handlers;
+    const { onEdit, onFork, onRegenerate, onFeedback, onViewGraph } = handlers;
     const { traceUrl } = rules;
 
     const rate = (rating: 'positive' | 'negative') => {
@@ -66,7 +66,7 @@ export function MessageContextMenu({ message, kbId, questionText, enabled, onOpe
                         </ContextMenuCheckboxItem>
                     </>
                 )}
-                {(rules.regenerate || rules.fork || rules.compare) && <ContextMenuSeparator />}
+                {(rules.regenerate || rules.fork) && <ContextMenuSeparator />}
                 {rules.regenerate && onRegenerate && (
                     <ContextMenuItem onSelect={onRegenerate}>
                         <RefreshCw aria-hidden="true" />{t('regenerateResponse')}
@@ -75,11 +75,6 @@ export function MessageContextMenu({ message, kbId, questionText, enabled, onOpe
                 {rules.fork && onFork && (
                     <ContextMenuItem onSelect={onFork}>
                         <GitBranch aria-hidden="true" />{t('forkFromHere')}
-                    </ContextMenuItem>
-                )}
-                {rules.compare && onCompare && (
-                    <ContextMenuItem onSelect={onCompare}>
-                        <Columns aria-hidden="true" />{t('compareBranches')}
                     </ContextMenuItem>
                 )}
                 {(rules.export || rules.graph || traceUrl) && <ContextMenuSeparator />}

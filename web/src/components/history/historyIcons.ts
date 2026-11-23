@@ -2,9 +2,10 @@ import { Compass, FileText, GraduationCap, Home, MessageSquare, Search, Users } 
 import type { TopicSection } from '../../utils/topicSection';
 import type { HistoryKind } from './historyItems';
 
-/* The icon of a row is its kind's — except a branched chat, which shows the
-   branch glyph instead: a branch chat (each branch is its own chat) and an
-   older chat that forks inside itself alike. */
+/* The icon of a row is its kind's — except a branch chat (made by
+   Verzweigen, a new answer or an edited question), which shows the branch
+   glyph instead. An older chat that forks inside itself does not: the app
+   shows only its newest path. */
 export const KIND_ICON: Record<HistoryKind, typeof MessageSquare> = {
     chat: MessageSquare,
     artifact: FileText,

@@ -147,22 +147,25 @@ conflicts, verification and `[n]` markers are always stored in full and stripped
 `kb_invite_links` (migration 0067), `internal/kbinvites`.
 
 - A KB admin mints permanent, revocable links that grant `view`, `edit` or `admin`.
-- Redeem: `POST /api/invites/{token}/redeem`, authentication-only and rate-limited (the redeemer
-  has no KB role yet).
-- Redeeming raises the caller's `kb_members` role, never lowers it and never touches an `owner`
-  row.
+- Resolve: `GET /api/invites/{token}` (no writes) → `status` `invite` | `member` | `revoked`.
+  `kbinvites.decide` is the one place that derives it, through `kbaccess.EffectiveRole`.
+- Redeem: `POST /api/invites/{token}/redeem`. Both token routes are authentication-only and
+  rate-limited (the caller has no KB role yet). The web app redeems only after the person
+  accepts in the join modal.
+- A link never changes an existing membership, up or down; role changes go through the members
+  panel. Someone with a `kb_members` row, or with implicit access at least as strong as the
+  link's role (a system admin on a public KB), is `member`: redeeming writes nothing.
 - It deletes an `opted_out` `kb_subscriptions` row in the same transaction, so the KB shows in
   the joiner's overview.
-- Revoking stops future joins; existing members stay.
-- Tracking: `redemption_count` = distinct people who redeemed (one `kb_invite_link_redemptions`
-  row per link and person, since migration 0087; earlier counts were kept). `last_used_at` moves
-  on every redemption.
+- Revoking sets `revoked_at` (migration 0106) and stops future joins; existing members stay.
+  The row is kept so a link placed on a website keeps resolving to its KB; revoked links leave
+  the admin list. Links revoked before 0106 were deleted.
+- Tracking: `redemption_count` = distinct people who joined through the link (one
+  `kb_invite_link_redemptions` row per link and person, since migration 0087; earlier counts
+  were kept). `last_used_at` is the last join.
 - Frontend: the invite-links tab of the Mitglieder section in Thema-Einstellungen
   (`KbMembersPanel`); entry route `/join/<token>`, parked in `sessionStorage` across the SSO round
-  trip (`web/src/hooks/useJoinLink.ts`, `useJoinRedeem.ts`).
-- Caveat: a system admin who redeems a link on a public KB gets an explicit `kb_members` row that
-  shadows their implicit admin (rule 2 beats rule 3). The never-downgrade guard compares
-  `kb_members.role` only. Recoverable via the global-KB editor endpoint.
+  trip (`web/src/hooks/useJoinLink.ts`), then the join modal reads the resolve endpoint.
 
 ## Visibility and publishing
 

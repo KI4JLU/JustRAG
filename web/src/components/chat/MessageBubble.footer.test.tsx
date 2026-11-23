@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { Button } from '@ki4jlu/design-system';
 import MessageBubble from './MessageBubble';
 import { messageSectionKey, useMessageSections } from '../../hooks/useMessageSections';
-import type { BranchInfo, Message, MessageConflict, MessageVerification } from '../../types';
+import type { Message, MessageConflict, MessageVerification } from '../../types';
 
 // Same harness mocks as MessageBubble.test.tsx, plus a switchable mobile flag.
 vi.mock('../../contexts/ThemeContext', () => ({
@@ -37,7 +37,7 @@ beforeEach(() => { isMobile = false; });
 /* ---------------------------------------------------------------------------
  * Oracle: the owner's decisions for the message footer (2026-10-22, revised):
  *  - Every message's footer — the answer's whole row (sources pill, chips,
- *    version switcher, actions) and the question's copy/edit row — shows only
+ *    actions) and the question's copy/edit row — shows only
  *    on hover, with keyboard focus inside the message, or (touch) on a tap of
  *    the message; on desktop the last message keeps it at rest. A popover opened from
  *    the row, or an expanded section (sources, confidence, conflicts), keeps
@@ -259,27 +259,7 @@ describe('answer footer — what shows while the answer streams', () => {
   });
 });
 
-describe('answer footer — versions and the graph action', () => {
-  const branchInfo: BranchInfo = { parentMessageId: 'u1', siblingIds: ['a', 'b', 'c'], currentIndex: 1, total: 3 };
-
-  it('switches versions through the selector, which stays visible at rest', async () => {
-    const user = userEvent.setup();
-    const onSwitchBranch = vi.fn();
-    render(<MessageBubble message={answer} branchInfo={branchInfo} onSwitchBranch={onSwitchBranch} />);
-    const next = screen.getByRole('button', { name: 'nextVersion' });
-    expect(actions()).not.toContainElement(next);
-
-    await user.click(next);
-    expect(onSwitchBranch).toHaveBeenLastCalledWith('c');
-    await user.click(screen.getByRole('button', { name: 'previousVersion' }));
-    expect(onSwitchBranch).toHaveBeenLastCalledWith('a');
-  });
-
-  it('offers no selector for an answer with a single version', () => {
-    render(<MessageBubble message={answer} branchInfo={{ ...branchInfo, siblingIds: ['b'], currentIndex: 0, total: 1 }} onSwitchBranch={vi.fn()} />);
-    expect(screen.queryByRole('button', { name: 'nextVersion' })).toBeNull();
-  });
-
+describe('answer footer — the graph action', () => {
   it('opens the answer\'s knowledge graph from the action row', async () => {
     const user = userEvent.setup();
     const onViewGraph = vi.fn();
@@ -343,7 +323,7 @@ describe('question action row', () => {
 describe('message context menu', () => {
   const question: Message = { id: 'u1', role: 'user', content: 'Wie hoch ist der Beitrag?' };
   const handlers = () => ({
-    onFeedback: vi.fn(), onRegenerate: vi.fn(), onFork: vi.fn(), onCompare: vi.fn(), onViewGraph: vi.fn(), onEdit: vi.fn(),
+    onFeedback: vi.fn(), onRegenerate: vi.fn(), onFork: vi.fn(), onViewGraph: vi.fn(), onEdit: vi.fn(),
   });
   const items = () => [...screen.getByRole('menu').querySelectorAll('[role^="menuitem"]')].map((i) => i.textContent);
   const openMenu = () => fireEvent.contextMenu(screen.getByText(/Der Beitrag beträgt|Wie hoch ist/));
@@ -352,7 +332,7 @@ describe('message context menu', () => {
     render(<MessageBubble message={answer} {...handlers()} />);
     openMenu();
     expect(items()).toEqual([
-      'copy', 'helpfulAnswer', 'unhelpfulAnswer', 'regenerateResponse', 'forkFromHere', 'compareBranches', 'exportAnswer', 'viewGraphForAnswer',
+      'copy', 'helpfulAnswer', 'unhelpfulAnswer', 'regenerateResponse', 'forkFromHere', 'exportAnswer', 'viewGraphForAnswer',
     ]);
   });
 
@@ -361,7 +341,7 @@ describe('message context menu', () => {
     const h = handlers();
     render(<MessageBubble message={answer} {...h} />);
     for (const [name, fn] of [
-      ['regenerateResponse', h.onRegenerate], ['forkFromHere', h.onFork], ['compareBranches', h.onCompare], ['viewGraphForAnswer', h.onViewGraph],
+      ['regenerateResponse', h.onRegenerate], ['forkFromHere', h.onFork], ['viewGraphForAnswer', h.onViewGraph],
     ] as const) {
       openMenu();
       await user.click(screen.getByRole('menuitem', { name }));
@@ -399,7 +379,7 @@ describe('message context menu', () => {
     render(<MessageBubble message={answer} isLatest {...handlers()} />);
     openMenu();
     expect(items()).toEqual([
-      'copy', 'helpfulAnswer', 'unhelpfulAnswer', 'regenerateResponse', 'compareBranches', 'exportAnswer', 'viewGraphForAnswer',
+      'copy', 'helpfulAnswer', 'unhelpfulAnswer', 'regenerateResponse', 'exportAnswer', 'viewGraphForAnswer',
     ]);
   });
 

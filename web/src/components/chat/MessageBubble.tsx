@@ -2,13 +2,12 @@ import { memo, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { FileText, ChevronDown, Check, AlertTriangle, Info } from 'lucide-react';
 import {
-    Badge, Button, MessageBranch, MessageBranchNext, MessageBranchPage, MessageBranchPrevious, MessageBranchSelector,
+    Badge, Button,
     HoverPreviewGroup, MessageToolbar, Sources, SourcesContent, SourcesTrigger,
 } from '@ki4jlu/design-system';
-import type { Message, BranchInfo, MessageAttachment, MessageVerification, MessageConflict } from '../../types';
+import type { Message, MessageAttachment, MessageVerification, MessageConflict } from '../../types';
 import { flaggedClaimsFor } from '../../utils/verification';
 import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
-import { BranchIndicator } from './BranchIndicator';
 import { MessageActions } from './MessageActions';
 import { MessageContextMenu } from './MessageContextMenu';
 import { InlineMessageEditor } from './InlineMessageEditor';
@@ -34,11 +33,8 @@ interface MessageBubbleProps {
     /** The last message of the transcript: its action row stays visible at rest. */
     isLatest?: boolean;
     onPdfOpen?: (fileId: string, fileName: string, page: number) => void;
-    branchInfo?: BranchInfo | null;
-    onSwitchBranch?: (siblingId: string) => void;
     onEdit?: (messageId: string, newContent: string) => void;
     onFork?: (messageId: string) => void;
-    onCompare?: (messageId: string) => void;
     onRegenerate?: (messageId: string) => void;
     onFeedback?: (messageId: string, feedback: 'positive' | 'negative' | null, comment?: string) => void;
     isEditing?: boolean;
@@ -109,10 +105,6 @@ function suspectCitations(v: MessageVerification | null | undefined): Map<number
     }
     return out.size > 0 ? out : undefined;
 }
-
-// fill replaces `{name}` placeholders in a translated string.
-const fill = (text: string, values: Record<string, number>) =>
-    text.replace(/\{(\w+)\}/g, (m, k: string) => (k in values ? String(values[k]) : m));
 
 // The footer's toggles (confidence, conflicts) read like the „Quellen" trigger
 // beside them: text with a chevron, no grey box on hover — the hover is a
@@ -225,7 +217,7 @@ function ConflictsDetails({ conflicts, t }: { conflicts: MessageConflict[]; t: (
     );
 }
 
-function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, branchInfo, onSwitchBranch, onEdit, onFork, onCompare, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onPreviewAttachment, onViewGraph, animationDelay, kbId, questionText, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
+function MessageBubble({ message: rawMessage, showCitations = true, isStreaming, isLatest = false, onPdfOpen, onEdit, onFork, onRegenerate, onFeedback, isEditing, onEditCancel, onPreviewSource, onPreviewAttachment, onViewGraph, animationDelay, kbId, questionText, reasoningOpen = false, sourcesOpen = false, confidenceOpen = false, conflictsOpen = false, onToggleSection }: MessageBubbleProps) {
     const { t, language } = useTheme();
     // An answer without its citations for a caller who may not see them.
     // Everything below — rendering, copy and export — reads this one object.
@@ -352,9 +344,6 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
     if (isEditing && message.role === 'user' && onEdit && onEditCancel && message.id) {
         return (
             <div style={{ alignSelf: 'flex-end', width: '100%', maxWidth: '85%' }}>
-                {branchInfo && onSwitchBranch && (
-                    <BranchIndicator branchInfo={branchInfo} onSwitchBranch={onSwitchBranch} />
-                )}
                 <InlineMessageEditor
                     initialContent={message.content}
                     onSave={(newContent) => onEdit(message.id!, newContent)}
@@ -396,7 +385,6 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
             onEdit={message.role === 'user' && onEdit ? () => onEdit(message.id!, message.content) : undefined}
             // Fork and regenerate start a new turn: not while this one still runs.
             onFork={message.role === 'ai' && onFork && !isLatest && !isStreaming ? () => onFork(message.id!) : undefined}
-            onCompare={message.role === 'ai' && onCompare ? () => onCompare(message.id!) : undefined}
             onRegenerate={onRegenerate && !isStreaming ? () => onRegenerate(message.id!) : undefined}
             onFeedback={onFeedback ? (fb, comment) => onFeedback(message.id!, fb, comment) : undefined}
             onViewGraph={onViewGraph && citationModel.cited.length > 0 ? () => onViewGraph(message.id!) : undefined}
@@ -443,10 +431,6 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                 onBlur={isMobile ? undefined : () => setIsFocused(false)}
                 tabIndex={0}
             >
-                {branchInfo && onSwitchBranch && message.isEnhanced && (
-                    <BranchIndicator branchInfo={branchInfo} onSwitchBranch={onSwitchBranch} />
-                )}
-
                 {message.role === 'ai' ? (
                     // Inert wrapper. It used to be role="button" tabIndex={0} purely to
                     // carry the citation click/keydown delegation, which made screen
@@ -479,9 +463,8 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                             {questionBody}
                         </div>
                         {/* Under the bubble, shown with the other controls (hover,
-                            focus, tap): the question's actions and, for an
-                            edited question, its version selector. */}
-                        {((branchInfo && onSwitchBranch && branchInfo.total > 1) || (actionsReady && !isMobile) || message.createdAt) && (
+                            focus, tap): the question's time and actions. */}
+                        {((actionsReady && !isMobile) || message.createdAt) && (
                             <div
                                 data-testid="question-actions"
                                 data-revealed={footerShown}
@@ -504,9 +487,6 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                                         onEdit={onEdit ? () => onEdit(message.id!, message.content) : undefined}
                                     />
                                 )}
-                                {branchInfo && onSwitchBranch && branchInfo.total > 1 && (
-                                    <BranchIndicator branchInfo={branchInfo} onSwitchBranch={onSwitchBranch} />
-                                )}
                             </div>
                         )}
                     </>
@@ -514,7 +494,7 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
 
                 {/* §8 answer footer: shown on hover, focus inside the answer or a tap,
                     keeping its space while hidden. The source list and the actions wait for
-                    the saved answer; checks and versions join as they arrive. */}
+                    the saved answer; checks join as they arrive. */}
                 {message.role === 'ai' && !message.isEnhanced && (!isStreaming || message.content || message.reasoning) && (
                     <Sources
                         className="mb-0"
@@ -557,25 +537,8 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                                     onToggle={() => toggleSection('conflicts')}
                                 />
                             )}
-                            {branchInfo && onSwitchBranch && branchInfo.total > 1 && (
-                                <MessageBranch
-                                    className="w-auto"
-                                    branch={branchInfo.currentIndex}
-                                    totalBranches={branchInfo.total}
-                                    onBranchChange={(i) => {
-                                        const id = branchInfo.siblingIds[i];
-                                        if (id) onSwitchBranch(id);
-                                    }}
-                                >
-                                    <MessageBranchSelector aria-label={t('answerVersions')}>
-                                        <MessageBranchPrevious formatLabel={(target, total) => fill(t('previousVersion'), { target, total })} />
-                                        <MessageBranchPage format={(current, total) => fill(t('versionPage'), { current, total })} />
-                                        <MessageBranchNext formatLabel={(target, total) => fill(t('nextVersion'), { target, total })} />
-                                    </MessageBranchSelector>
-                                </MessageBranch>
-                            )}
                             {/* Shown once the answer is saved — not during generation;
-                                sources, checks and versions join the footer as they
+                                sources and checks join the footer as they
                                 arrive. While the turn's checks still run, the actions
                                 that start a new turn wait for it. */}
                             {actionsReady && !isMobile && (
@@ -586,7 +549,6 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
                                         // Branching from the last answer would copy the whole chat:
                                         // the action is offered on earlier answers only.
                                         onFork={onFork && !isLatest ? () => onFork(message.id!) : undefined}
-                                        onCompare={onCompare ? () => onCompare(message.id!) : undefined}
                                         onRegenerate={onRegenerate ? () => onRegenerate(message.id!) : undefined}
                                         onFeedback={onFeedback ? (fb, comment) => onFeedback(message.id!, fb, comment) : undefined}
                                         onViewGraph={onViewGraph && citationModel.cited.length > 0 ? () => onViewGraph(message.id!) : undefined}

@@ -68,9 +68,6 @@ export function useChat({
   const {
     messageTree, setMessageTree, messageTreeRef,
     activeLeafId, setActiveLeafId, messages,
-    comparisonMode, setComparisonMode,
-    comparisonLeafId, setComparisonLeafId,
-    handleSwitchBranch, handleStartComparison,
   } = tree;
 
   // Editing state
@@ -267,15 +264,13 @@ export function useChat({
       setMessageTree(newTree);
       setTranscriptKey(k => k + 1);
       setActiveLeafId(findDefaultLeaf(newTree));
-      setComparisonMode(false);
-      setComparisonLeafId(null);
     } catch (err: unknown) {
       console.error('Failed to load chat messages:', err);
       toast.error(t('chatLoadError'));
     } finally {
       chatSwitchingRef.current = false;
     }
-  }, [onResearchLoaded, onAcademicResearchLoaded, setActiveChatId, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, toast, t, focusPrompt]);
+  }, [onResearchLoaded, onAcademicResearchLoaded, setActiveChatId, setMessageTree, setActiveLeafId, toast, t, focusPrompt]);
 
   const handleNewChat = useCallback(() => {
     setActiveChatId(null);
@@ -283,13 +278,11 @@ export function useChat({
     setRoleStart(null);
     setMessageTree(new Map());
     setActiveLeafId(null);
-    setComparisonMode(false);
-    setComparisonLeafId(null);
     setEditingMessageId(null);
     setLoadedResearchSession(null);
     setLoadedAcademicSession(null);
     focusPrompt();
-  }, [setActiveChatId, setMessageTree, setActiveLeafId, setComparisonMode, setComparisonLeafId, focusPrompt]);
+  }, [setActiveChatId, setMessageTree, setActiveLeafId, focusPrompt]);
 
   const handleDeleteChat = useCallback(async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -464,13 +457,10 @@ export function useChat({
   /**
    * "Antwort neu generieren" — a second answer under the SAME question.
    *
-   * This deliberately does NOT go through the composer. Re-typing the
-   * question into the input and re-sending it (what this used to do) made the
-   * backend persist a second copy of it: a sibling branch mid-conversation,
-   * and a plain duplicate on the first turn of a chat, where there was no
-   * parent to branch from. The turn now names the answer to replace, and the
-   * new one hangs under the existing question — so the prompt stays on screen
-   * exactly once and the ‹1/2› switcher sits on the answers.
+   * This deliberately does NOT go through the composer: re-typing the
+   * question and re-sending it made the backend persist a second copy of it.
+   * The new answer goes into a branch chat instead (openBranch), so a chat
+   * never holds two versions of a turn.
    */
   const handleRegenerate = useCallback(async (aiMessageId: string) => {
     if (chatSwitchingRef.current) return;
@@ -558,11 +548,6 @@ export function useChat({
     activeLeafId,
     setActiveLeafId,
     messages,
-    // Comparison
-    comparisonMode,
-    setComparisonMode,
-    comparisonLeafId,
-    setComparisonLeafId,
     // Editing
     editingMessageId,
     setEditingMessageId,
@@ -592,11 +577,9 @@ export function useChat({
     handleRenameChat,
     handleDeleteChats,
     handleSendMessage,
-    handleSwitchBranch,
     handleStartEdit,
     handleEditSubmit,
     handleForkFromMessage,
-    handleStartComparison,
     handleRegenerate,
     handleFollowUpClick,
     handleFeedback,
@@ -614,11 +597,7 @@ export function useChat({
     activeLeafId,
     setActiveLeafId,
     messages,
-    setComparisonMode,
-    setComparisonLeafId,
     setActiveChatId,
-    comparisonMode,
-    comparisonLeafId,
     editingMessageId,
     userMessageInput,
     loading,
@@ -633,11 +612,9 @@ export function useChat({
     handleRenameChat,
     handleDeleteChats,
     handleSendMessage,
-    handleSwitchBranch,
     handleStartEdit,
     handleEditSubmit,
     handleForkFromMessage,
-    handleStartComparison,
     handleRegenerate,
     handleFollowUpClick,
     handleFeedback,

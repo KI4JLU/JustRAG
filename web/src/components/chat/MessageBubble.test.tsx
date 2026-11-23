@@ -27,8 +27,7 @@ vi.mock('../../hooks/useReducedMotion', () => ({
 
 // MessageBubble's expand/collapse state is deliberately NOT internal — the
 // real chat view owns it (useMessageSections) so it survives virtualized
-// remounts (see that hook's doc comment and ComparisonView, its only current
-// caller). A bare `<MessageBubble conflicts={...} />` with no `onToggleSection`
+// remounts (see that hook's doc comment). A bare `<MessageBubble conflicts={...} />` with no `onToggleSection`
 // would render a badge whose click is a no-op forever. This harness wires the
 // same real hook the production callers use, so clicking the badge behaves
 // exactly as it does in the app.

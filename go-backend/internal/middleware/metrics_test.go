@@ -120,9 +120,14 @@ func TestRedactSecretPath(t *testing.T) {
 			want:  "/joined/" + token,
 		},
 		{
-			name:  "invite path missing the /redeem suffix is not caught",
+			name:  "invite preview path is redacted",
 			input: "/api/invites/" + token,
-			want:  "/api/invites/" + token,
+			want:  "/api/invites/{token}",
+		},
+		{
+			name:  "invite path with another suffix is not caught",
+			input: "/api/invites/" + token + "/other",
+			want:  "/api/invites/" + token + "/other",
 		},
 		{
 			name:  "empty path is unaffected",
