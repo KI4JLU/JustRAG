@@ -14,7 +14,6 @@ import {
 export interface MessageActionHandlers {
     onEdit?: () => void;
     onFork?: () => void;
-    onCompare?: () => void;
     onRegenerate?: () => void;
     onFeedback?: (feedback: 'positive' | 'negative' | null, comment?: string) => void;
     onViewGraph?: () => void;
@@ -41,7 +40,6 @@ export function useMessageActionRules(message: Message, handlers: MessageActionH
         // be nothing for the backend to hang the new one under.
         regenerate: !isUser && !!handlers.onRegenerate && !!message.id && !isTempMessageId(message.id),
         fork: !isUser && !!handlers.onFork,
-        compare: !!handlers.onCompare,
         export: !isUser && !!handlers.contentRef,
         graph: !isUser && !!handlers.onViewGraph,
         traceUrl,

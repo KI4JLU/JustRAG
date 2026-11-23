@@ -34,6 +34,17 @@ describe('buildHistoryItems', () => {
     expect(items[0].artifactType).toBe('faq');
   });
 
+  it('markiert nur Zweig-Chats als verzweigt, nicht Chats mit Versionen in sich', () => {
+    const items = buildHistoryItems({
+      chats: [
+        { ...chat('b', '2026-08-02T00:00:00Z'), branchedFromChatId: 'origin' },
+        { ...chat('v', '2026-08-01T00:00:00Z'), hasBranches: true } as ChatEntry,
+      ],
+      generatedContent: [],
+    });
+    expect(items.map(i => [i.id, i.branched])).toEqual([['b', true], ['v', false]]);
+  });
+
   it('liefert eine leere Liste ohne Eingaben', () => {
     expect(buildHistoryItems({ chats: [], generatedContent: [] })).toEqual([]);
   });

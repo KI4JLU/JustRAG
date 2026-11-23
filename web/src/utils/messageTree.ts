@@ -1,4 +1,4 @@
-import type { Message, BranchInfo } from '../types';
+import type { Message } from '../types';
 
 /**
  * Build a map of messages keyed by ID, with computed childIds.
@@ -75,70 +75,6 @@ export function findDefaultLeaf(map: Map<string, Message>): string | null {
     }
 
     return current.id || null;
-}
-
-/**
- * Get branch navigation info for a given message.
- * Returns null if the message is not at a branch point (only child of its parent).
- */
-export function getBranchInfo(map: Map<string, Message>, messageId: string): BranchInfo | null {
-    const msg = map.get(messageId);
-    if (!msg) return null;
-
-    // Find siblings: messages with the same parentMessageId
-    const parentId = msg.parentMessageId;
-    if (!parentId) {
-        // Root message - find all roots
-        const roots: string[] = [];
-        for (const m of map.values()) {
-            if (!m.parentMessageId || !map.has(m.parentMessageId)) {
-                if (m.id) roots.push(m.id);
-            }
-        }
-        if (roots.length <= 1) return null;
-        return {
-            parentMessageId: '',
-            siblingIds: roots,
-            currentIndex: roots.indexOf(messageId),
-            total: roots.length,
-        };
-    }
-
-    const parent = map.get(parentId);
-    if (!parent || !parent.childIds || parent.childIds.length <= 1) return null;
-
-    return {
-        parentMessageId: parentId,
-        siblingIds: parent.childIds,
-        currentIndex: parent.childIds.indexOf(messageId),
-        total: parent.childIds.length,
-    };
-}
-
-/**
- * Find the common ancestor of two messages.
- */
-export function findCommonAncestor(map: Map<string, Message>, idA: string, idB: string): string | null {
-    // Build ancestor set for A
-    const ancestorsA = new Set<string>();
-    let current: string | null = idA;
-    while (current) {
-        ancestorsA.add(current);
-        const msg = map.get(current);
-        if (!msg) break;
-        current = msg.parentMessageId || null;
-    }
-
-    // Walk up from B until we find a common ancestor
-    current = idB;
-    while (current) {
-        if (ancestorsA.has(current)) return current;
-        const msg = map.get(current);
-        if (!msg) break;
-        current = msg.parentMessageId || null;
-    }
-
-    return null;
 }
 
 /**
