@@ -4,14 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { ChatView } from './ChatView';
 import type { Message, KnowledgeBase } from '../../types';
 
-// Fix round 1 (review finding): `MessageBubble`-level coverage isn't enough
-// — the review found that `ChatView.tsx` mounted `MessageBubble` without
-// wiring `conflictsOpen`,
-// so the badge rendered but its click was a permanent no-op there. This test
-// renders the real `ChatView` (not a stub) with a message carrying one
-// conflict, clicks the real badge, and asserts the real details panel opens
-// — the only way to catch "the prop exists but a caller forgot to pass it"
-// class of bug, which a `MessageBubble`-only unit test structurally cannot.
+// Renders the real `ChatView` (not a stub) with a message carrying one
+// conflict, clicks the real badge, and asserts the details panel opens. This
+// covers the wiring of `conflictsOpen` from `ChatView` into `MessageBubble`:
+// if a caller forgot to pass it, the badge would render but its click would do
+// nothing — which a `MessageBubble`-only unit test cannot catch.
 //
 // `ChatView` is context-driven (no props) and pulls in four Kb*Context
 // hooks. Everything below is mocked to the minimum needed to reach the

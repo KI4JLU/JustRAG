@@ -37,7 +37,7 @@ beforeEach(() => { isMobile = false; });
 /* ---------------------------------------------------------------------------
  * Oracle: the owner's decisions for the message footer (2026-10-22, revised):
  *  - Every message's footer — the answer's whole row (sources pill, chips,
- *    version switcher, actions) and the question's copy/edit row — shows only
+ *    actions) and the question's copy/edit row — shows only
  *    on hover, with keyboard focus inside the message, or (touch) on a tap of
  *    the message; on desktop the last message keeps it at rest. A popover opened from
  *    the row, or an expanded section (sources, confidence, conflicts), keeps

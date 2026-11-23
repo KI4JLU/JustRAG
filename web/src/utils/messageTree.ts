@@ -47,10 +47,35 @@ export function getPathToRoot(map: Map<string, Message>, leafId: string | null):
 }
 
 /**
- * Find the default leaf by following the last child at each branch point,
- * starting from the root(s).
+ * Find the leaf a chat opens on: the newest leaf of the tree, so a chat that
+ * still holds several versions of a turn opens where the user last wrote —
+ * even when that continuation hangs under an older version. Without
+ * timestamps, or on a tie, it follows the last child at each branch point
+ * from the last root.
  */
 export function findDefaultLeaf(map: Map<string, Message>): string | null {
+    const walked = lastChildLeaf(map);
+    if (!walked) return null;
+
+    const time = (m: Message | undefined) => {
+        const t = m?.createdAt ? Date.parse(m.createdAt) : NaN;
+        return Number.isNaN(t) ? -Infinity : t;
+    };
+    let best = walked;
+    let bestTime = time(map.get(walked));
+    for (const m of map.values()) {
+        if (!m.id || (m.childIds ?? []).some(id => map.has(id))) continue;
+        const t = time(m);
+        if (t > bestTime) {
+            best = m.id;
+            bestTime = t;
+        }
+    }
+    return best;
+}
+
+/** The leaf reached by following the last child at each node from the last root. */
+function lastChildLeaf(map: Map<string, Message>): string | null {
     if (map.size === 0) return null;
 
     // Find root messages (no parentMessageId or parent not in map)

@@ -122,6 +122,26 @@ describe('findDefaultLeaf', () => {
   it('returns null for an empty map', () => {
     expect(findDefaultLeaf(new Map())).toBeNull();
   });
+
+  // A2 was generated after A1, then the user went back to A1 and kept
+  // chatting under it: the chat opens on that newest continuation, not on A2.
+  it('opens on the newest leaf even when it hangs under an older sibling', () => {
+    const at = (m: Message, createdAt: string): Message => ({ ...m, createdAt });
+    const map = buildMessageMap([
+      at(msg('u1', 'user'), '2026-11-01T10:00:00Z'),
+      at(msg('a1', 'ai', 'u1'), '2026-11-01T10:01:00Z'),
+      at(msg('a2', 'ai', 'u1'), '2026-11-01T10:02:00Z'),
+      at(msg('u2', 'user', 'a1'), '2026-11-01T10:03:00Z'),
+      at(msg('a3', 'ai', 'u2'), '2026-11-01T10:04:00Z'),
+    ]);
+    expect(findDefaultLeaf(map)).toBe('a3');
+  });
+
+  it('keeps the last-child leaf on equal timestamps', () => {
+    const t = '2026-11-01T10:00:00Z';
+    const map = buildMessageMap(branchingMessages.map(m => ({ ...m, createdAt: t })));
+    expect(findDefaultLeaf(map)).toBe('a3');
+  });
 });
 
 // ---------------------------------------------------------------------------
