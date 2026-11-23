@@ -147,18 +147,27 @@ func TestRedeemRouteIsNotKBGated(t *testing.T) {
 	// signal that nothing rejected the request upstream. A 403 here (no
 	// panic) means kbaccess middleware intercepted it, i.e. the route was
 	// wired wrong.
-	func() {
-		defer func() {
-			r := recover()
-			if r == nil {
-				t.Fatalf("redeem route did not reach the handler: got %d with no panic — "+
-					"a KB-gated chain likely rejected the non-member before the handler ran", rec.Code)
-			}
-			t.Logf("redeem reached the real handler and panicked on the nil test DB pool, as expected: %v", r)
+	// The preview route (GET /api/invites/{token}) is wired the same way and
+	// held to the same check.
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/api/invites/tok/redeem"},
+		{http.MethodGet, "/api/invites/tok"},
+	} {
+		func() {
+			rec := httptest.NewRecorder()
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("%s %s did not reach the handler: got %d with no panic — "+
+						"a KB-gated chain likely rejected the non-member before the handler ran",
+						tc.method, tc.path, rec.Code)
+				}
+				t.Logf("%s %s reached the real handler and panicked on the nil test DB pool, as expected: %v",
+					tc.method, tc.path, r)
+			}()
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			rc.mux.ServeHTTP(rec, req)
 		}()
-		req = httptest.NewRequest(http.MethodPost, "/api/invites/tok/redeem", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-		rec = httptest.NewRecorder()
-		rc.mux.ServeHTTP(rec, req)
-	}()
+	}
 }

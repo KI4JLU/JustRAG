@@ -50,7 +50,8 @@ func TestOTelSpanAttributesCarryNoInviteToken(t *testing.T) {
 
 	for _, path := range []string{
 		"/api/invites/" + token + "/redeem",
-		"/join/" + token, // the SPA shell request carries the same secret
+		"/api/invites/" + token, // the preview the join modal reads
+		"/join/" + token,        // the SPA shell request carries the same secret
 	} {
 		exp.Reset()
 		req := httptest.NewRequest(http.MethodPost, path, nil)

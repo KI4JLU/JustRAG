@@ -18,12 +18,16 @@ type mockStore struct {
 	created      *kbinvites.Link
 	createRole   string
 	createLabel  *string
-	deleteErr    error
-	deleteCall   bool
-	deleteKBID   string
-	deleteLinkID string
+	revokeErr    error
+	revokeCall   bool
+	revokeKBID   string
+	revokeLinkID string
+	target       kbinvites.LinkTarget
+	resolveErr   error
 	redeem       kbinvites.RedeemResult
 	redeemErr    error
+	redeemCall   bool
+	detailsCall  bool
 }
 
 func (m *mockStore) List(context.Context, string) ([]kbinvites.Link, error) {
@@ -37,13 +41,23 @@ func (m *mockStore) Create(_ context.Context, kbID, token, role string, label *s
 	return l, nil
 }
 
-func (m *mockStore) Delete(_ context.Context, kbID, linkID string) error {
-	m.deleteCall = true
-	m.deleteKBID, m.deleteLinkID = kbID, linkID
-	return m.deleteErr
+func (m *mockStore) Revoke(_ context.Context, kbID, linkID string) error {
+	m.revokeCall = true
+	m.revokeKBID, m.revokeLinkID = kbID, linkID
+	return m.revokeErr
+}
+
+func (m *mockStore) Resolve(context.Context, string, string) (kbinvites.LinkTarget, error) {
+	return m.target, m.resolveErr
+}
+
+func (m *mockStore) Details(context.Context, string) (kbinvites.TopicDetails, error) {
+	m.detailsCall = true
+	return kbinvites.TopicDetails{FileCount: 36, RoleName: "Assistent"}, nil
 }
 
 func (m *mockStore) Redeem(context.Context, string, string) (kbinvites.RedeemResult, error) {
+	m.redeemCall = true
 	return m.redeem, m.redeemErr
 }
 
@@ -59,7 +73,11 @@ func (nopAudit) LogAuditAction(context.Context, string, string, string, string, 
 // auth middleware does. auth.WithUser takes *auth.Claims (see
 // internal/kbmembers/http_test.go:128 for the same call).
 func withUser(r *http.Request, id string) *http.Request {
-	return r.WithContext(auth.WithUser(r.Context(), &auth.Claims{ID: id, Role: "user"}))
+	return withSysRole(r, id, "user")
+}
+
+func withSysRole(r *http.Request, id, sysRole string) *http.Request {
+	return r.WithContext(auth.WithUser(r.Context(), &auth.Claims{ID: id, Role: sysRole}))
 }
 
 func TestCreateLinkRejectsOwnerRole(t *testing.T) {
@@ -127,7 +145,7 @@ func TestCreateLinkMintsToken(t *testing.T) {
 }
 
 func TestDeleteLinkNotFound(t *testing.T) {
-	store := &mockStore{deleteErr: kbinvites.ErrNotFound}
+	store := &mockStore{revokeErr: kbinvites.ErrNotFound}
 	h := kbinvites.NewHandler(store, nopAudit{})
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/kb/kb-1/invite-links/link-9", nil)
@@ -142,39 +160,239 @@ func TestDeleteLinkNotFound(t *testing.T) {
 }
 
 func TestRedeemUnknownTokenIs404(t *testing.T) {
-	store := &mockStore{redeemErr: kbinvites.ErrNotFound}
+	store := &mockStore{resolveErr: kbinvites.ErrNotFound}
 	h := kbinvites.NewHandler(store, nopAudit{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/invites/nope/redeem", nil)
-	req.SetPathValue("token", "nope")
 	rec := httptest.NewRecorder()
-	h.Redeem(rec, withUser(req, "u-1"))
+	h.Redeem(rec, redeemRequest("u-1", "user"))
 
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if store.redeemCall {
+		t.Fatal("store.Redeem was called for an unknown token")
+	}
+}
+
+func redeemRequest(userID, sysRole string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/api/invites/tok/redeem", nil)
+	req.SetPathValue("token", "tok")
+	return withSysRole(req, userID, sysRole)
+}
+
+func previewRequest(userID, sysRole string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/api/invites/tok", nil)
+	req.SetPathValue("token", "tok")
+	return withSysRole(req, userID, sysRole)
+}
+
+// privateKB is a link target on a private KB the caller has no row on.
+func privateKB(linkRole string) kbinvites.LinkTarget {
+	desc := "Worum es geht"
+	return kbinvites.LinkTarget{
+		LinkID: "link-1", LinkRole: linkRole, KBID: "kb-1", KBName: "Kurs", Description: &desc,
+	}
+}
+
+// Oracle: the outcome table the product decision fixes (members never change
+// through a link; a revoked link resolves but never joins), with the access
+// arm checked against kbaccess.EffectiveRole's documented rules.
+func TestPreviewStatus(t *testing.T) {
+	publicPublished := func(linkRole string) kbinvites.LinkTarget {
+		tg := privateKB(linkRole)
+		tg.IsGlobal, tg.IsPublished = true, true
+		return tg
+	}
+	tests := []struct {
+		name       string
+		target     func() kbinvites.LinkTarget
+		sysRole    string
+		wantStatus string
+		wantRole   string
+		wantDesc   bool
+	}{
+		{"new invitee", func() kbinvites.LinkTarget { return privateKB("edit") }, "user", "invite", "", true},
+		{"member with a lower role than the link stays a member", func() kbinvites.LinkTarget {
+			tg := privateKB("admin")
+			tg.MemberRole = "view"
+			return tg
+		}, "user", "member", "view", true},
+		{"member with a higher role", func() kbinvites.LinkTarget {
+			tg := privateKB("view")
+			tg.MemberRole = "edit"
+			return tg
+		}, "user", "member", "edit", true},
+		{"revoked link, member", func() kbinvites.LinkTarget {
+			tg := privateKB("view")
+			tg.MemberRole, tg.Revoked = "view", true
+			return tg
+		}, "user", "member", "view", true},
+		{"revoked link, outsider sees only the name", func() kbinvites.LinkTarget {
+			tg := privateKB("view")
+			tg.Revoked = true
+			return tg
+		}, "user", "revoked", "", false},
+		{"published public KB, view link: implicit access suffices", func() kbinvites.LinkTarget {
+			return publicPublished("view")
+		}, "user", "member", "view", true},
+		{"published public KB, edit link: still an invitation", func() kbinvites.LinkTarget {
+			return publicPublished("edit")
+		}, "user", "invite", "view", true},
+		{"published public KB, revoked edit link: can still open", func() kbinvites.LinkTarget {
+			tg := publicPublished("edit")
+			tg.Revoked = true
+			return tg
+		}, "user", "revoked", "view", true},
+		{"system admin on a public KB never gets a shadowing row", func() kbinvites.LinkTarget {
+			tg := privateKB("admin")
+			tg.IsGlobal = true
+			return tg
+		}, "admin", "member", "admin", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := kbinvites.NewHandler(&mockStore{target: tt.target()}, nopAudit{})
+			rec := httptest.NewRecorder()
+			h.Preview(rec, previewRequest("u-1", tt.sysRole))
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", rec.Code)
+			}
+			var got struct {
+				Status      string  `json:"status"`
+				Role        string  `json:"role"`
+				Description *string `json:"description"`
+				RoleName    *string `json:"roleName"`
+			}
+			if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if got.Status != tt.wantStatus || got.Role != tt.wantRole {
+				t.Fatalf("got status %q role %q, want %q %q", got.Status, got.Role, tt.wantStatus, tt.wantRole)
+			}
+			if (got.Description != nil) != tt.wantDesc {
+				t.Fatalf("description present = %v, want %v", got.Description != nil, tt.wantDesc)
+			}
+			// The topic details travel with the description, never without it.
+			if (got.RoleName != nil) != tt.wantDesc {
+				t.Fatalf("details present = %v, want %v", got.RoleName != nil, tt.wantDesc)
+			}
+		})
+	}
+}
+
+// A revoked link tells an outsider which invitation ended and nothing else.
+// Oracle: the product rule — the KB's name only; its id, the granted role,
+// the favorite and overview state and every title-card detail stay out.
+func TestPreviewRevokedOutsiderShape(t *testing.T) {
+	tg := privateKB("admin")
+	tg.Revoked, tg.IsFavorite, tg.InOverview = true, true, true
+	h := kbinvites.NewHandler(&mockStore{target: tg}, nopAudit{})
+	rec := httptest.NewRecorder()
+	h.Preview(rec, previewRequest("u-1", "user"))
+
+	var got map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := map[string]any{"status": "revoked", "kbName": "Kurs", "role": "", "isFavorite": false, "inOverview": false, "canSubscribe": false}
+	if len(got) != len(want) {
+		t.Fatalf("body = %v, want exactly %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("body[%q] = %v, want %v (body %v)", k, got[k], v, got)
+		}
+	}
+}
+
+func TestPreviewUnknownTokenIs404(t *testing.T) {
+	h := kbinvites.NewHandler(&mockStore{resolveErr: kbinvites.ErrNotFound}, nopAudit{})
+	rec := httptest.NewRecorder()
+	h.Preview(rec, previewRequest("u-1", "user"))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
 
-func TestRedeemReturnsResult(t *testing.T) {
-	store := &mockStore{redeem: kbinvites.RedeemResult{
-		KBID: "kb-1", KBName: "Kurs", Role: "edit", AlreadyMember: true,
-	}}
+func TestRedeemJoinsNewInvitee(t *testing.T) {
+	store := &mockStore{
+		target: privateKB("edit"),
+		redeem: kbinvites.RedeemResult{LinkID: "link-1", KBID: "kb-1", KBName: "Kurs", Role: "edit"},
+	}
 	h := kbinvites.NewHandler(store, nopAudit{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/invites/tok/redeem", nil)
-	req.SetPathValue("token", "tok")
 	rec := httptest.NewRecorder()
-	h.Redeem(rec, withUser(req, "u-1"))
+	h.Redeem(rec, redeemRequest("u-1", "user"))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !store.redeemCall {
+		t.Fatal("store.Redeem was not called for a new invitee")
 	}
 	var got kbinvites.RedeemResult
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.KBID != "kb-1" || got.Role != "edit" || !got.AlreadyMember {
-		t.Fatalf("body = %+v, want kb-1/edit/alreadyMember", got)
+	if got.KBID != "kb-1" || got.Role != "edit" || got.AlreadyMember {
+		t.Fatalf("body = %+v, want kb-1/edit/new member", got)
+	}
+}
+
+// A member redeeming any link, even one with a higher role, writes nothing.
+func TestRedeemMemberWritesNothing(t *testing.T) {
+	tg := privateKB("admin")
+	tg.MemberRole = "view"
+	store := &mockStore{target: tg}
+	h := kbinvites.NewHandler(store, nopAudit{})
+
+	rec := httptest.NewRecorder()
+	h.Redeem(rec, redeemRequest("u-1", "user"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if store.redeemCall {
+		t.Fatal("store.Redeem was called for an existing member")
+	}
+	var got kbinvites.RedeemResult
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got.AlreadyMember || got.Role != "view" {
+		t.Fatalf("body = %+v, want alreadyMember with the unchanged role view", got)
+	}
+}
+
+func TestRedeemRevokedIs410(t *testing.T) {
+	revoked := privateKB("view")
+	revoked.Revoked = true
+	tests := []struct {
+		name  string
+		store *mockStore
+	}{
+		{"revoked before the request", &mockStore{target: revoked}},
+		{"revoked while joining", &mockStore{target: privateKB("view"), redeemErr: kbinvites.ErrRevoked}},
+		{"revoked, caller already a member", &mockStore{target: func() kbinvites.LinkTarget {
+			tg := revoked
+			tg.MemberRole = "view"
+			return tg
+		}()}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := kbinvites.NewHandler(tt.store, nopAudit{})
+			rec := httptest.NewRecorder()
+			h.Redeem(rec, redeemRequest("u-1", "user"))
+
+			if rec.Code != http.StatusGone {
+				t.Fatalf("status = %d, want 410", rec.Code)
+			}
+			if !strings.Contains(rec.Body.String(), `"invite_revoked"`) {
+				t.Fatalf("body = %s, want code invite_revoked", rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -256,11 +474,11 @@ func TestDeleteLinkSucceeds(t *testing.T) {
 	if rec.Body.Len() != 0 {
 		t.Fatalf("body = %q, want empty", rec.Body.String())
 	}
-	if !store.deleteCall {
-		t.Fatal("store.Delete was never called")
+	if !store.revokeCall {
+		t.Fatal("store.Revoke was never called")
 	}
-	if store.deleteKBID != "kb-1" || store.deleteLinkID != "link-9" {
-		t.Fatalf("store.Delete called with (%q, %q), want (kb-1, link-9)", store.deleteKBID, store.deleteLinkID)
+	if store.revokeKBID != "kb-1" || store.revokeLinkID != "link-9" {
+		t.Fatalf("store.Revoke called with (%q, %q), want (kb-1, link-9)", store.revokeKBID, store.revokeLinkID)
 	}
 }
 

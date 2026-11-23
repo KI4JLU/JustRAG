@@ -4,12 +4,14 @@
 //	GET    /api/kb/{id}/invite-links             kbAdminChain
 //	POST   /api/kb/{id}/invite-links             kbAdminChain
 //	DELETE /api/kb/{id}/invite-links/{linkId}    kbAdminChain
+//	GET    /api/invites/{token}                  authenticated only + rate limit
 //	POST   /api/invites/{token}/redeem           authenticated only + rate limit
 //
-// Redeem sits on the plain authenticated chain on purpose: the caller has no
-// role on the KB yet, so RequireKBRole would reject them before they could
-// join. It is POST-only so link previews in mail and chat clients cannot
-// trigger a join by fetching the URL.
+// The two token routes sit on the plain authenticated chain on purpose: the
+// caller has no role on the KB yet, so RequireKBRole would reject them before
+// they could join. The web app shows the GET's answer as a modal and joins
+// only when the person accepts. Joining is POST-only so link previews in mail
+// and chat clients cannot trigger a join by fetching the URL.
 
 package kbinvites
 
@@ -119,12 +121,13 @@ func (h *Handler) CreateLink(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSONCtx(ctx, w, http.StatusCreated, link)
 }
 
-// DeleteLink handles DELETE /api/kb/{id}/invite-links/{linkId}.
+// DeleteLink handles DELETE /api/kb/{id}/invite-links/{linkId}. It revokes
+// the link (Store.Revoke): the row stays so the token keeps resolving.
 func (h *Handler) DeleteLink(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	kbID, linkID := r.PathValue("id"), r.PathValue("linkId")
 
-	err := h.store.Delete(ctx, kbID, linkID)
+	err := h.store.Revoke(ctx, kbID, linkID)
 	switch {
 	case errors.Is(err, ErrNotFound):
 		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "invite link not found")
@@ -140,8 +143,61 @@ func (h *Handler) DeleteLink(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Redeem handles POST /api/invites/{token}/redeem.
-func (h *Handler) Redeem(w http.ResponseWriter, r *http.Request) {
+// Outcomes of opening an invite link, as Preview reports them.
+const (
+	// StatusInvite: the caller can join; the web app asks them to accept.
+	StatusInvite = "invite"
+	// StatusMember: the caller already has a membership, or implicit
+	// access at least as strong as the link's role (a system admin on a
+	// public KB, any user on a published public KB opening a view link).
+	// The link changes nothing for them, revoked or not.
+	StatusMember = "member"
+	// StatusRevoked: the link was revoked and the caller is not a member.
+	StatusRevoked = "revoked"
+)
+
+// decide is the one place that turns a resolved token into an outcome;
+// Preview reports it and Redeem acts on it. access is the caller's
+// effective role on the KB ("" for none), through the real ladder.
+func decide(t LinkTarget, sysRole string) (status, access string) {
+	kb := &kbaccess.KnowledgeBase{ID: t.KBID, IsGlobal: t.IsGlobal, IsPublished: t.IsPublished}
+	access = kbaccess.EffectiveRole(kb, sysRole, t.MemberRole)
+	switch {
+	case t.MemberRole != "" || (access != "" && kbaccess.AtLeast(access, t.LinkRole)):
+		return StatusMember, access
+	case t.Revoked:
+		return StatusRevoked, access
+	default:
+		return StatusInvite, access
+	}
+}
+
+// previewResponse is what the join modal shows. Role is the caller's
+// effective role on the KB right now ("" for none): with it the web app
+// decides whether it can open the KB. A revoked link the caller has no
+// access to answers with the status and the KB's name only — the name says
+// which invitation ended; the KB's id, the role the link granted and every
+// other detail stay with the KB's members.
+type previewResponse struct {
+	Status      string  `json:"status"`
+	KBID        string  `json:"kbId,omitempty"`
+	KBName      string  `json:"kbName"`
+	Description *string `json:"description,omitempty"`
+	LinkRole    string  `json:"linkRole,omitempty"`
+	Role        string  `json:"role"`
+	IsFavorite  bool    `json:"isFavorite"`
+	InOverview  bool    `json:"inOverview"`
+	// CanSubscribe: the KB can be put into the caller's overview by a
+	// subscription (PUT /api/kb/{id}/subscription) — a published public KB.
+	// A KB that is neither in the overview nor subscribable cannot be saved
+	// there from the dialog (implicit access to a private or staged KB).
+	CanSubscribe bool `json:"canSubscribe"`
+	*TopicDetails
+}
+
+// Preview handles GET /api/invites/{token}: what opening the link means for
+// the caller, without changing anything.
+func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	u := auth.UserFromContext(ctx)
@@ -150,16 +206,89 @@ func (h *Handler) Redeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.store.Redeem(ctx, r.PathValue("token"), u.ID)
+	t, err := h.store.Resolve(ctx, r.PathValue("token"), u.ID)
 	switch {
 	case errors.Is(err, ErrNotFound):
-		// Revoked and never-existed are deliberately indistinguishable.
-		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "invalid or revoked invite link")
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "invalid invite link")
+		return
 	case err != nil:
-		httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("failed to redeem invite link: %w", err))
-	default:
+		httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("failed to resolve invite link: %w", err))
+		return
+	}
+
+	status, access := decide(t, u.Role)
+	res := previewResponse{Status: status, KBName: t.KBName, Role: access}
+	if status != StatusRevoked || access != "" {
+		res.KBID = t.KBID
+		res.LinkRole = t.LinkRole
+		res.IsFavorite = t.IsFavorite
+		res.InOverview = t.InOverview
+		res.CanSubscribe = t.IsGlobal && t.IsPublished
+		res.Description = t.Description
+		// Decoration for the dialog: without it the dialog still works, so a
+		// failure is logged, not answered with an error.
+		if d, err := h.store.Details(ctx, t.KBID); err != nil {
+			logctx.From(ctx).Warn("invite preview: topic details failed", "kb_id", t.KBID, "error", err)
+		} else {
+			res.TopicDetails = &d
+		}
+	}
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, res)
+}
+
+// Redeem handles POST /api/invites/{token}/redeem: the caller accepted the
+// invitation. A revoked link is 410 for everyone, members included (Preview
+// still tells a member they are in); someone the link changes nothing for
+// (StatusMember) gets AlreadyMember back and nothing is written.
+func (h *Handler) Redeem(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	u := auth.UserFromContext(ctx)
+	if u == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+	token := r.PathValue("token")
+
+	t, err := h.store.Resolve(ctx, token, u.ID)
+	if err != nil {
+		h.writeRedeemError(w, r, err)
+		return
+	}
+	if t.Revoked {
+		h.writeRedeemError(w, r, ErrRevoked)
+		return
+	}
+	switch status, access := decide(t, u.Role); status {
+	case StatusMember:
+		httputil.WriteJSONCtx(ctx, w, http.StatusOK, RedeemResult{
+			LinkID: t.LinkID, KBID: t.KBID, KBName: t.KBName, Role: access, AlreadyMember: true,
+		})
+		return
+	}
+
+	// Resolve and Redeem are two statements: a membership or a revocation
+	// that lands in between is still caught, by Redeem's own transaction.
+	res, err := h.store.Redeem(ctx, token, u.ID)
+	if err != nil {
+		h.writeRedeemError(w, r, err)
+		return
+	}
+	if !res.AlreadyMember {
 		h.log(ctx, u.ID, "kb_invite_link_redeem", res.KBID, map[string]any{"linkId": res.LinkID, "role": res.Role})
-		httputil.WriteJSONCtx(ctx, w, http.StatusOK, res)
+	}
+	httputil.WriteJSONCtx(ctx, w, http.StatusOK, res)
+}
+
+func (h *Handler) writeRedeemError(w http.ResponseWriter, r *http.Request, err error) {
+	ctx := r.Context()
+	switch {
+	case errors.Is(err, ErrNotFound):
+		httputil.WriteErrorCtx(ctx, w, http.StatusNotFound, "invalid invite link")
+	case errors.Is(err, ErrRevoked):
+		httputil.WriteCodedErrorCtx(ctx, w, http.StatusGone, "invite_revoked", "invite link was revoked")
+	default:
+		httputil.WriteInternalErrorCtx(ctx, w, fmt.Errorf("failed to redeem invite link: %w", err))
 	}
 }
 
