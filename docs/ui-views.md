@@ -49,7 +49,7 @@ a join link is replaced with `/`.
 | Login | `pages/Login.tsx` | Password form when local auth or LDAP is enabled (also the fallback when provider discovery fails); SSO button when OIDC is configured. Variants: session expired, pending invite. |
 | Password login | `pages/Login.tsx` on `/admin` | Forces the password form and hides SSO; the same login endpoint. Replaces the URL with `/` on success. Signed in, `/admin` is an unknown path. |
 | Legal pages | `pages/LegalPage.tsx` | `/terms`, `/privacy`, `/accessibility`, linked from the login footer (`components/shell/Footer.tsx`). |
-| Join link | — | `/join/<token>` is captured before the router starts, kept in `sessionStorage`, and the URL replaced with `/`. `useJoinRedeem` redeems it and opens the topic, after sign-in or at once in an existing session. |
+| Join link | — | `/join/<token>` is captured before the router starts, kept in `sessionStorage`, and the URL replaced with `/`. After sign-in (and the AI-use notice) `useJoinInvite` resolves it and `JoinInviteDialog` (`components/shell/`) shows one of three states: invitation (Beitreten / Ablehnen), already a member (Als Favorit speichern / Thema öffnen), link revoked. Only „Beitreten" joins. |
 
 ## The shell (`AppFrame`)
 
