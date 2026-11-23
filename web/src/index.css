@@ -570,6 +570,14 @@ button.source-card {
   --chat-column-width: min(var(--chat-width-share), var(--chat-width-cap), var(--chat-room));
   /* The centred box the shift below is worked out for. */
   --chat-box: var(--chat-column-width);
+  /* The column's centre axis, handed to the design system's ChatStage: its
+     header row and the scroll-to-end button move by this length, as the
+     transcript and the composer do below, and the header row wraps within
+     `--chat-axis-width`. `--chat-axis-box` is the box the axis belongs to —
+     the column, or the start page's narrower one. */
+  --chat-axis-box: var(--chat-column-width);
+  --chat-axis-shift: clamp(0px, var(--chat-clear) - (100cqw - var(--chat-axis-box)) / 2, (100cqw - var(--chat-axis-box)) / 2);
+  --chat-axis-width: var(--chat-axis-box);
   --chat-column-inset: 2rem;
   --chat-message-max: 700px;
   flex: 1;
@@ -577,6 +585,10 @@ button.source-card {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+}
+
+.chat-column[data-empty] {
+  --chat-axis-box: min(42rem, var(--chat-room));
 }
 
 .chat-column[data-chat-width="wide"] {
