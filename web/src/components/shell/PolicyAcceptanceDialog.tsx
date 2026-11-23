@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { errorInfo, userErrorMessage } from '../../utils/userErrors';
+import { PolicyClearedContext } from './policyCleared';
 
 const POLICY_URL = `${API_BASE_URL}/api/user/policy-acceptance`;
 
@@ -100,8 +101,9 @@ export function PolicyAcceptanceGate({ children }: { children: ReactNode }) {
 
     const exempt = LEGAL_PATHS.has(pathname);
     const unknown = state === null && !exempt;
+    const cleared = exempt || (state !== null && !state.required);
     return (
-        <>
+        <PolicyClearedContext.Provider value={cleared}>
             <div className="contents" inert={unknown} aria-busy={unknown && !failed}>
                 {children}
             </div>
@@ -109,7 +111,7 @@ export function PolicyAcceptanceGate({ children }: { children: ReactNode }) {
             {state?.required && !exempt && (
                 <PolicyAcceptanceDialog key={state.version} version={state.version} onAccept={accept} onStale={() => void load()} />
             )}
-        </>
+        </PolicyClearedContext.Provider>
     );
 }
 
