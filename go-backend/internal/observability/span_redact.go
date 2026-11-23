@@ -21,8 +21,8 @@ type PathRedactor func(string) string
 // entirely independently of WithSpanNameFormatter. Redacting the span NAME —
 // which app/server.go already does via middleware.NormalizeRoute — therefore
 // leaves the secret sitting in the span's attributes, where it reaches the
-// trace backend verbatim. The invite-link token in
-// POST /api/invites/{token}/redeem is the only such secret today; it is a
+// trace backend verbatim. The invite-link token in GET /api/invites/{token}
+// and POST /api/invites/{token}/redeem is the only such secret today; it is a
 // permanent credential granting up to admin on a knowledge base, so it must
 // not be stored in a system whose read access is broader than the database's.
 //

@@ -19,18 +19,19 @@ import (
 var uuidRe = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
 var numericRe = regexp.MustCompile(`/\d+(?:/|$)`)
 
-// inviteRedeemRe matches POST /api/invites/{token}/redeem (registered in
-// app/routes.go). The {token} segment is a permanent, non-expiring
+// inviteTokenRe matches GET /api/invites/{token} and
+// POST /api/invites/{token}/redeem (registered in app/routes.go). The {token} segment is a permanent, non-expiring
 // credential (kbinvites.NewToken) granting up to admin on a KB — unlike a
 // UUID or numeric id it IS the secret, so it must never survive into a log
 // line, a Prometheus label, or (via NormalizeRoute) an OTel span name.
-// Anchored on both ends and requiring a literal "/redeem" suffix so a
-// merely-similar path like "/api/invitesfoo/x" is never caught.
-var inviteRedeemRe = regexp.MustCompile(`^(/api/invites/)[^/]+(/redeem)$`)
+// Anchored on both ends, with nothing but an optional literal "/redeem"
+// after the token, so a merely-similar path like "/api/invitesfoo/x" is
+// never caught.
+var inviteTokenRe = regexp.MustCompile(`^(/api/invites/)[^/]+(/redeem)?$`)
 
 // joinLinkRe matches the SPA entry route /join/{token}, served by the
 // static-file catch-all (setupStaticServing in app/routes.go) before any API
-// route matches — it carries the same secret as inviteRedeemRe.
+// route matches — it carries the same secret as inviteTokenRe.
 var joinLinkRe = regexp.MustCompile(`^/join/[^/]+$`)
 
 // redactSecretPath replaces the token segment of invite-link paths with a
@@ -38,7 +39,7 @@ var joinLinkRe = regexp.MustCompile(`^/join/[^/]+$`)
 // normalization below because a bare high-entropy token is not a UUID or a
 // number — it would otherwise sail through unrecognized and unredacted.
 func redactSecretPath(path string) string {
-	if m := inviteRedeemRe.FindStringSubmatch(path); m != nil {
+	if m := inviteTokenRe.FindStringSubmatch(path); m != nil {
 		return m[1] + "{token}" + m[2]
 	}
 	if joinLinkRe.MatchString(path) {
@@ -52,8 +53,8 @@ func redactSecretPath(path string) string {
 // invite/join request carries a distinct permanent secret token in its raw
 // path, and keying on the raw path would retain each one as a sync.Map key
 // for the process lifetime (up to routeCacheMax). Keying on the redacted
-// path collapses every token into the same "/api/invites/{token}/redeem" /
-// "/join/{token}" entry — no secret is retained, and repeated hits on a
+// path collapses every token into the same "/api/invites/{token}",
+// "/api/invites/{token}/redeem" or "/join/{token}" entry — no secret is retained, and repeated hits on a
 // leaked link (the exact abuse scenario) still get a cache hit. For every
 // ordinary path redactSecretPath is a no-op, so the cache key equals the raw
 // path and behaviour is unchanged. The set of distinct keys is bounded by

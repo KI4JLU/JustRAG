@@ -772,6 +772,7 @@ and `/kb/{id}/share[/{userId}]` endpoints.
 | GET | `/kb/{id}/invite-links` | admin |
 | POST | `/kb/{id}/invite-links` | admin |
 | DELETE | `/kb/{id}/invite-links/{linkId}` | admin |
+| GET | `/invites/{token}` | authenticated (no KB role) |
 | POST | `/invites/{token}/redeem` | authenticated (no KB role) |
 | POST | `/kb/{id}/transfer-owner` | owner |
 | DELETE | `/kb/{id}/membership` | view (self) |
@@ -787,13 +788,32 @@ published global KB every authenticated caller resolves to `view`, and the
 roster is not theirs to read.
 
 An invite link is a permanent, revocable credential that grants the role it
-was minted with. `POST /invites/{token}/redeem` is deliberately not KB-gated —
-the caller has no role on the KB yet — and is rate-limited to 10 requests per
-minute. Redeeming never lowers an existing role and never touches the owner.
-A link's `redemptionCount` (in `GET /kb/{id}/invite-links`) is the number of
-distinct people who redeemed it, not the number of redemptions: the same person
-redeeming again leaves it unchanged, while `lastUsedAt` moves on every
-redemption.
+was minted with. The two token routes are deliberately not KB-gated — the
+caller has no role on the KB yet — and share a rate limit of 30 requests per
+minute.
+
+`GET /invites/{token}` changes nothing and says what opening the link means for
+the caller: `{status, kbName, role, isFavorite, inOverview, canSubscribe, kbId, linkRole,
+description?, category?, fileCount?, lastIngestedAt?, roleName?}`. `status` is
+`invite` (the caller can join; the web app asks first), `member` (the caller
+already has a membership, or implicit access at least as strong as `linkRole`;
+the link changes nothing for them, revoked or not) or `revoked` (the link was
+revoked and the caller is not a member). `role` is the caller's current
+effective role, `""` for none. `inOverview` says whether the KB shows in the
+caller's overview (for a public KB: not opted out, and a member, or published
+with a subscription or `auto_subscribe`); `canSubscribe` whether a subscription can put it there (a published public KB). `category`, `fileCount`,
+`lastIngestedAt` and `roleName` are what the KB's start page shows in its title
+block (`roleName` only while the start page offers no further roles). For a
+revoked link the caller has no access to, the answer is `{status, kbName, role,
+isFavorite: false, inOverview: false, canSubscribe: false}` and nothing else. Unknown token: 404.
+
+`POST /invites/{token}/redeem` joins with the link's role. A link never changes
+an existing membership, up or down: a member gets `alreadyMember: true` with
+their unchanged role, and nothing is written. A revoked link is 410 with code
+`invite_revoked` for everyone, members included. `DELETE /kb/{id}/invite-links/{linkId}` revokes rather than
+deletes, so the token keeps resolving; revoked links leave the admin list. A
+link's `redemptionCount` (in `GET /kb/{id}/invite-links`) is the number of
+distinct people who joined through it; `lastUsedAt` is the last such join.
 
 ### Files and source ingestion
 
