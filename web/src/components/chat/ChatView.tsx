@@ -46,6 +46,7 @@ import { SourcePanel } from '../sources/SourcePanel';
 import { CitationsPanel } from '../sources/CitationsPanel';
 import { SourcePanelContext, type SourcePanelApi, type SourcePanelTarget } from '../../contexts/SourcePanelContext';
 import { formatDaySeparator, sameLocalDay } from '../../utils/chatDates';
+import type { PdfFocus } from '../../utils/passageMarks';
 
 
 // Attaches a DOM element to a ref owned by useChat (textareaRef). Done in a module-level helper so the `.current` write — and
@@ -186,7 +187,12 @@ const ChatViewComp = () => {
   const sourceRights = kbSourceRights(currentKb, user?.role, user?.id);
   const { handlePreviewSource: previewSource, handlePdfSourceOpen: pdfSourceOpen } = webTools;
   const handlePreviewSource = sourceRights.previewSources ? previewSource : undefined;
-  const handlePdfSourceOpen = sourceRights.previewSources ? pdfSourceOpen : undefined;
+  // Stable, so the memoised message bubbles do not re-render with every chat render.
+  const openPdfWithMarks = useCallback(
+    (fileId: string, fileName: string, page: number, focus?: PdfFocus) => pdfSourceOpen(fileId, fileName, page, undefined, focus),
+    [pdfSourceOpen],
+  );
+  const handlePdfSourceOpen = sourceRights.previewSources ? openPdfWithMarks : undefined;
 
   // No-sources state for a non-global KB: drives the §7 acquisition empty state
   // and dims the composer until the user adds a first source.

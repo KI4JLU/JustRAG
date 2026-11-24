@@ -80,6 +80,8 @@ export function TopicModals() {
           fileName={webTools.pdfPreview?.fileName || ''}
           page={webTools.pdfPreview?.page || 1}
           downloadPath={webTools.pdfPreview?.downloadPath}
+          highlights={webTools.pdfPreview?.focus?.highlights}
+          pages={webTools.pdfPreview?.focus?.pages}
           canDownload={webTools.pdfPreview?.downloadPath != null || mayDownload(webTools.pdfPreview?.fileId)}
           back={webTools.pdfPreview?.back && {
             trail: webTools.pdfPreview.back.trail,

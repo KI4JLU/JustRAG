@@ -10,6 +10,7 @@ import { SOURCE_KIND_LABEL_KEY, fillTemplate, originUrlOf } from '../../utils/so
 import { SourceExcerpt } from './SourceExcerpt';
 import { SourceNumber } from './SourcePreview';
 import { previewKindOf } from '../../utils/previewKind';
+import { passageMarkTexts, type PdfFocus } from '../../utils/passageMarks';
 
 interface SourcePanelProps {
     target: SourcePanelTarget;
@@ -22,8 +23,8 @@ interface SourcePanelProps {
     fileOrigin?: string;
     /** The cited file's stored MIME type, when the KB's file list has it. */
     fileType?: string;
-    /** Opens the document preview modal (needs previewSources). */
-    onPdfOpen?: (fileId: string, fileName: string, page: number) => void;
+    /** Opens the document preview modal (needs previewSources): the cited pages, the passage marked. */
+    onPdfOpen?: (fileId: string, fileName: string, page: number, focus?: PdfFocus) => void;
     onPreviewSource?: (fileId: string, fileName: string) => void;
     /** Whether the file may be read for the in-app preview (previewSources). */
     canPreview: boolean;
@@ -121,7 +122,17 @@ export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin
         && (previewKind === 'pdf' ? !!onPdfOpen : !!onPreviewSource);
     const openFullView = () => {
         if (!source.fileId) return;
-        if (previewKind === 'pdf') onPdfOpen?.(source.fileId, source.fileName, activePages?.[0] || 1);
+        if (previewKind === 'pdf') {
+            // The full view shows only the passage's own pages (Sten, 2026-11-24)
+            // and marks on them what the panel marks.
+            const raw = source.rawNumbers[passage];
+            const texts = passageMarkTexts(source.passages[passage]?.content ?? '', spans?.get(raw), focus || citing?.get(raw));
+            const pages = activePages && activePages.length > 0 ? activePages : undefined;
+            const highlights = pages
+                ? pages.flatMap(page => texts.map(text => ({ text, page })))
+                : texts.map(text => ({ text }));
+            onPdfOpen?.(source.fileId, source.fileName, pages?.[0] || 1, { highlights, pages });
+        }
         else onPreviewSource?.(source.fileId, source.fileName);
     };
     const canDownloadFile = canDownload && !!source.fileId;
