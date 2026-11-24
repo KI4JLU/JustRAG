@@ -58,13 +58,15 @@ export function RoleChatPreview({ entry, role, fileCount, dynamicSample, onBack 
                     </div>
                 )}
                 footer={t('chatFooter')}
+                header={(
+                    <>
+                        <Button variant="ghost" size="sm" onClick={onBack}>
+                            <ArrowLeft className="size-4" aria-hidden="true" /> {t('asstBackToStart')}
+                        </Button>
+                        <Badge tone="primary">{t('asstRoleBadge').replace('{role}', name)}</Badge>
+                    </>
+                )}
             >
-                <div className="flex flex-wrap items-center justify-center gap-2 px-4 pt-3">
-                    <Button variant="ghost" size="sm" onClick={onBack}>
-                        <ArrowLeft className="size-4" aria-hidden="true" /> {t('asstBackToStart')}
-                    </Button>
-                    <Badge tone="primary">{t('asstRoleBadge').replace('{role}', name)}</Badge>
-                </div>
                 {started ? (
                     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-6 py-6">
                         <ChatBubble from="user">
