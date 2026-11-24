@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useKbCore } from '../../contexts/KbCoreContext';
 import { useKbData } from '../../contexts/KbDataContext';
+import { useKbSourceRights } from '../../hooks/useKbSourceRights';
 
 const TextSourceViewer = lazy(() => import('../sidebar/TextSourceModal').then(module => ({ default: module.TextSourceViewer })));
 const PdfPreviewModal = lazy(() => import('../preview/PdfPreviewModal').then(module => ({ default: module.PdfPreviewModal })));
@@ -12,6 +13,15 @@ const WebResultsEditor = lazy(() => import('../sources/WebResultsEditor').then(m
 export function TopicModals() {
   const { currentKb } = useKbCore();
   const { fileMgmt, webTools } = useKbData();
+  // The previews read a KB file with previewSources; their download action
+  // needs downloadSources of the file's own topic. A preview outlives a topic
+  // switch, so the open topic's right counts only for a file in its list;
+  // anything else (a stale preview, a list not loaded yet) offers no
+  // download. A library file (a chat attachment) is the caller's own: always
+  // downloadable.
+  const { downloadSources } = useKbSourceRights();
+  const mayDownload = (fileId: string | undefined) =>
+    downloadSources && fileId != null && fileMgmt.files.some(f => f.id === fileId);
 
   return (
     <>
@@ -26,6 +36,7 @@ export function TopicModals() {
           format={webTools.previewPage.format ?? 'markdown'}
           extractedFrom={webTools.previewPage.extractedFrom}
           origin={webTools.previewPage.origin}
+          canDownload={webTools.previewPage.ownFile === true || mayDownload(webTools.previewPage.fileId)}
           back={webTools.previewPage.back && {
             trail: webTools.previewPage.back.trail,
             onBack: () => { webTools.setShowPreviewModal(false); webTools.previewPage?.back?.onBack(); },
@@ -69,6 +80,7 @@ export function TopicModals() {
           fileName={webTools.pdfPreview?.fileName || ''}
           page={webTools.pdfPreview?.page || 1}
           downloadPath={webTools.pdfPreview?.downloadPath}
+          canDownload={webTools.pdfPreview?.downloadPath != null || mayDownload(webTools.pdfPreview?.fileId)}
           back={webTools.pdfPreview?.back && {
             trail: webTools.pdfPreview.back.trail,
             onBack: () => { webTools.setShowPdfPreview(false); webTools.pdfPreview?.back?.onBack(); },
@@ -84,6 +96,7 @@ export function TopicModals() {
           fileName={webTools.mediaPreview.fileName}
           kind={webTools.mediaPreview.kind}
           userFileId={webTools.mediaPreview.userFileId}
+          canDownload={webTools.mediaPreview.userFileId != null || mayDownload(webTools.mediaPreview.fileId)}
           back={webTools.mediaPreview.back && {
             trail: webTools.mediaPreview.back.trail,
             onBack: () => { webTools.closeMediaPreview(); webTools.mediaPreview?.back?.onBack(); },
@@ -98,6 +111,7 @@ export function TopicModals() {
           kbId={currentKb.id}
           fileId={webTools.tabularFile?.fileId || ''}
           fileName={webTools.tabularFile?.fileName || ''}
+          canDownload={mayDownload(webTools.tabularFile?.fileId)}
           // Live from the polled file list, so the preview loads by itself
           // once an ingest that was still running finishes.
           status={fileMgmt.files.find(f => f.id === webTools.tabularFile?.fileId)?.status}

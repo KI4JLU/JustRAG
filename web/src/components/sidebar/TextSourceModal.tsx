@@ -170,6 +170,8 @@ interface TextSourceViewerProps {
     extractedFrom?: string;
     /** `files.origin`: a crawled / imported page, a feed item or a Confluence page is labelled as what it is, not as Markdown. */
     origin?: string;
+    /** Whether the viewer offers the download (downloadSources, or the caller's own file). */
+    canDownload: boolean;
 }
 
 /** A stored copy of something on the web: its label, glyph, and that its heading is its title. */
@@ -190,7 +192,7 @@ function webKindOf(origin: string | undefined, originUrl: string | undefined): W
 }
 
 /** An existing text source in the same window, read-only, with a download like the PDF preview's. */
-const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, fileName, content, format, back, extractedFrom, origin }) => {
+const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, fileName, content, format, back, extractedFrom, origin, canDownload }) => {
     const { t } = useTheme();
     const toast = useToast();
     // The word count is in the header's meta line, not the toolbar (`count="none"`).
@@ -253,7 +255,7 @@ const TextSourceViewerComp: React.FC<TextSourceViewerProps> = ({ show, onClose, 
                 aria-label={fileName}
                 value={shown}
                 labels={labels}
-                toolbarEnd={(
+                toolbarEnd={canDownload && (
                     <Button variant="ghost" size="icon" onClick={() => { void download().catch(() => toast.error(t('previewLoadError'))); }} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
                         <Download size={16} aria-hidden="true" />
                     </Button>

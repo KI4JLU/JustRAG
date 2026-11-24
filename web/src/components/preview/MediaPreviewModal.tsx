@@ -20,6 +20,8 @@ interface MediaPreviewModalProps {
     back?: PreviewBack;
     /** A chat attachment: the caller's own user file, read from the library (and its session cache). */
     userFileId?: string;
+    /** Whether the dialog offers the download (downloadSources, or the caller's own file). */
+    canDownload: boolean;
 }
 
 const SUBTITLE_KEY: Record<MediaKind, string> = {
@@ -34,7 +36,7 @@ const SUBTITLE_KEY: Record<MediaKind, string> = {
  * `src` URL could not carry the token); an image whose hover thumbnail was
  * already built reuses that download (`cachedSourceImage`).
  */
-const MediaPreviewContent: React.FC<Omit<MediaPreviewModalProps, 'show'>> = ({ onClose, fileId, fileName, kind, back, userFileId }) => {
+const MediaPreviewContent: React.FC<Omit<MediaPreviewModalProps, 'show'>> = ({ onClose, fileId, fileName, kind, back, userFileId, canDownload }) => {
     const { t } = useTheme();
     const cached = kind === 'image' ? cachedSourceImage(fileId) : undefined;
     const [url, setUrl] = useState<string | null>(cached ?? null);
@@ -52,7 +54,7 @@ const MediaPreviewContent: React.FC<Omit<MediaPreviewModalProps, 'show'>> = ({ o
             });
             return () => { cancelled = true; };
         }
-        axios.get(`${API_BASE_URL}/api/files/${fileId}/download`, { responseType: 'blob' })
+        axios.get(`${API_BASE_URL}/api/files/${fileId}/preview`, { responseType: 'blob' })
             .then(res => {
                 const next = URL.createObjectURL(res.data as Blob);
                 if (cancelled) { URL.revokeObjectURL(next); return; }
@@ -69,7 +71,7 @@ const MediaPreviewContent: React.FC<Omit<MediaPreviewModalProps, 'show'>> = ({ o
     }, [cached, fileId, userFileId]);
 
     const backLink = usePreviewBackLink(back);
-    const download = url && (
+    const download = canDownload && url && (
         <Button variant="ghost" size="icon" asChild>
             <a href={url} download={fileName} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
                 <Download size={16} aria-hidden="true" />
@@ -126,11 +128,12 @@ const MediaPreviewContent: React.FC<Omit<MediaPreviewModalProps, 'show'>> = ({ o
                     </span>
                 ) : kind === 'audio' ? (
                     // A user's own recording: there is no caption track to offer.
+                    // Without the download right the browser's own player menu offers no download either.
                     // eslint-disable-next-line jsx-a11y/media-has-caption
-                    <audio controls src={url} className="w-full max-w-xl" aria-label={fileName} />
+                    <audio controls controlsList={canDownload ? undefined : 'nodownload'} src={url} className="w-full max-w-xl" aria-label={fileName} />
                 ) : (
                     // eslint-disable-next-line jsx-a11y/media-has-caption -- a user's own video: there is no caption track to offer
-                    <video controls src={url} className="max-h-full max-w-full" aria-label={fileName} />
+                    <video controls controlsList={canDownload ? undefined : 'nodownload'} src={url} className="max-h-full max-w-full" aria-label={fileName} />
                 )}
             </div>
             )}

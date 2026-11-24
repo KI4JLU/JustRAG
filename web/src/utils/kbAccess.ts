@@ -84,7 +84,8 @@ function hasKbEditRole(
  *
  *   level 1, independent:  seeSources (the source list, and with it the
  *                          selection), seeCitations (an answer's citations)
- *   level 2, need the list: downloadSources (download + preview),
+ *   level 2, need the list: previewSources (the in-app preview),
+ *                          downloadSources (download; includes the preview),
  *                          addSources (create a source of any kind),
  *                          manageSources (change, sync, pause, delete, retry)
  *
@@ -99,9 +100,13 @@ export function kbSourceRights(
   systemRole?: string,
   userId?: string,
 ): KbCapabilities {
-  if (kb?.capabilities) return kb.capabilities;
+  if (kb?.capabilities) {
+    // A backend that predates previewSources: the download was the preview's gate.
+    const caps = kb.capabilities;
+    return caps.previewSources === undefined ? { ...caps, previewSources: caps.downloadSources } : caps;
+  }
   const edit = kb != null && hasKbEditRole(kb, systemRole, userId);
-  return { seeSources: true, addSources: edit, downloadSources: true, seeCitations: true, manageSources: edit };
+  return { seeSources: true, addSources: edit, previewSources: true, downloadSources: true, seeCitations: true, manageSources: edit };
 }
 
 /**

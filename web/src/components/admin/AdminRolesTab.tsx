@@ -54,11 +54,11 @@ const KB_ROLE_LABEL_KEY: Record<KbRole, string> = {
 };
 const KB_RIGHT_LABEL_KEY: Record<KbRight, string> = {
     invite: 'rrRightInvite', seeSources: 'rrRightSeeSources', addSources: 'rrRightAddSources',
-    downloadSources: 'rrRightDownloadSources', editSources: 'rrRightEditSources', seeCitations: 'rrRightSeeCitations',
+    previewSources: 'rrRightPreviewSources', downloadSources: 'rrRightDownloadSources', editSources: 'rrRightEditSources', seeCitations: 'rrRightSeeCitations',
 };
 const KB_RIGHT_HINT_KEY: Record<KbRight, string> = {
     invite: 'rrRightInviteHint', seeSources: 'rrRightSeeSourcesHint', addSources: 'rrRightAddSourcesHint',
-    downloadSources: 'rrRightDownloadSourcesHint', editSources: 'rrRightEditSourcesHint', seeCitations: 'rrRightSeeCitationsHint',
+    previewSources: 'rrRightPreviewSourcesHint', downloadSources: 'rrRightDownloadSourcesHint', editSources: 'rrRightEditSourcesHint', seeCitations: 'rrRightSeeCitationsHint',
 };
 const KB_GROUP_LABEL_KEY = { topic: 'rrGroupTopic', sidebar: 'rrGroupSidebar', answers: 'rrGroupAnswers' } as const;
 const LAST_KB_RIGHT = KB_RIGHT_GROUPS[KB_RIGHT_GROUPS.length - 1].rights.at(-1);

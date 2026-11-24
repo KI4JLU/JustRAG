@@ -149,7 +149,7 @@ vi.mock('../../contexts/KbLayoutContext', () => ({
 }));
 
 const caps = (over: Partial<KbCapabilities>): KbCapabilities => ({
-  seeSources: true, addSources: false, downloadSources: true, seeCitations: true, manageSources: false, ...over,
+  seeSources: true, addSources: false, previewSources: true, downloadSources: true, seeCitations: true, manageSources: false, ...over,
 });
 
 beforeEach(() => {
@@ -182,7 +182,7 @@ describe('ChatView — citations follow seeCitations', () => {
   });
 });
 
-describe('ChatView — the source panel follows downloadSources', () => {
+describe('ChatView — the source panel follows previewSources and downloadSources', () => {
   // The cited source is a tab of the shell's side panel, so the chat needs its frame.
   const renderInShell = () => render(
     <AppShell topBar={<span />} mobileTabs={[]} activeMobileTab="" onMobileTabChange={() => {}}>
@@ -202,8 +202,18 @@ describe('ChatView — the source panel follows downloadSources', () => {
     expect(handlePdfSourceOpen).toHaveBeenCalledWith('f1', 'satzung.pdf', 2);
   });
 
-  it('opens the panel without it, but offers neither the full view nor the download', () => {
-    capabilities = caps({ downloadSources: false });
+  it('offers the full view but no download with previewSources alone', () => {
+    capabilities = caps({ previewSources: true, downloadSources: false });
+    const { container } = renderInShell();
+    fireEvent.click(container.querySelector('button.citation-chip') as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: 'openInSource' }));
+    expect(screen.queryByRole('button', { name: 'sourcePanelDownload' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'sourcePanelFullView' }));
+    expect(handlePdfSourceOpen).toHaveBeenCalledWith('f1', 'satzung.pdf', 2);
+  });
+
+  it('opens the panel without either, but offers neither the full view nor the download', () => {
+    capabilities = caps({ previewSources: false, downloadSources: false });
     const { container } = renderInShell();
     fireEvent.click(container.querySelector('button.citation-chip') as HTMLElement);
     fireEvent.click(screen.getByRole('button', { name: 'openInSource' }));

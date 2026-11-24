@@ -16,14 +16,15 @@ export type KbRight =
     | 'invite'          // invite people (/members, /invite-links — kbAdminChain today)
     | 'seeSources'      // the sidebar source list
     | 'addSources'      // upload / add sources: file, text, web, RSS, Confluence, Git
-    | 'downloadSources' // download + in-app preview (PDF, spreadsheet tabs)
+    | 'previewSources'  // the in-app preview (PDF, media, documents, spreadsheet tabs), no download
+    | 'downloadSources' // download the original; includes the preview
     | 'editSources'     // change, sync, delete, reprocess sources (kbManageSourcesChain: role ≥ edit)
     | 'seeCitations';   // citations under answers
 
 /** Row groups as rendered: the topic, the sidebar's sources, the answers. */
 export const KB_RIGHT_GROUPS: readonly { id: 'topic' | 'sidebar' | 'answers'; rights: readonly KbRight[] }[] = [
     { id: 'topic', rights: ['invite'] },
-    { id: 'sidebar', rights: ['seeSources', 'addSources', 'downloadSources', 'editSources'] },
+    { id: 'sidebar', rights: ['seeSources', 'addSources', 'previewSources', 'downloadSources', 'editSources'] },
     { id: 'answers', rights: ['seeCitations'] },
 ];
 
@@ -32,7 +33,7 @@ export const KB_RIGHTS: readonly KbRight[] = KB_RIGHT_GROUPS.flatMap(g => g.righ
 /** Each right's row label (a translation key); also the KB settings search's keywords for Berechtigungen. */
 export const RIGHT_LABEL_KEY: Record<KbRight, string> = {
     invite: 'rrRightInvite', seeSources: 'rrRightSeeSources', addSources: 'rrRightAddSources',
-    downloadSources: 'rrRightDownloadSources', editSources: 'rrRightEditSources', seeCitations: 'rrRightSeeCitations',
+    previewSources: 'rrRightPreviewSources', downloadSources: 'rrRightDownloadSources', editSources: 'rrRightEditSources', seeCitations: 'rrRightSeeCitations',
 };
 
 /** Columns left to right: strongest role first. */
@@ -82,21 +83,23 @@ const flag = (f: KbSourceFlag): KbRightCell => ({ kind: 'flag', flag: f });
 const MATRIX: Record<KbRole, Record<KbRight, KbRightCell>> = {
     owner: {
         invite: yes('rrScopeAllRoles'),
-        seeSources: yes(), addSources: yes(), downloadSources: yes(), editSources: yes(), seeCitations: yes(),
+        seeSources: yes(), addSources: yes(), previewSources: yes(), downloadSources: yes(), editSources: yes(), seeCitations: yes(),
     },
     admin: {
         invite: yes('rrScopeUpToAdmin'),
-        seeSources: yes(), addSources: yes(), downloadSources: yes(), editSources: yes(), seeCitations: yes(),
+        seeSources: yes(), addSources: yes(), previewSources: yes(), downloadSources: yes(), editSources: yes(), seeCitations: yes(),
     },
     edit: {
         invite: no,
         seeSources: flag('editorSeeSources'), addSources: flag('editorAddSources'),
+        previewSources: flag('editorPreviewSources'),
         downloadSources: flag('editorDownloadSources'), editSources: yesIf('editorSeeSources'),
         seeCitations: flag('editorSeeCitations'),
     },
     view: {
         invite: no,
         seeSources: flag('viewerSeeSources'), addSources: na,
+        previewSources: flag('viewerPreviewSources'),
         downloadSources: flag('viewerDownloadSources'), editSources: na,
         seeCitations: flag('viewerSeeCitations'),
     },
@@ -113,10 +116,36 @@ export function kbRightCell(role: KbRole, right: KbRight): KbRightCell {
  * prerequisite.
  */
 export const FLAG_REQUIRES: Partial<Record<KbSourceFlag, KbSourceFlag>> = {
+    viewerPreviewSources: 'viewerSeeSources',
     viewerDownloadSources: 'viewerSeeSources',
     editorAddSources: 'editorSeeSources',
+    editorPreviewSources: 'editorSeeSources',
     editorDownloadSources: 'editorSeeSources',
 };
+
+/**
+ * Flags another flag already grants: the download includes the preview
+ * (kbaccess.CapabilitiesFor: previewSources = see AND (preview OR download)).
+ * While the granting flag is on, the cell shows checked and cannot be turned
+ * off on its own.
+ */
+export const FLAG_IMPLIED_BY: Partial<Record<KbSourceFlag, KbSourceFlag>> = {
+    viewerPreviewSources: 'viewerDownloadSources',
+    editorPreviewSources: 'editorDownloadSources',
+};
+
+/**
+ * The configurable roles that may open the preview without downloading
+ * (see AND preview AND NOT download). The rights tab warns while any does:
+ * the preview hands the file to the browser, so it is no protection for
+ * confidential material.
+ */
+export function previewOnlyRoles(flags: KbSourceFlags): KbRole[] {
+    const out: KbRole[] = [];
+    if (flags.editorSeeSources && flags.editorPreviewSources && !flags.editorDownloadSources) out.push('edit');
+    if (flags.viewerSeeSources && flags.viewerPreviewSources && !flags.viewerDownloadSources) out.push('view');
+    return out;
+}
 
 /** The prerequisite flag of a cell (flag or fixed), if any. */
 export function cellRequires(cell: KbRightCell): KbSourceFlag | undefined {
@@ -127,11 +156,13 @@ export function cellRequires(cell: KbRightCell): KbSourceFlag | undefined {
 /**
  * A cell resolved against the drafted flags: what it shows right now.
  * `blocked` = its prerequisite ("Sehen" of the same role) is off; a blocked
- * cell is shown as not granted and cannot be changed.
+ * cell is shown as not granted and cannot be changed. `implied` = another
+ * flag of the same role already grants it (the download includes the
+ * preview); an implied cell is shown as granted and cannot be changed.
  */
 export type KbRightState =
     | { kind: 'fixed'; granted: boolean; scope?: string; blocked: boolean }
-    | { kind: 'flag'; flag: KbSourceFlag; checked: boolean; blocked: boolean }
+    | { kind: 'flag'; flag: KbSourceFlag; checked: boolean; blocked: boolean; implied: boolean }
     | { kind: 'na' };
 
 export function resolveRightCell(role: KbRole, right: KbRight, flags: KbSourceFlags): KbRightState {
@@ -139,17 +170,23 @@ export function resolveRightCell(role: KbRole, right: KbRight, flags: KbSourceFl
     if (cell.kind === 'na') return cell;
     const requires = cellRequires(cell);
     const blocked = requires != null && !flags[requires];
-    if (cell.kind === 'flag') return { kind: 'flag', flag: cell.flag, checked: flags[cell.flag] && !blocked, blocked };
+    if (cell.kind === 'flag') {
+        const by = FLAG_IMPLIED_BY[cell.flag];
+        const implied = !blocked && by != null && flags[by];
+        return { kind: 'flag', flag: cell.flag, checked: (flags[cell.flag] || implied) && !blocked, blocked, implied };
+    }
     return { kind: 'fixed', granted: cell.granted && !blocked, scope: cell.scope, blocked };
 }
 
-/** Defaults of migration 0089, used when a KB row predates the fields. */
+/** Defaults of migrations 0089 and 0107, used when a KB row predates the fields. */
 export const SOURCE_FLAG_DEFAULTS: KbSourceFlags = {
     viewerSeeSources: false,
+    viewerPreviewSources: false,
     viewerDownloadSources: false,
     viewerSeeCitations: false,
     editorSeeSources: true,
     editorAddSources: true,
+    editorPreviewSources: true,
     editorDownloadSources: true,
     editorSeeCitations: true,
 };

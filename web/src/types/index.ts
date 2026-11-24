@@ -350,10 +350,12 @@ export interface KnowledgeBase {
     // Written by a KB admin through PATCH /api/kb/{id}; absent on the API-key
     // surfaces. viewer* apply to the view role, editor* to the edit role.
     viewerSeeSources?: boolean;
+    viewerPreviewSources?: boolean;
     viewerDownloadSources?: boolean;
     viewerSeeCitations?: boolean;
     editorSeeSources?: boolean;
     editorAddSources?: boolean;
+    editorPreviewSources?: boolean;
     editorDownloadSources?: boolean;
     editorSeeCitations?: boolean;
     // The caller's own resolved permissions on this KB, computed by the
@@ -364,10 +366,12 @@ export interface KnowledgeBase {
 /** The per-KB source flags a KB admin can switch (PATCH /api/kb/{id}). */
 export type KbSourceFlag =
     | 'viewerSeeSources'
+    | 'viewerPreviewSources'
     | 'viewerDownloadSources'
     | 'viewerSeeCitations'
     | 'editorSeeSources'
     | 'editorAddSources'
+    | 'editorPreviewSources'
     | 'editorDownloadSources'
     | 'editorSeeCitations';
 
@@ -377,6 +381,8 @@ export type KbSourceFlags = Record<KbSourceFlag, boolean>;
 export interface KbCapabilities {
     seeSources: boolean;
     addSources: boolean;
+    /** Open a source in the in-app preview; downloadSources includes it. */
+    previewSources: boolean;
     downloadSources: boolean;
     seeCitations: boolean;
     manageSources: boolean;

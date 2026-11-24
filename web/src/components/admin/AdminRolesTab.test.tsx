@@ -62,8 +62,8 @@ describe('AdminRolesTab', () => {
         // 13 rights + 3 group headings (scope="rowgroup" is a row header too).
         expect(within(sys).getAllByRole('rowheader')).toHaveLength(16);
         const kb = screen.getByRole('table', { name: 'arKbRolesTitle' });
-        // 6 rights + 3 group headings.
-        expect(within(kb).getAllByRole('rowheader')).toHaveLength(9);
+        // 7 rights + 3 group headings.
+        expect(within(kb).getAllByRole('rowheader')).toHaveLength(10);
         // Per-topic switches are named, not shown as a fixed value.
         expect(within(kb).getAllByText('arPerTopic').length).toBeGreaterThan(0);
     });

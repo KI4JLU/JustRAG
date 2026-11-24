@@ -85,6 +85,7 @@ const baseProps = {
   onRetryFile: vi.fn(),
   onViewSource: vi.fn(),
   canManage: true,
+  canPreview: true,
   canDownload: true,
 };
 
@@ -421,7 +422,7 @@ describe('SourcesSection without the manage right (canManage=false)', () => {
 // the card is display-only (DS SidebarCard without onOpen: the title is plain
 // text, a click does nothing; the checkbox still selects). The UI rule: what
 // cannot be used is not rendered at all.
-describe('SourcesSection download right (canDownload)', () => {
+describe('SourcesSection preview and download rights (canPreview, canDownload)', () => {
   it('with the right: Download in the menu, a hover preview, preloading, click previews', async () => {
     useSourcePreviews.mockClear();
     const onPreviewSource = vi.fn();
@@ -434,11 +435,24 @@ describe('SourcesSection download right (canDownload)', () => {
     expect(await screen.findByRole('menuitem', { name: /download/ })).toBeInTheDocument();
   });
 
-  it('without it: no Download, no hover preview, no preloading, the title is not a button', async () => {
+  it('preview without download: the card previews on click and hover, the menu has no Download', async () => {
+    useSourcePreviews.mockClear();
+    const onPreviewSource = vi.fn();
+    render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({})]} onPreviewSource={onPreviewSource} />);
+    expect(screen.getByTestId('hover-preview')).toBeInTheDocument();
+    expect(useSourcePreviews).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'f-1' })]);
+    await userEvent.click(screen.getByRole('button', { name: 'doc.pdf' }));
+    expect(onPreviewSource).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
+    expect(await screen.findByRole('menuitem', { name: 'removeSource' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /download/ })).not.toBeInTheDocument();
+  });
+
+  it('without either: no Download, no hover preview, no preloading, the title is not a button', async () => {
     useSourcePreviews.mockClear();
     const onPreviewSource = vi.fn();
     const onToggleSelected = vi.fn();
-    render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({})]}
+    render(<SourcesSection {...baseProps} canPreview={false} canDownload={false} files={[makeFile({})]}
       onPreviewSource={onPreviewSource} onToggleSelected={onToggleSelected} />);
     expect(screen.queryByTestId('hover-preview')).not.toBeInTheDocument();
     expect(useSourcePreviews).toHaveBeenLastCalledWith([]);
@@ -453,7 +467,7 @@ describe('SourcesSection download right (canDownload)', () => {
   });
 
   it('leaves only Select in the menu when neither download nor manage is allowed', async () => {
-    render(<SourcesSection {...baseProps} canDownload={false} canManage={false} files={[makeFile({})]} />);
+    render(<SourcesSection {...baseProps} canPreview={false} canDownload={false} canManage={false} files={[makeFile({})]} />);
     // The selection stays for whoever sees the list.
     await userEvent.click(screen.getByRole('button', { name: 'sourceActions doc.pdf' }));
     expect(screen.getAllByRole('menuitem').map(i => i.textContent)).toEqual(['selectSources']);
@@ -461,7 +475,7 @@ describe('SourcesSection download right (canDownload)', () => {
 
   it('without it the checkbox still ticks a source in selection mode', async () => {
     const onToggleSelected = vi.fn();
-    render(<SourcesSection {...baseProps} canDownload={false} files={[makeFile({})]}
+    render(<SourcesSection {...baseProps} canPreview={false} canDownload={false} files={[makeFile({})]}
       selection={new Set()} onToggleSelected={onToggleSelected} />);
     await userEvent.click(screen.getByRole('checkbox', { name: 'selectSource doc.pdf' }));
     expect(onToggleSelected).toHaveBeenCalledWith('file:f-1', true);
