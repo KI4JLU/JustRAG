@@ -21,7 +21,9 @@ const fixedIn = (scope: ReturnType<typeof wide>, role: string, right: string) =>
 
 // Oracle: Sten's mockup and decisions of 2026-10-16 (rotated matrix, owner and
 // admin muted with plain marks, "Rechte vergeben" and the "Fest" badge gone,
-// viewers never add or edit, the pyramid: add/download/edit need "see"), and
+// viewers never add or edit, the pyramid: add/preview/download/edit need
+// "see"; 2026-11-24: preview is its own right, the download includes it, and
+// preview without download carries a not-a-protection warning), and
 // the source-permission spec (API.md "Source permissions") — written out by
 // hand, not read back from the model.
 describe('KbRolesRightsTab — wide (rotated matrix)', () => {
@@ -33,14 +35,14 @@ describe('KbRolesRightsTab — wide (rotated matrix)', () => {
         ['rrColRight', 'kbRoleOwner', 'kbRoleAdmin', 'kbRoleEdit', 'kbRoleView']
             .forEach((name, i) => expect(heads[i]).toHaveAccessibleName(name));
         const rows = w.getAllByRole('rowheader');
-        expect(rows).toHaveLength(9);
+        expect(rows).toHaveLength(10);
         [
             'rrGroupTopic, 1', 'rrRightInvite',
-            'rrGroupSidebar, 4', 'rrRightSeeSources', 'rrRightAddSources', 'rrRightDownloadSources', 'rrRightEditSources',
+            'rrGroupSidebar, 5', 'rrRightSeeSources', 'rrRightAddSources', 'rrRightPreviewSources', 'rrRightDownloadSources', 'rrRightEditSources',
             'rrGroupAnswers, 1', 'rrRightSeeCitations',
         ].forEach((name, i) => expect(rows[i]).toHaveAccessibleName(name));
         // Group headings: row groups with their item count in the name.
-        for (const [group, n] of [['rrGroupTopic', 1], ['rrGroupSidebar', 4], ['rrGroupAnswers', 1]] as const) {
+        for (const [group, n] of [['rrGroupTopic', 1], ['rrGroupSidebar', 5], ['rrGroupAnswers', 1]] as const) {
             expect(w.getByRole('rowheader', { name: `${group}, ${n}` })).toHaveAttribute('scope', 'rowgroup');
         }
         expect(screen.queryByText('rrColRights')).toBeNull();
@@ -52,7 +54,7 @@ describe('KbRolesRightsTab — wide (rotated matrix)', () => {
         const w = wide();
         for (const role of ['kbRoleOwner', 'kbRoleAdmin']) {
             expect(w.queryAllByRole('checkbox', { name: new RegExp(`^${role}:`) })).toHaveLength(0);
-            for (const right of ['rrRightSeeSources', 'rrRightAddSources', 'rrRightDownloadSources', 'rrRightEditSources', 'rrRightSeeCitations']) {
+            for (const right of ['rrRightSeeSources', 'rrRightAddSources', 'rrRightPreviewSources', 'rrRightDownloadSources', 'rrRightEditSources', 'rrRightSeeCitations']) {
                 const mark = fixedIn(w, role, right);
                 expect(mark.getAttribute('aria-label')).toContain('rrGranted');
                 expect(mark.closest('td')).toHaveAttribute('data-muted');
@@ -67,14 +69,15 @@ describe('KbRolesRightsTab — wide (rotated matrix)', () => {
         expect(w.getByRole('columnheader', { name: 'kbRoleEdit' })).not.toHaveAttribute('data-muted');
     });
 
-    it('makes exactly the seven flag cells editable; the rest are fixed or not applicable', () => {
+    it('makes exactly the nine flag cells editable; the rest are fixed or not applicable', () => {
         renderTab();
         const w = wide();
         const editable = w.getAllByRole('checkbox').filter(el => !el.hasAttribute('data-locked'));
         expect(editable.map(el => el.getAttribute('aria-label')).sort()).toEqual([
-            'kbRoleEdit: rrRightAddSources', 'kbRoleEdit: rrRightDownloadSources',
+            'kbRoleEdit: rrRightAddSources', 'kbRoleEdit: rrRightDownloadSources', 'kbRoleEdit: rrRightPreviewSources',
             'kbRoleEdit: rrRightSeeCitations', 'kbRoleEdit: rrRightSeeSources',
-            'kbRoleView: rrRightDownloadSources', 'kbRoleView: rrRightSeeCitations', 'kbRoleView: rrRightSeeSources',
+            'kbRoleView: rrRightDownloadSources', 'kbRoleView: rrRightPreviewSources',
+            'kbRoleView: rrRightSeeCitations', 'kbRoleView: rrRightSeeSources',
         ]);
         // Editing is fixed for editors (a locked, granted checkbox) …
         const edit = w.getByRole('checkbox', { name: /^kbRoleEdit: rrRightEditSources — / });
@@ -114,6 +117,27 @@ describe('KbRolesRightsTab — wide (rotated matrix)', () => {
         expect(box('kbRoleView', 'rrRightDownloadSources')).toHaveAttribute('data-state', 'unchecked');
     });
 
+    it('shows the preview as included while the download is on', () => {
+        renderTab({ ...defaults, editorPreviewSources: false });
+        expect(box('kbRoleEdit', 'rrRightPreviewSources')).toBeDisabled();
+        expect(box('kbRoleEdit', 'rrRightPreviewSources')).toHaveAttribute('data-state', 'checked');
+        expect(box('kbRoleEdit', 'rrRightPreviewSources')).toHaveAttribute('title', 'rrImpliedByDownload');
+    });
+
+    it('warns while a role can preview without downloading, and only then', () => {
+        renderTab();
+        expect(screen.queryByTestId('rr-preview-only')).toBeNull();
+    });
+
+    it('names the roles in the not-a-protection warning', () => {
+        renderTab({ ...defaults, viewerSeeSources: true, viewerPreviewSources: true });
+        // Once per layout (both are in the DOM under jsdom).
+        const warnings = screen.getAllByTestId('rr-preview-only');
+        expect(warnings).toHaveLength(2);
+        expect(warnings[0]).toHaveTextContent('rrPreviewOnlyTitle');
+        expect(warnings[0]).toHaveTextContent('rrPreviewOnlyWarning');
+    });
+
     it('reports a toggled flag', async () => {
         const { onFlagsChange } = renderTab();
         await userEvent.click(box('kbRoleEdit', 'rrRightSeeCitations'));
@@ -149,7 +173,7 @@ describe('KbRolesRightsTab — narrow (one role at a time)', () => {
         expect(editor.querySelector('svg')).not.toBeNull();
         expect(editor).toHaveTextContent('kbRoleEdit');
         expect(n.getAllByRole('switch').map(el => el.getAttribute('aria-label'))).toEqual([
-            'kbRoleEdit: rrRightSeeSources', 'kbRoleEdit: rrRightAddSources',
+            'kbRoleEdit: rrRightSeeSources', 'kbRoleEdit: rrRightAddSources', 'kbRoleEdit: rrRightPreviewSources',
             'kbRoleEdit: rrRightDownloadSources', 'kbRoleEdit: rrRightSeeCitations',
         ]);
         expect(n.getByText('rrRoleEditDesc')).toBeInTheDocument();
@@ -158,7 +182,7 @@ describe('KbRolesRightsTab — narrow (one role at a time)', () => {
 
         await userEvent.click(n.getByRole('button', { name: 'kbRoleView' }));
         expect(n.getAllByRole('switch').map(el => el.getAttribute('aria-label'))).toEqual([
-            'kbRoleView: rrRightSeeSources', 'kbRoleView: rrRightDownloadSources', 'kbRoleView: rrRightSeeCitations',
+            'kbRoleView: rrRightSeeSources', 'kbRoleView: rrRightPreviewSources', 'kbRoleView: rrRightDownloadSources', 'kbRoleView: rrRightSeeCitations',
         ]);
         expect(n.getByText('rrRoleViewDesc')).toBeInTheDocument();
         expect(fixedIn(n, 'kbRoleView', 'rrRightAddSources')).toHaveTextContent('–');

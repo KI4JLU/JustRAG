@@ -20,6 +20,8 @@ interface PdfPreviewModalProps {
     back?: PreviewBack;
     /** Where the file is read from when it is not a KB file (a chat attachment). */
     downloadPath?: string;
+    /** Whether the viewer offers the download (downloadSources, or the caller's own file). */
+    canDownload: boolean;
 }
 
 type PdfPreviewContentProps = Omit<PdfPreviewModalProps, 'show'>;
@@ -31,7 +33,7 @@ type PdfPreviewContentProps = Omit<PdfPreviewModalProps, 'show'>;
  * The file is fetched once through the authenticated client; the same blob
  * feeds the viewer and the download action.
  */
-const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, fileName, page, back, downloadPath }) => {
+const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, fileName, page, back, downloadPath, canDownload }) => {
     const { t } = useTheme();
     const toast = useToast();
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -43,7 +45,7 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
         if (!fileId) return;
         let revoke: string | null = null;
         let cancelled = false;
-        axios.get(`${API_BASE_URL}${downloadPath ?? `/api/files/${fileId}/download`}`, { responseType: 'blob' })
+        axios.get(`${API_BASE_URL}${downloadPath ?? `/api/files/${fileId}/preview`}`, { responseType: 'blob' })
             .then(res => {
                 const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
                 if (cancelled) { URL.revokeObjectURL(url); return; }
@@ -101,7 +103,7 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
                             fullscreen: t('fullscreen'),
                             exitFullscreen: t('exitFullscreen'),
                         }}
-                        toolbarEnd={(
+                        toolbarEnd={canDownload && (
                             <Button variant="ghost" size="icon" asChild>
                                 <a href={blobUrl} download={fileName} aria-label={`${t('download')} ${fileName}`} title={t('download')}>
                                     <Download size={16} aria-hidden="true" />

@@ -71,7 +71,7 @@ function mockApi(over: { detail?: TabularFileDetail } = {}) {
     });
 }
 
-const props = { show: true, kbId: 'kb1', fileId: 'f1', fileName: 'gebaeude.xlsx', onClose: vi.fn() };
+const props = { show: true, kbId: 'kb1', fileId: 'f1', fileName: 'gebaeude.xlsx', onClose: vi.fn(), canDownload: true };
 const lastPageCall = () => [...rowCalls].reverse().find(c => c.limit !== 1)!;
 
 beforeEach(() => {
@@ -306,6 +306,13 @@ describe('TablePreviewDialog', () => {
         await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
         expect(getSpy).toHaveBeenCalledWith(`${API_BASE_URL}/api/files/f1/download`, { responseType: 'blob' });
         click.mockRestore();
+    });
+
+    it('offers no download without canDownload (preview right only)', async () => {
+        mockApi();
+        render(<TablePreviewDialog {...props} canDownload={false} />);
+        await screen.findByRole('table');
+        expect(screen.queryByRole('button', { name: 'download gebaeude.xlsx' })).not.toBeInTheDocument();
     });
 
     it('renders nothing when show is false', () => {

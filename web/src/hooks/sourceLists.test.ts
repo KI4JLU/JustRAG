@@ -74,7 +74,7 @@ describe('useFileManagement.fetchFiles', () => {
 // backend without capabilities all four are requested exactly as before.
 describe('source lists without seeSources', () => {
   const caps = (seeSources: boolean): KbCapabilities => ({
-    seeSources, addSources: false, downloadSources: false, seeCitations: true, manageSources: false,
+    seeSources, addSources: false, previewSources: false, downloadSources: false, seeCitations: true, manageSources: false,
   });
   const kbWith = (capabilities?: KbCapabilities) => ({ id: 'kb-9', name: 'K', capabilities }) as KnowledgeBase;
 

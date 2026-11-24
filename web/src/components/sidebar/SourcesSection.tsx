@@ -37,12 +37,15 @@ interface SourcesSectionProps {
      *  each of them with a 403. Required, so a new call site cannot forget it
      *  and show a viewer dead controls. */
     canManage: boolean;
-    /** Whether the caller may download the KB's sources
-     *  (capabilities.downloadSources). false drops the Download action, the
-     *  hover preview (it is built from the downloaded file) and the preview on
-     *  click — the card is then display-only (DS SidebarCard without onOpen:
-     *  the title is plain text); in selection mode a click still ticks it. Required for
-     *  the same reason as canManage. */
+    /** Whether the caller may open the KB's sources in the in-app preview
+     *  (capabilities.previewSources). false drops the hover preview (it is
+     *  built from the file) and the preview on click — the card is then
+     *  display-only (DS SidebarCard without onOpen: the title is plain text);
+     *  in selection mode a click still ticks it. Required for the same reason
+     *  as canManage. */
+    canPreview: boolean;
+    /** Whether the caller may download the originals
+     *  (capabilities.downloadSources). false drops the Download action. */
     canDownload: boolean;
     rssFeeds: RssFeed[];
     /** Feeds whose "poll now" is still running: their row shows the spinner. */
@@ -82,7 +85,7 @@ const ERROR_STAGE_KEYS: Record<string, string> = {
 // "Tabellen" file-detail button only makes sense for these.
 const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
     files, uploads, onPreviewSource, selection, selectionTone, onStartSelection, onStartRemoval, onToggleSelected,
-    onDownloadFile, canManage, canDownload,
+    onDownloadFile, canManage, canPreview, canDownload,
     rssFeeds, pollingFeedIds, onUpdateRssFeed, onPollFeedNow, onViewSource,
     confluenceSources, onUpdateConfluenceSource, onSyncConfluenceNow,
     gitRepoSources, onUpdateGitRepoSource, onSyncGitRepoNow,
@@ -93,8 +96,8 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
 
     const nonRssFiles = cardFiles(files);
     // Hover previews are prepared ahead of the hover (see sourcePreviews.ts) —
-    // only for a caller who may download, since the preview IS the download.
-    useSourcePreviews(canDownload ? nonRssFiles : NO_FILES);
+    // only for a caller who may open the preview, since it reads the file.
+    useSourcePreviews(canPreview ? nonRssFiles : NO_FILES);
 
     // Untrusted, document-derived text: it goes into title/aria-label as a
     // plain string and is never rendered as markup. The per-KB count of
@@ -200,7 +203,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             error={file.status === 'error' ? errorLabel(file) : undefined}
                             // Queued or ingesting: a spinner on the tile, the stage as its tooltip.
                             busy={file.status === 'pending' || file.status === 'processing' ? busyLabel(file) : undefined}
-                            onOpen={canDownload ? () => onPreviewSource(file) : undefined}
+                            onOpen={canPreview ? () => onPreviewSource(file) : undefined}
                             meta={<>
                                 {file.injectionFlag && (
                                     <div
@@ -251,7 +254,7 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                     );
                     // A row in progress or failed shows its status tooltip instead of the preview.
                     const ready = file.status !== 'error' && file.status !== 'pending' && file.status !== 'processing';
-                    return canDownload && ready
+                    return canPreview && ready
                         ? <SourceHoverPreview key={file.id} file={file}>{card}</SourceHoverPreview>
                         : card;
                 })}

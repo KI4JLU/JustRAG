@@ -299,7 +299,7 @@ function MessageBubble({ message: rawMessage, showCitations = true, isStreaming,
     }, [onPdfOpen, onPreviewSource]);
 
     // Opening a source needs a handler, and ChatView passes one only with
-    // downloadSources (the PDF viewer and the preview load the file).
+    // previewSources (the PDF viewer and the preview load the file).
     const canOpenSources = !!onPdfOpen || !!onPreviewSource;
 
     // Per-answer numbering of the cited sources (utils/sourceDisplay), shared

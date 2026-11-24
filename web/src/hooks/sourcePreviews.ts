@@ -73,10 +73,10 @@ async function build(file: FileEntry): Promise<PreviewImage | null> {
         return { text: snippet(res.data.text, res.data.markdown) };
     }
     if (kind === 'markdown' || kind === 'text') {
-        const res = await axios.get<string>(`${API_BASE_URL}/api/files/${file.id}/download`, { responseType: 'text' });
+        const res = await axios.get<string>(`${API_BASE_URL}/api/files/${file.id}/preview`, { responseType: 'text' });
         return { text: snippet(String(res.data), kind === 'markdown') };
     }
-    const res = await axios.get(`${API_BASE_URL}/api/files/${file.id}/download`, { responseType: 'blob' });
+    const res = await axios.get(`${API_BASE_URL}/api/files/${file.id}/preview`, { responseType: 'blob' });
     const blob = res.data as Blob;
     if (previewKindOf(file) === 'pdf') {
         const blobUrl = URL.createObjectURL(blob);

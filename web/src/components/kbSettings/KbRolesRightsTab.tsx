@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import type React from 'react';
-import { Check, Crown, Eye, Info, Lock, Pencil, Shield, UserPlus } from 'lucide-react';
+import { Check, Crown, Eye, Info, Lock, Pencil, Shield, TriangleAlert, UserPlus } from 'lucide-react';
 import {
-    Button, Checkbox, HoverCard, HoverCardContent, HoverCardTrigger, Alert, AlertDescription, PanelSection, SegmentedControl, SettingsRow, Switch,
+    Button, Checkbox, HoverCard, HoverCardContent, HoverCardTrigger, Alert, AlertDescription, AlertTitle, PanelSection, SegmentedControl, SettingsRow, Switch,
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { KbRole, KbSourceFlag, KbSourceFlags } from '../../types';
 import {
-    KB_ALWAYS_ALL_ROLES, KB_CONFIGURABLE_ROLES, KB_RIGHT_GROUPS, KB_ROLE_COLUMNS, resolveRightCell,
+    KB_ALWAYS_ALL_ROLES, KB_CONFIGURABLE_ROLES, KB_RIGHT_GROUPS, KB_ROLE_COLUMNS, previewOnlyRoles, resolveRightCell,
     type KbRight, type KbRightState,
     RIGHT_LABEL_KEY,
 } from '../../utils/kbRoleRights';
@@ -28,9 +28,10 @@ const ROLE_TIP: Record<KbRole, { lead: string; bullets: string[] }> = {
 const ROLE_DESC_KEY: Partial<Record<KbRole, string>> = { edit: 'rrRoleEditDesc', view: 'rrRoleViewDesc' };
 const RIGHT_HINT_KEY: Record<KbRight, string> = {
     invite: 'rrRightInviteHint', seeSources: 'rrRightSeeSourcesHint', addSources: 'rrRightAddSourcesHint',
-    downloadSources: 'rrRightDownloadSourcesHint', editSources: 'rrRightEditSourcesHint', seeCitations: 'rrRightSeeCitationsHint',
+    previewSources: 'rrRightPreviewSourcesHint', downloadSources: 'rrRightDownloadSourcesHint', editSources: 'rrRightEditSourcesHint', seeCitations: 'rrRightSeeCitationsHint',
 };
 const GROUP_LABEL_KEY = { topic: 'rrGroupTopic', sidebar: 'rrGroupSidebar', answers: 'rrGroupAnswers' } as const;
+const ROLE_PLURAL_KEY: Partial<Record<KbRole, string>> = { edit: 'rrRolePluralEdit', view: 'rrRolePluralView' };
 
 /** The last right of the last group: where the muted column bands end. */
 const LAST_RIGHT = KB_RIGHT_GROUPS[KB_RIGHT_GROUPS.length - 1].rights.at(-1);
@@ -81,6 +82,18 @@ export function KbRolesRightsTab({ flags, onFlagsChange, onAssignPeople }: KbRol
                     {middle}<strong>{roleLabel('admin')}</strong>
                     {after}
                 </p>
+            </AlertDescription>
+        </Alert>
+    );
+
+    // Preview without download keeps the button out of the UI only: say so
+    // while any role is set up that way (the file still reaches the browser).
+    const previewOnly = previewOnlyRoles(flags);
+    const previewOnlyHint = previewOnly.length > 0 && (
+        <Alert tone="warning" icon={<TriangleAlert />} data-testid="rr-preview-only">
+            <AlertTitle>{t('rrPreviewOnlyTitle')}</AlertTitle>
+            <AlertDescription>
+                {t('rrPreviewOnlyWarning').replace('{roles}', previewOnly.map(r => t(ROLE_PLURAL_KEY[r] ?? '')).join(t('rrRolesAnd')))}
             </AlertDescription>
         </Alert>
     );
@@ -159,6 +172,7 @@ export function KbRolesRightsTab({ flags, onFlagsChange, onAssignPeople }: KbRol
                         </TableBody>
                     ))}
                 </Table>
+                {previewOnlyHint}
                 {alwaysAllHint}
             </div>
 
@@ -199,6 +213,7 @@ export function KbRolesRightsTab({ flags, onFlagsChange, onAssignPeople }: KbRol
                         ))}
                     </PanelSection>
                 ))}
+                {previewOnlyHint}
                 {alwaysAllHint}
             </div>
         </section>
@@ -277,6 +292,12 @@ function fixedName(state: Extract<KbRightState, { kind: 'fixed' }>, label: strin
     return `${label} — ${t(state.granted ? 'rrGranted' : 'rrDenied')}${scope}${why} (${t('rrFixedCell')})`;
 }
 
+/** Why a flag cell cannot be changed right now, if it cannot. */
+function flagTitle(state: Extract<KbRightState, { kind: 'flag' }>, t: T): string | undefined {
+    if (state.blocked) return t('rrRequiresSee');
+    return state.implied ? t('rrImpliedByDownload') : undefined;
+}
+
 function NotApplicable({ label, t }: { label: string; t: T }) {
     return <span role="img" aria-label={`${label} — ${t('rrNotApplicable')}`} title={t('rrNotApplicable')}>–</span>;
 }
@@ -300,9 +321,9 @@ function WideCell({ state, alwaysAll, label, onChange, t }: {
         return (
             <Checkbox
                 checked={state.checked}
-                disabled={state.blocked}
+                disabled={state.blocked || state.implied}
                 aria-label={label}
-                title={state.blocked ? t('rrRequiresSee') : undefined}
+                title={flagTitle(state, t)}
                 onCheckedChange={(v) => onChange(state.flag, v === true)}
             />
         );
@@ -328,9 +349,9 @@ function NarrowControl({ state, label, onChange, t }: { state: KbRightState; lab
         return (
             <Switch
                 checked={state.checked}
-                disabled={state.blocked}
+                disabled={state.blocked || state.implied}
                 aria-label={label}
-                title={state.blocked ? t('rrRequiresSee') : undefined}
+                title={flagTitle(state, t)}
                 onCheckedChange={(v) => onChange(state.flag, v)}
             />
         );

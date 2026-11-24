@@ -41,7 +41,7 @@ export interface TopicSearchFieldProps {
   kbName: string;
   onOpenTopic: (kbId: string) => void;
   onOpenSource: (source: SearchSourceTarget) => void;
-  /** Whether a source hit of THIS topic can be opened (downloadSources);
+  /** Whether a source hit of THIS topic can be opened (previewSources);
    *  without it the topic's own source hits are not listed. Hits of other
    *  topics (a widened search) open that topic and stay. Default true. */
   canOpenOwnSources?: boolean;
@@ -98,7 +98,7 @@ export function TopicSearch() {
   const accountSearchGroup = useAccountSearchGroup();
   const { handlePreviewSource } = webTools;
   // Opening a hit of this topic is the preview, which loads the file.
-  const { downloadSources } = useKbSourceRights();
+  const { previewSources } = useKbSourceRights();
 
   const openTopic = useCallback((id: string) => {
     if (id !== kbId) appNav.onOpenTopic(id);
@@ -165,7 +165,7 @@ export function TopicSearch() {
       kbName={currentKb.name}
       onOpenTopic={openTopic}
       onOpenSource={openSource}
-      canOpenOwnSources={downloadSources}
+      canOpenOwnSources={previewSources}
       onOpenChat={openChat}
     />
   );

@@ -148,7 +148,7 @@ function routeGets() {
         ],
       });
     }
-    if (u.endsWith('/api/files/f-1/download')) return Promise.resolve({ data: PREVIEW_BODY });
+    if (u.endsWith('/api/files/f-1/preview')) return Promise.resolve({ data: PREVIEW_BODY });
     return Promise.resolve({ data: [] });
   });
 }
@@ -249,7 +249,7 @@ describe('App — the topic header search, scoped to the open topic', () => {
     await userEvent.type(field, 'Wied');
     await userEvent.click(await screen.findByRole('option', { name: /Wiederholung\.md/ }));
 
-    // ORACLE: the file body, which only `GET /api/files/f-1/download` carries…
+    // ORACLE: the file body, which only `GET /api/files/f-1/preview` carries…
     expect(await screen.findByText(PREVIEW_BODY, {}, { timeout: 5000 })).toBeInTheDocument();
     // …while chat-7 is still the chat (a reopen would have emptied it)…
     expect(screen.getByText(MESSAGES['77777777-7777-4777-8777-777777777777'][1])).toBeInTheDocument();

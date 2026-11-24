@@ -22,9 +22,11 @@ interface SourcePanelProps {
     fileOrigin?: string;
     /** The cited file's stored MIME type, when the KB's file list has it. */
     fileType?: string;
-    /** Opens the document preview modal (needs downloadSources). */
+    /** Opens the document preview modal (needs previewSources). */
     onPdfOpen?: (fileId: string, fileName: string, page: number) => void;
     onPreviewSource?: (fileId: string, fileName: string) => void;
+    /** Whether the file may be read for the in-app preview (previewSources). */
+    canPreview: boolean;
     /** Whether the original may be downloaded (downloadSources). */
     canDownload: boolean;
 }
@@ -42,10 +44,10 @@ async function downloadFile(fileId: string, fileName: string) {
 // Feed items and imported pages carry their origin as a "Source: <url>"
 // header line in the stored text; a cited passage often is not the first
 // one, so the file is read once when it may carry it.
-function useOriginUrl(target: SourcePanelTarget, fileOrigin: string | undefined, canDownload: boolean): string | undefined {
+function useOriginUrl(target: SourcePanelTarget, fileOrigin: string | undefined, canPreview: boolean): string | undefined {
     const { source } = target;
     const inPassages = useMemo(() => source.passages.map(p => originUrlOf(p.content ?? '')).find(Boolean), [source]);
-    const mayCarry = !inPassages && canDownload && !!source.fileId
+    const mayCarry = !inPassages && canPreview && !!source.fileId
         && (fileOrigin === 'confluence' || fileOrigin === 'rss')
         && (source.kind === 'markdown' || source.kind === 'text' || source.kind === 'document');
     const [fetched, setFetched] = useState<{ fileId: string; url?: string } | null>(null);
@@ -53,7 +55,7 @@ function useOriginUrl(target: SourcePanelTarget, fileOrigin: string | undefined,
         if (!mayCarry || !source.fileId) return;
         let cancelled = false;
         const fileId = source.fileId;
-        axios.get(`${API_BASE_URL}/api/files/${fileId}/download`, { responseType: 'text' })
+        axios.get(`${API_BASE_URL}/api/files/${fileId}/preview`, { responseType: 'text' })
             .then((res) => { if (!cancelled) setFetched({ fileId, url: originUrlOf(String(res.data).slice(0, 4000)) }); })
             .catch(() => { if (!cancelled) setFetched({ fileId }); });
         return () => { cancelled = true; };
@@ -69,10 +71,10 @@ function useOriginUrl(target: SourcePanelTarget, fileOrigin: string | undefined,
  * light, with "1 von N" to step through them. ⤢ opens the full document
  * preview.
  */
-export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin, fileType, onPdfOpen, onPreviewSource, canDownload }: SourcePanelProps) {
+export function SourcePanel({ target, onClose, onPassage, onNavigate, fileOrigin, fileType, onPdfOpen, onPreviewSource, canPreview, canDownload }: SourcePanelProps) {
     const { t } = useTheme();
     const { source, passage, spans, citing, focus } = target;
-    const originUrl = useOriginUrl(target, fileOrigin, canDownload);
+    const originUrl = useOriginUrl(target, fileOrigin, canPreview);
 
     // Document order where the pages say it, else the order the answer cites them.
     const order = useMemo(() => source.passages

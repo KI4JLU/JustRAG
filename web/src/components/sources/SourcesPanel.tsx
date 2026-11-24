@@ -63,8 +63,9 @@ const SourcesPanelComp: React.FC = () => {
     //    backend's add routes take a global KB like any other (only its file
     //    limit differs), so the KB kind is no extra condition.
     //  - manageSources: delete, retry, sync, pause, schedule.
-    //  - downloadSources: download, the preview on click and on hover.
-    const { addSources: canAdd, manageSources: canManage, downloadSources: canDownload } = useKbSourceRights();
+    //  - previewSources: the preview on click and on hover.
+    //  - downloadSources: download.
+    const { addSources: canAdd, manageSources: canManage, previewSources: canPreview, downloadSources: canDownload } = useKbSourceRights();
     // Files dragged anywhere over the topic view turn the source list into a
     // dropzone.
     const fileDragActive = useWindowFileDrag(canAdd);
@@ -307,6 +308,7 @@ const SourcesPanelComp: React.FC = () => {
                     onToggleSelected={toggleSelected}
                     onDownloadFile={handleDownloadFile}
                     canManage={canManage}
+                    canPreview={canPreview}
                     canDownload={canDownload}
                     rssFeeds={rssFeeds}
                     pollingFeedIds={pollingFeedIds}
@@ -340,7 +342,7 @@ const SourcesPanelComp: React.FC = () => {
                     files={sourceFiles(viewingSource)}
                     onDeleteFile={canManage ? handleDeleteFile : undefined}
                     // Like a file row in the list: the preview needs the download right.
-                    onOpenFile={canDownload ? (file) => { closeSourceDetails(); openSyncedEntry(file, viewingSource); } : undefined}
+                    onOpenFile={canPreview ? (file) => { closeSourceDetails(); openSyncedEntry(file, viewingSource); } : undefined}
                     onClose={closeSourceDetails}
                 />
             )}

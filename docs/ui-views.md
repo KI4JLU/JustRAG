@@ -168,8 +168,9 @@ action needs the site flag `chat_web_search_enabled`.
 **File previews** open from: a file row, an entry in a synced source's details, a search hit
 (global or topic), a cited source's full view, a citation in the comparison view, a finished
 composer upload, and an attachment chip on a sent message. Opening a KB file needs
-`downloadSources`; without it a global search hit opens the topic only, and the topic's own
-search leaves such hits out. Attachments preview as PDF,
+`previewSources`; without it a global search hit opens the topic only, and the topic's own
+search leaves such hits out. The previews' download action needs `downloadSources` of the
+file's own topic (a library attachment is always downloadable). Attachments preview as PDF,
 text, Markdown, image, audio or video; Word files and spreadsheets do not.
 
 ## URL dialogs

@@ -33,7 +33,9 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
   const [crawlResults, setCrawlResults] = useState<{ title: string; content: string; url: string; isEdited?: boolean }[]>([]);
   const [searchResults, setSearchResults] = useState<{ title: string; snippet: string; url: string; content?: string; isEdited?: boolean }[]>([]);
   const [selectedPages, setSelectedPages] = useState<Set<string>>(new Set());
-  const [previewPage, setPreviewPage] = useState<{ title: string; content: string; url: string; format?: 'markdown' | 'text'; back?: PreviewBack; extractedFrom?: string; origin?: string } | null>(null);
+  // `fileId`: the file shown, so the download can be tied to its topic.
+  // `ownFile`: the caller's own library file (a chat attachment), which they may always download.
+  const [previewPage, setPreviewPage] = useState<{ title: string; content: string; url: string; format?: 'markdown' | 'text'; back?: PreviewBack; extractedFrom?: string; origin?: string; fileId?: string; ownFile?: boolean } | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [pdfPreview, setPdfPreview] = useState<{ fileId: string; fileName: string; page: number; back?: PreviewBack; downloadPath?: string } | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
@@ -329,10 +331,10 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
   // `downloadPath` reads a file that is not a KB file (a chat attachment from the owner's library).
   const fetchFileContent = useCallback(async (fileId: string, fileName: string, format: 'markdown' | 'text' = 'markdown', back?: PreviewBack, downloadPath?: string, origin?: string) => {
     try {
-      const res = await axios.get(`${API_BASE_URL}${downloadPath ?? `/api/files/${fileId}/download`}`, {
+      const res = await axios.get(`${API_BASE_URL}${downloadPath ?? `/api/files/${fileId}/preview`}`, {
         responseType: 'text'
       });
-      setPreviewPage({ title: fileName, content: res.data, url: '', format, back, origin });
+      setPreviewPage({ title: fileName, content: res.data, url: '', format, back, origin, fileId, ownFile: downloadPath != null });
       setShowPreviewModal(true);
     } catch (err: unknown) {
       console.error('Failed to fetch file content:', err);
@@ -347,7 +349,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
       const res = await axios.get<{ text: string; markdown: boolean }>(`${API_BASE_URL}/api/files/${fileId}/text`);
       setPreviewPage({
         title: fileName, content: res.data.text, url: '',
-        format: res.data.markdown ? 'markdown' : 'text', back, extractedFrom: fileId,
+        format: res.data.markdown ? 'markdown' : 'text', back, extractedFrom: fileId, fileId,
       });
       setShowPreviewModal(true);
     } catch (err: unknown) {
