@@ -105,8 +105,8 @@ func TestRedeemRouteIsNotKBGated(t *testing.T) {
 		kbSourceListChain: func(h http.HandlerFunc) http.Handler {
 			return authMw.Authenticate(sourceListInner(kbMw)(h))
 		},
-		kbSourceDownloadChain: func(h http.HandlerFunc) http.Handler {
-			return authMw.Authenticate(sourceDownloadInner(kbMw)(h))
+		kbSourcePreviewChain: func(h http.HandlerFunc) http.Handler {
+			return authMw.Authenticate(sourcePreviewInner(kbMw)(h))
 		},
 		kbAddSourcesChain: func(h http.HandlerFunc) http.Handler {
 			return authMw.Authenticate(addSourcesInner(kbMw)(h))

@@ -84,10 +84,10 @@ export function useSearchNavigation({ openKbById, previewSource, selectChat }: U
   const openSource = useCallback(async (source: SearchSourceTarget) => {
     const kb = await openKbById(source.kbId);
     if (!kb) return;
-    // The preview loads the file: without downloadSources the hit only opens
+    // The preview loads the file: without previewSources the hit only opens
     // its topic. (The fallback ladder of kbSourceRights needs no role here —
-    // without capabilities downloads are open to everyone.)
-    if (!kbSourceRights(kb).downloadSources) return;
+    // without capabilities the preview is open to everyone.)
+    if (!kbSourceRights(kb).previewSources) return;
     previewSource(source.id, source.name);
   }, [openKbById, previewSource]);
 

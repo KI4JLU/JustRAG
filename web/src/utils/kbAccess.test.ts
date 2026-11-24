@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { KnowledgeBase } from '../types';
+import type { KbCapabilities, KnowledgeBase } from '../types';
 import { kbSourceRights, chatSourceSelection, canRenameKb, hasKbAdminRole, splitKbsByOwnership } from './kbAccess';
 
 type KbShape = Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility'>;
@@ -171,7 +171,7 @@ describe('kbSourceRights without capabilities (role-ladder fallback)', () => {
   ];
   it.each(cases)('%s', (_name, kb, systemRole, userId, edit) => {
     expect(kbSourceRights(kb, systemRole, userId)).toEqual({
-      seeSources: true, addSources: edit, downloadSources: true, seeCitations: true, manageSources: edit,
+      seeSources: true, addSources: edit, previewSources: true, downloadSources: true, seeCitations: true, manageSources: edit,
     });
   });
 });
@@ -182,8 +182,19 @@ describe('kbSourceRights without capabilities (role-ladder fallback)', () => {
 // manageSources (fixed: edit and above) are independent of each other.
 describe('kbSourceRights with backend capabilities', () => {
   const priv = { visibility: 'private' as const, isGlobal: false, userId: null };
-  const caps = (over: Partial<Record<'seeSources' | 'addSources' | 'downloadSources' | 'seeCitations' | 'manageSources', boolean>>) => ({
-    seeSources: true, addSources: false, downloadSources: false, seeCitations: false, manageSources: false, ...over,
+  const caps = (over: Partial<Record<'seeSources' | 'addSources' | 'previewSources' | 'downloadSources' | 'seeCitations' | 'manageSources', boolean>>) => ({
+    seeSources: true, addSources: false, previewSources: false, downloadSources: false, seeCitations: false, manageSources: false, ...over,
+  });
+  it('reads previewSources from the backend, independent of downloadSources', () => {
+    const r = kbSourceRights({ ...priv, myRole: 'view' as const, capabilities: caps({ previewSources: true }) }, 'user', 'u1');
+    expect(r.previewSources).toBe(true);
+    expect(r.downloadSources).toBe(false);
+  });
+  it('takes the download as the preview gate from a backend that predates previewSources', () => {
+    const { previewSources: _drop, ...old } = caps({ downloadSources: true });
+    void _drop;
+    const r = kbSourceRights({ ...priv, myRole: 'view' as const, capabilities: old as KbCapabilities }, 'user', 'u1');
+    expect(r.previewSources).toBe(true);
   });
   it('a viewer allowed to add may add but not manage', () => {
     const r = kbSourceRights({ ...priv, myRole: 'view' as const, capabilities: caps({ addSources: true }) }, 'user', 'u1');
@@ -209,7 +220,7 @@ describe('kbSourceRights with backend capabilities', () => {
 // selection, whoever does not sends none and is answered from the whole KB.
 describe('chatSourceSelection', () => {
   const files = [{ id: 'a', selected: true }, { id: 'b', selected: false }, { id: 'c' }];
-  const caps = (seeSources: boolean) => ({ seeSources, addSources: false, downloadSources: true, seeCitations: true, manageSources: false });
+  const caps = (seeSources: boolean) => ({ seeSources, addSources: false, previewSources: true, downloadSources: true, seeCitations: true, manageSources: false });
   it('sends the selected ids (selected !== false) when the caller sees the list', () => {
     expect(chatSourceSelection({ capabilities: caps(true) }, files)).toEqual({ canSend: true, selectedFileIds: ['a', 'c'] });
   });

@@ -24,7 +24,7 @@ const source = model.cited[0];
 describe('SourcePanel (side panel tab)', () => {
   it('shows the passages in document order, the cited one active, and opens another on click', () => {
     const onPassage = vi.fn();
-    render(<SourcePanel target={{ messageKey: 'm', source, passage: 0 }} onClose={vi.fn()} onPassage={onPassage} onNavigate={vi.fn()} canDownload={false} />);
+    render(<SourcePanel target={{ messageKey: 'm', source, passage: 0 }} onClose={vi.fn()} onPassage={onPassage} onNavigate={vi.fn()} canPreview={false} canDownload={false} />);
     const pane = screen.getByRole('region', { name: 'sourcePanelLabel' });
     const sections = pane.querySelectorAll('section');
     expect([...sections].map(s => s.textContent)).toEqual(['pageAbbrev 2Seite zwei.', 'pageAbbrev 9Seite neun.']);
@@ -53,13 +53,13 @@ describe('SourcePanel (side panel tab)', () => {
     };
 
     it('counts the chip the panel shows among all of the answer\'s markers', () => {
-      render(<SourcePanel target={at(1)} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
+      render(<SourcePanel target={at(1)} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canPreview={false} canDownload={false} />);
       expect(screen.getByRole('region')).toHaveTextContent('2/3');
     });
 
     it('steps to the previous and next marker, across sources', () => {
       const onNavigate = vi.fn();
-      render(<SourcePanel target={at(1)} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={onNavigate} canDownload={false} />);
+      render(<SourcePanel target={at(1)} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={onNavigate} canPreview={false} canDownload={false} />);
       fireEvent.click(screen.getByRole('button', { name: 'sourcePanelPreviousMarker' }));
       expect(onNavigate).toHaveBeenLastCalledWith(expect.objectContaining({ source: crossModel.cited[0], passage: 0, occ: 0 }));
       fireEvent.click(screen.getByRole('button', { name: 'sourcePanelNextMarker' }));
@@ -67,10 +67,10 @@ describe('SourcePanel (side panel tab)', () => {
     });
 
     it('disables the step past either end', () => {
-      const { rerender } = render(<SourcePanel target={at(0)} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
+      const { rerender } = render(<SourcePanel target={at(0)} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canPreview={false} canDownload={false} />);
       expect(screen.getByRole('button', { name: 'sourcePanelPreviousMarker' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'sourcePanelNextMarker' })).toBeEnabled();
-      rerender(<SourcePanel target={at(2)} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
+      rerender(<SourcePanel target={at(2)} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canPreview={false} canDownload={false} />);
       expect(screen.getByRole('button', { name: 'sourcePanelNextMarker' })).toBeDisabled();
     });
 
@@ -78,7 +78,7 @@ describe('SourcePanel (side panel tab)', () => {
     // source's first marker (anhang's is the 2nd of 3).
     it('starts at the source\'s first marker when opened from the source list', () => {
       const fromList = { ...at(1), occ: undefined };
-      render(<SourcePanel target={fromList} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
+      render(<SourcePanel target={fromList} onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canPreview={false} canDownload={false} />);
       expect(screen.getByRole('region')).toHaveTextContent('2/3');
     });
   });
@@ -86,7 +86,7 @@ describe('SourcePanel (side panel tab)', () => {
   // The ✕ is the side panel tab's (ChatView); the content keeps "Zur Antwort".
   it('closes from "Zur Antwort" and brings no close button of its own', () => {
     const onClose = vi.fn();
-    render(<SourcePanel target={{ messageKey: 'm', source, passage: 0 }} onClose={onClose} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
+    render(<SourcePanel target={{ messageKey: 'm', source, passage: 0 }} onClose={onClose} onPassage={vi.fn()} onNavigate={vi.fn()} canPreview={false} canDownload={false} />);
     expect(screen.queryByRole('button', { name: 'sourcePanelClose' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'sourcePanelBack' }));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -94,7 +94,7 @@ describe('SourcePanel (side panel tab)', () => {
 
   it('offers the origin link a passage carries', () => {
     const withOrigin = buildCitationModel('A [1].', [{ ...sources[0], fileName: 'Seite.md', content: '# T\n\nSource: https://wiki.example/p\n\nText' }]).cited[0];
-    render(<SourcePanel target={{ messageKey: 'm', source: withOrigin, passage: 0 }} fileOrigin="confluence" onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canDownload={false} />);
+    render(<SourcePanel target={{ messageKey: 'm', source: withOrigin, passage: 0 }} fileOrigin="confluence" onClose={vi.fn()} onPassage={vi.fn()} onNavigate={vi.fn()} canPreview={false} canDownload={false} />);
     expect(screen.getByRole('link', { name: 'openInConfluence' })).toHaveAttribute('href', 'https://wiki.example/p');
     expect(screen.getByRole('region')).not.toHaveTextContent('Source: https');
   });

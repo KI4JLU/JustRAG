@@ -13,26 +13,26 @@ import (
 	"github.com/justrag/go-backend/internal/kbaccess"
 )
 
-// readFlags reads the seven source-permission columns with plain SQL — the
+// readFlags reads the nine source-permission columns with plain SQL — the
 // oracle for every store method below, independent of their column lists.
 func readFlags(t *testing.T, pool *pgxpool.Pool, kbID string) kbaccess.SourcePermissions {
 	t.Helper()
 	var p kbaccess.SourcePermissions
 	if err := pool.QueryRow(context.Background(), `
-		SELECT viewer_see_sources, viewer_download_sources,
+		SELECT viewer_see_sources, viewer_preview_sources, viewer_download_sources,
 		       viewer_see_citations, editor_see_sources, editor_add_sources,
-		       editor_download_sources, editor_see_citations
+		       editor_preview_sources, editor_download_sources, editor_see_citations
 		FROM knowledge_bases WHERE id = $1::uuid`, kbID).Scan(
-		&p.ViewerSeeSources, &p.ViewerDownloadSources,
+		&p.ViewerSeeSources, &p.ViewerPreviewSources, &p.ViewerDownloadSources,
 		&p.ViewerSeeCitations, &p.EditorSeeSources, &p.EditorAddSources,
-		&p.EditorDownloadSources, &p.EditorSeeCitations); err != nil {
+		&p.EditorPreviewSources, &p.EditorDownloadSources, &p.EditorSeeCitations); err != nil {
 		t.Fatalf("read flags: %v", err)
 	}
 	return p
 }
 
-// TestSourcePermissions_DefaultsAndPatchRoundTrip exercises migration 0089
-// and every store path that carries the flags, against a live database:
+// TestSourcePermissions_DefaultsAndPatchRoundTrip exercises migrations 0089
+// and 0107 and every store path that carries the flags, against a live database:
 //
 //  1. a new KB gets the migration's defaults — every viewer flag false,
 //     every editor flag true (the spec's decided defaults);
@@ -59,26 +59,27 @@ func TestSourcePermissions_DefaultsAndPatchRoundTrip(t *testing.T) {
 	})
 
 	wantDefaults := kbaccess.SourcePermissions{
-		EditorSeeSources: true, EditorAddSources: true, EditorDownloadSources: true, EditorSeeCitations: true,
+		EditorSeeSources: true, EditorAddSources: true, EditorPreviewSources: true,
+		EditorDownloadSources: true, EditorSeeCitations: true,
 	}
 	if got := readFlags(t, pool, created.ID); got != wantDefaults {
 		t.Fatalf("defaults in the database = %+v, want %+v", got, wantDefaults)
 	}
-	if created.ViewerSeeSources || created.ViewerDownloadSources ||
+	if created.ViewerSeeSources || created.ViewerPreviewSources || created.ViewerDownloadSources ||
 		created.ViewerSeeCitations || !created.EditorSeeSources || !created.EditorAddSources ||
-		!created.EditorDownloadSources || !created.EditorSeeCitations {
+		!created.EditorPreviewSources || !created.EditorDownloadSources || !created.EditorSeeCitations {
 		t.Errorf("CreateKnowledgeBase RETURNING row does not carry the defaults: %+v", created)
 	}
 
 	on, off := true, false
 	if _, err := s.UpdateKnowledgeBase(ctx, created.ID, kb.KBUpdate{
-		ViewerSeeSources: &on, ViewerDownloadSources: &on,
-		EditorSeeSources: &off, EditorAddSources: &off, EditorSeeCitations: &off,
+		ViewerSeeSources: &on, ViewerPreviewSources: &on, ViewerDownloadSources: &on,
+		EditorSeeSources: &off, EditorAddSources: &off, EditorPreviewSources: &off, EditorSeeCitations: &off,
 	}); err != nil {
 		t.Fatalf("UpdateKnowledgeBase: %v", err)
 	}
 	want := kbaccess.SourcePermissions{
-		ViewerSeeSources: true, ViewerDownloadSources: true,
+		ViewerSeeSources: true, ViewerPreviewSources: true, ViewerDownloadSources: true,
 		EditorDownloadSources: true,
 	}
 	if got := readFlags(t, pool, created.ID); got != want {
@@ -90,9 +91,10 @@ func TestSourcePermissions_DefaultsAndPatchRoundTrip(t *testing.T) {
 		t.Fatalf("GetKnowledgeBase: %v %v", row, err)
 	}
 	gotRow := kbaccess.SourcePermissions{
-		ViewerSeeSources:      row.ViewerSeeSources,
+		ViewerSeeSources: row.ViewerSeeSources, ViewerPreviewSources: row.ViewerPreviewSources,
 		ViewerDownloadSources: row.ViewerDownloadSources, ViewerSeeCitations: row.ViewerSeeCitations,
 		EditorSeeSources: row.EditorSeeSources, EditorAddSources: row.EditorAddSources,
+		EditorPreviewSources:  row.EditorPreviewSources,
 		EditorDownloadSources: row.EditorDownloadSources, EditorSeeCitations: row.EditorSeeCitations,
 	}
 	if gotRow != want {

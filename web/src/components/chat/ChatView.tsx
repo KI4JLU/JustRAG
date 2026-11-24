@@ -180,12 +180,13 @@ const ChatViewComp = () => {
     hasFiles, filesLoaded, selectedFileCount,
   } = fileMgmt;
   // What the caller may do with the KB's sources (backend capabilities).
-  // Opening a source from an answer loads the file, so the two open handlers
-  // go to the answers only with downloadSources; citations need seeCitations.
+  // Opening a source from an answer is the in-app preview, so the two open
+  // handlers go to the answers only with previewSources; the download stays
+  // with downloadSources; citations need seeCitations.
   const sourceRights = kbSourceRights(currentKb, user?.role, user?.id);
   const { handlePreviewSource: previewSource, handlePdfSourceOpen: pdfSourceOpen } = webTools;
-  const handlePreviewSource = sourceRights.downloadSources ? previewSource : undefined;
-  const handlePdfSourceOpen = sourceRights.downloadSources ? pdfSourceOpen : undefined;
+  const handlePreviewSource = sourceRights.previewSources ? previewSource : undefined;
+  const handlePdfSourceOpen = sourceRights.previewSources ? pdfSourceOpen : undefined;
 
   // No-sources state for a non-global KB: drives the §7 acquisition empty state
   // and dims the composer until the user adds a first source.
@@ -941,6 +942,7 @@ const ChatViewComp = () => {
                       fileType={sourcePanelFile?.type}
                       onPdfOpen={handlePdfSourceOpen}
                       onPreviewSource={handlePreviewSource}
+                      canPreview={sourceRights.previewSources}
                       canDownload={sourceRights.downloadSources}
                     />
                   );

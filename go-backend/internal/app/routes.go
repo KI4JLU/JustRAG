@@ -159,13 +159,13 @@ type routeCtx struct {
 	apiKeyChain      func(http.HandlerFunc) http.Handler
 
 	// The four source-permission chains (migration 0089): a KB role plus
-	// a kbaccess capability (for list/add/download one the KB's flags may
+	// a kbaccess capability (for list/add/preview one the KB's flags may
 	// withhold from viewers and editors). See sourceListInner /
-	// sourceDownloadInner / addSourcesInner / manageSourcesInner.
-	kbSourceListChain     func(http.HandlerFunc) http.Handler
-	kbSourceDownloadChain func(http.HandlerFunc) http.Handler
-	kbAddSourcesChain     func(http.HandlerFunc) http.Handler
-	kbManageSourcesChain  func(http.HandlerFunc) http.Handler
+	// sourcePreviewInner / addSourcesInner / manageSourcesInner.
+	kbSourceListChain    func(http.HandlerFunc) http.Handler
+	kbSourcePreviewChain func(http.HandlerFunc) http.Handler
+	kbAddSourcesChain    func(http.HandlerFunc) http.Handler
+	kbManageSourcesChain func(http.HandlerFunc) http.Handler
 
 	// Per-KB settings
 	kbConfigStore   *kbconfig.Store
@@ -377,8 +377,8 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		kbSourceListChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(sourceListInner(kbMw)(h))
 		},
-		kbSourceDownloadChain: func(h http.HandlerFunc) http.Handler {
-			return authMiddleware.Authenticate(sourceDownloadInner(kbMw)(h))
+		kbSourcePreviewChain: func(h http.HandlerFunc) http.Handler {
+			return authMiddleware.Authenticate(sourcePreviewInner(kbMw)(h))
 		},
 		kbAddSourcesChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(addSourcesInner(kbMw)(h))
@@ -929,15 +929,15 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 	rc.mux.Handle("GET /api/kb/{id}/files", rc.kbSourceListChain(kbUpdateHandler.ListFiles))
 	// The "Tabellen" file-detail panel: the persisted spreadsheet ingest
 	// report plus the tabular_catalog projection for one file. It and the
-	// rows route below are the spreadsheet source preview, which shows
-	// source content the way a download does, so both sit on
-	// kbSourceDownloadChain (viewer_/editor_download_sources), like
-	// GET /api/files/{id}/download. GetFileTabular's own fileBelongsToKB
+	// rows route below are the spreadsheet source preview, so both sit on
+	// kbSourcePreviewChain (previewSources: the viewer_/editor_preview_sources
+	// or _download_sources flag), like GET /api/files/{id}/preview.
+	// GetFileTabular's own fileBelongsToKB
 	// guard rejects a fileId that belongs to a different KB.
-	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular", rc.kbSourceDownloadChain(kbHandler.GetFileTabular))
+	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular", rc.kbSourcePreviewChain(kbHandler.GetFileTabular))
 	// One page of a file's materialized table for the source preview; the
 	// table must be one of that file's own catalog entries.
-	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular/rows", rc.kbSourceDownloadChain(kbHandler.GetFileTabularRows))
+	rc.mux.Handle("GET /api/kb/{id}/files/{fileId}/tabular/rows", rc.kbSourcePreviewChain(kbHandler.GetFileTabularRows))
 
 	// Member management — the four-role successor to the deprecated /share*
 	// surface, removed in Task 9 of the four-role KB permission model (see
@@ -1554,6 +1554,10 @@ func registerAgentTeamRoutes(rc *routeCtx) {
 
 func registerFileRoutes(rc *routeCtx) {
 	rc.mux.Handle("GET /api/files/{id}/download", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Download)))
+	// The in-app preview's read of a source file: previewSources, which the
+	// download flag also grants. The gate is handler-internal (no {id} KB in
+	// the path), like download and text.
+	rc.mux.Handle("GET /api/files/{id}/preview", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Preview)))
 	rc.mux.Handle("GET /api/files/{id}/text", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Text)))
 	rc.mux.Handle("DELETE /api/files/{id}", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Delete)))
 	rc.mux.Handle("POST /api/files/{id}/retry", rc.authMw.Authenticate(http.HandlerFunc(rc.filesHandler.Retry)))
@@ -1981,7 +1985,7 @@ func (a *kbRouterCandidateAdapter) ListKBRouterCandidates(ctx context.Context, u
 	return out, nil
 }
 
-// sourceListInner, sourceDownloadInner and manageSourcesInner are the
+// sourceListInner, sourcePreviewInner and manageSourcesInner are the
 // authorization cores of the three source-permission chains, without the
 // outer Authenticate wrapper. Named functions for the reason kbAdvancedInner
 // is: the chain tests exercise the composition this file installs, not a
@@ -1990,8 +1994,8 @@ func (a *kbRouterCandidateAdapter) ListKBRouterCandidates(ctx context.Context, u
 //
 //   - sourceListInner: view + seeSources — the sidebar source lists
 //     (files, RSS feeds, Confluence and git sources, crawl status).
-//   - sourceDownloadInner: view + downloadSources — the spreadsheet source
-//     preview, the in-KB twin of GET /api/files/{id}/download.
+//   - sourcePreviewInner: view + previewSources — the spreadsheet source
+//     preview, the in-KB twin of GET /api/files/{id}/preview.
 //   - addSourcesInner: edit + addSources — every route that creates a
 //     source (upload, text, URL, crawl, add from the library, add-sources,
 //     and creating an RSS feed / Confluence source / git repository). A
@@ -2006,9 +2010,9 @@ func sourceListInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Hand
 	}
 }
 
-func sourceDownloadInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
+func sourcePreviewInner(kbMw *kbaccess.Middleware) func(http.HandlerFunc) http.Handler {
 	return func(h http.HandlerFunc) http.Handler {
-		return kbMw.RequireKBCapability(kbaccess.RoleView, kbaccess.CapDownloadSources)(h)
+		return kbMw.RequireKBCapability(kbaccess.RoleView, kbaccess.CapPreviewSources)(h)
 	}
 }
 

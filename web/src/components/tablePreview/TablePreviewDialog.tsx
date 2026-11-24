@@ -32,6 +32,8 @@ interface TablePreviewDialogProps {
     onClose: () => void;
     /** Back to the list it was opened from (a synced source's entries). */
     back?: PreviewBack;
+    /** Whether the dialog offers the original's download (downloadSources). */
+    canDownload: boolean;
 }
 
 type ContentProps = Omit<TablePreviewDialogProps, 'show'>;
@@ -58,7 +60,7 @@ const SEARCH_DEBOUNCE_MS = 250;
  * scrolls. Opens like every other source preview (row click,
  * `useWebTools.handlePreviewSource`).
  */
-const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, status: fileStatus, onClose, back }) => {
+const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, status: fileStatus, onClose, back, canDownload }) => {
     const { t, language } = useTheme();
     const toast = useToast();
     const backLink = usePreviewBackLink(back, 'h-8');
@@ -203,9 +205,11 @@ const TablePreviewContent: React.FC<ContentProps> = ({ kbId, fileId, fileName, s
     // that row while there are no tabs yet).
     const actions = (
         <>
-            <Button variant="ghost" size="icon" className="size-8" aria-label={`${t('download')} ${fileName}`} title={t('tpDownloadOriginal')} onClick={download}>
-                <Download className="size-4" aria-hidden="true" />
-            </Button>
+            {canDownload && (
+                <Button variant="ghost" size="icon" className="size-8" aria-label={`${t('download')} ${fileName}`} title={t('tpDownloadOriginal')} onClick={download}>
+                    <Download className="size-4" aria-hidden="true" />
+                </Button>
+            )}
             <Button
                 variant="ghost"
                 size="icon"

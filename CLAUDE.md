@@ -11,7 +11,7 @@ one before changing a feature**:
 | `docs/kb-access.md` | KB roles + resolution ladder, per-KB source capabilities, visibility/publish/subscriptions, invite links, per-user topic filters, overview UI |
 | `docs/ui-views.md` | Every view of the web app: URL, component, shell, URL dialogs and their sections, gates |
 | `docs/eval-cli.md` | Every `cmd/eval` / `cmd/eval-gen` flag and mode (judge, pairwise, production-context overlays, trajectory, multi-turn, policy) |
-| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0106**) |
+| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0107**) |
 | `docs/feature-recipes.md` | Enablement toggle blocks per gated feature (flag order, SQL grants, ops sequences) |
 | `docs/retrieval.md` / `docs/agent-orchestration.md` | Mechanism + rationale for the retrieval pipeline / orchestrators and chat features |
 | `docs/api-contracts/` | Frontend contracts (agent chat, SSE early open, user file library, owui compat, …) |
@@ -79,7 +79,7 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 
 - Four roles `view < edit < admin < owner`. `kb_members` is the **sole authority**; `knowledge_bases.user_id` is a trigger-maintained mirror — never write it.
 - Resolution: `kbaccess.EffectiveRole` (only ladder), `kbaccess.RequireKBRole(min)` (only route gate; `RequireOperableKB`/`RequireKBRoleOrOperable` admit system admins to shared, global or their own KBs on `kbAdvancedChain`/`kbAgentListChain` only). SQL mirrors `kbaccess.VisibleKBsCTE` and `kbaccess.SeeSourcesSQL` must change in the same commit as the Go logic (parity test `TestVisibilityAgreesWithEffectiveRole`).
-- Per-KB source permissions: `kbaccess.CapabilitiesFor` → `seeSources`, `addSources`, `downloadSources`, `seeCitations`, `manageSources` (mig 0089). `seeCitations` is enforced on output only.
+- Per-KB source permissions: `kbaccess.CapabilitiesFor` → `seeSources`, `addSources`, `previewSources`, `downloadSources`, `seeCitations`, `manageSources` (mig 0089, 0107). `seeCitations` is enforced on output only. `previewSources` (download includes it) only keeps the download out of the UI — the file still reaches the browser.
 - `visibility` (`private`|`public`) is the truth; `is_global` is a generated column no Go code reads. Public KBs have no owner; publishing is staged (`is_published=false`).
 
 ## Commands

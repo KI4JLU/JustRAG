@@ -191,17 +191,19 @@ with the level-1 right it rests on:
 | 0 | Use the KB's sources in a chat answer; restrict a chat or research turn to chosen files (`selectedFileIds`, `fileIds`) | KB access only — not a permission |
 | 1 | `seeSources` — the source lists | its flag |
 | 1 | `seeCitations` — an answer's citations | its flag (independent of `seeSources`) |
-| 2 | `downloadSources` — download and preview a source | its flag **and** `seeSources` |
+| 2 | `previewSources` — open a source in the in-app preview, without download | its flag **or** the download flag, **and** `seeSources` |
+| 2 | `downloadSources` — download a source (includes the preview) | its flag **and** `seeSources` |
 | 2 | `addSources` — add sources ("Hinzufügen") | role `edit` **and** `editorAddSources` **and** `seeSources`; never `view` |
 | 2 | `manageSources` — change, sync, poll, delete, retry sources ("Bearbeiten") | role `edit` (no flag) **and** `seeSources`; never `view` |
 
-The seven fields:
+The nine fields:
 
 | Fields | Defaults (viewer / editor) | Off means (for that role) |
 |---|---|---|
-| `viewerSeeSources`, `editorSeeSources` | `false` / `true` | 403 on the source lists: `GET /kb/{id}/files`, `GET /kb/{id}/rss`, `GET /kb/{id}/confluence-sources`, `GET /kb/{id}/git-repos`, `GET /kb/{id}/crawl/status/{jobId}`; no file hits from that KB in the header search (`GET /search`). By the pyramid also no `downloadSources`, `addSources` or `manageSources`, whatever their flags say. |
+| `viewerSeeSources`, `editorSeeSources` | `false` / `true` | 403 on the source lists: `GET /kb/{id}/files`, `GET /kb/{id}/rss`, `GET /kb/{id}/confluence-sources`, `GET /kb/{id}/git-repos`, `GET /kb/{id}/crawl/status/{jobId}`; no file hits from that KB in the header search (`GET /search`). By the pyramid also no `previewSources`, `downloadSources`, `addSources` or `manageSources`, whatever their flags say. |
 | `editorAddSources` (editors only) | `true` | 403 on every route that creates a source: `POST /kb/{id}/files`, `/files/from-library`, `/text`, `/add-sources` (also where the web search's "add to KB" lands), `/fetch-url`, `/crawl`, `/rss`, `/confluence-sources`, `/git-repos`, and `POST /academic-research/{researchId}/papers/add`; the agent chat (`POST /kb/{id}/agui/chat`) does not offer or execute its KB-writing dead-end actions (`library`, `upload`, `confluence`). Refused before anything is fetched, stored or written. A viewer gets the same 403 whatever the flags say. |
-| `viewerDownloadSources`, `editorDownloadSources` | `false` / `true` | 403 on `GET /files/{id}/download` (also the in-app PDF preview) and on the spreadsheet source preview, `GET /kb/{id}/files/{fileId}/tabular` and `GET /kb/{id}/files/{fileId}/tabular/rows` |
+| `viewerPreviewSources`, `editorPreviewSources` | `false` / `true` | with the download flag off too: 403 on the in-app preview — `GET /files/{id}/preview`, `GET /files/{id}/text` and the spreadsheet source preview, `GET /kb/{id}/files/{fileId}/tabular` and `GET /kb/{id}/files/{fileId}/tabular/rows`. **Not a protection:** the preview hands the file to the browser, where developer tools can save it; it only keeps the download out of the UI. |
+| `viewerDownloadSources`, `editorDownloadSources` | `false` / `true` | 403 on `GET /files/{id}/download`. On, it also grants the preview, whatever the preview flag says. |
 | `viewerSeeCitations`, `editorSeeCitations` | `false` / `true` | answers carry no source attribution on any chat surface — see [Citations](#citations) below; nothing is refused |
 
 Editing sources (`manageSources`) has no flag: `PATCH`/`DELETE` and
@@ -209,8 +211,8 @@ Editing sources (`manageSources`) has no flag: `PATCH`/`DELETE` and
 `DELETE /files/{id}`, `POST /files/{id}/retry` and
 `POST /kb/{id}/files/retry-failed`. The `edit` role and above have it (an
 editor only while `editorSeeSources` is on), `view` never does. An editor
-without `editorSeeSources` can do nothing with sources: no list, download,
-add or edit.
+without `editorSeeSources` can do nothing with sources: no list, preview,
+download, add or edit.
 
 Selecting files for a chat or research turn is not gated by any of this: the
 UI offers it where the user sees the source list, and the API accepts a
@@ -238,6 +240,7 @@ applied, so a client never re-derives the role ladder (an implicit viewer's
 "capabilities": {
   "seeSources": true,
   "addSources": false,
+  "previewSources": true,
   "downloadSources": false,
   "seeCitations": true,
   "manageSources": false
@@ -827,6 +830,7 @@ distinct people who joined through it; `lastUsedAt` is the last such join.
 | GET | `/kb/{id}/crawl/status/{jobId}` |
 | POST | `/kb/{id}/websearch` |
 | GET | `/files/{id}/download` |
+| GET | `/files/{id}/preview` |
 | GET | `/files/{id}/text` |
 | DELETE | `/files/{id}` |
 | POST | `/files/{id}/retry` |
@@ -837,12 +841,13 @@ distinct people who joined through it; `lastUsedAt` is the last such join.
 | GET | `/kb/{id}/files/{fileId}/tabular/rows` |
 | POST | `/kb/{id}/tabular/rematerialize` |
 
-- Source permissions (see Knowledge bases): every adding route here — `POST /kb/{id}/files`, `/text`, `/add-sources`, `/fetch-url`, `/crawl`, `/files/from-library` — needs KB edit and `addSources` (`editorAddSources` plus `editorSeeSources`; never a viewer). Deleting and retrying — `DELETE /files/{id}`, `POST /files/{id}/retry`, `POST /kb/{id}/files/retry-failed` — needs `manageSources` (edit role and above with `seeSources`, never a viewer). `GET /kb/{id}/crawl/status/{jobId}` needs KB view and `seeSources`; `GET /files/{id}/download`, `GET /files/{id}/text` and both `…/tabular` routes need KB view and `downloadSources`. `POST /kb/{id}/websearch` only searches (KB view); adding a hit goes through `/add-sources`. The `/files/{id}` routes check this in the handler (their path has no KB), the others in the route's middleware.
+- Source permissions (see Knowledge bases): every adding route here — `POST /kb/{id}/files`, `/text`, `/add-sources`, `/fetch-url`, `/crawl`, `/files/from-library` — needs KB edit and `addSources` (`editorAddSources` plus `editorSeeSources`; never a viewer). Deleting and retrying — `DELETE /files/{id}`, `POST /files/{id}/retry`, `POST /kb/{id}/files/retry-failed` — needs `manageSources` (edit role and above with `seeSources`, never a viewer). `GET /kb/{id}/crawl/status/{jobId}` needs KB view and `seeSources`; `GET /files/{id}/download` needs KB view and `downloadSources`; `GET /files/{id}/preview`, `GET /files/{id}/text` and both `…/tabular` routes need KB view and `previewSources`. `POST /kb/{id}/websearch` only searches (KB view); adding a hit goes through `/add-sources`. The `/files/{id}` routes check this in the handler (their path has no KB), the others in the route's middleware.
 - `POST /kb/{id}/files` refusals carry a `code` (see "Error codes"): the upload checks as on `/library/files`, `400 kb_full` when the KB holds its maximum number of files (500, 1 000 for a public KB) or would exceed 500 MB, and the library's `413 quota_exceeded` / `409 already_in_kb`.
-- `GET /files/{id}/text` (KB view + `downloadSources`, checked in the handler like the download) serves the source preview of a document the browser cannot render: Word (`.docx`), PowerPoint (`.pptx`), ODT, EPUB and TeX, matched by MIME type or extension. Response `{"text": "…", "markdown": false}`, the text the built-in parsers extract on demand (not cached; a Docling ingest may have read more layout than this). Refusals carry a `code`: `400` invalid id, `404` file / KB / blob missing, `403`, `415 unsupported_file_type` for any other format (PDF, spreadsheets, images, audio and plain text are previewed from `/download`), `413 file_too_large` past 100 MiB, `422 file_unreadable`, `422 parse_timeout` (30 s).
+- `GET /files/{id}/preview` (KB view + `previewSources`, checked in the handler) serves the same bytes as `/download` with `Content-Disposition: inline`, for the in-app preview (PDF viewer, image, audio and video players, text and Markdown sources). Same refusals as the download: `400` invalid id, `404` file / KB / blob missing, `403`.
+- `GET /files/{id}/text` (KB view + `previewSources`, checked in the handler like the preview) serves the source preview of a document the browser cannot render: Word (`.docx`), PowerPoint (`.pptx`), ODT, EPUB and TeX, matched by MIME type or extension. Response `{"text": "…", "markdown": false}`, the text the built-in parsers extract on demand (not cached; a Docling ingest may have read more layout than this). Refusals carry a `code`: `400` invalid id, `404` file / KB / blob missing, `403`, `415 unsupported_file_type` for any other format (PDF, spreadsheets, images, audio and plain text are previewed from `/preview`), `413 file_too_large` past 100 MiB, `422 file_unreadable`, `422 parse_timeout` (30 s).
 - `POST /files/{id}/retry` (`manageSources` on the file's KB, checked in the handler) re-queues one file in status `error`; `409` if it is not, or another retry won. `POST /kb/{id}/files/retry-failed` (`manageSources`) does it for every failed file: `{"retried": N}`.
 - `POST /kb/{id}/files/from-library` (KB edit + `addSources`) adds files from the caller's user file library; `POST /kb/{id}/files/adopt` (KB admin; private KB: owner only, public KB: system admin) moves legacy uploads into the uploader's library. Contract: [`docs/api-contracts/user-file-library.md`](docs/api-contracts/user-file-library.md).
-- `GET /kb/{id}/files/{fileId}/tabular` (KB view + `downloadSources`) serves the file's "Tabellen" panel (parse report + materialised tables; `{"report":null,"tables":[]}` for a non-spreadsheet). A column the ingest linked to a lookup table of the same file carries `lookup: {table, key, label, via?, source, compare?}`: without `via` its values are codes whose name is `label` where `key` equals the code; with `via` it holds an already looked-up value keyed by that column. `source` is `formula`, `validation` or `heuristic` (inferred; may be wrong). A `validation` link has `key == label`: the column holds the listed value itself, so there is no name to show. `compare` is present when the two columns have different types: `numeric` means match the values as numbers (a code `5` against a key `"05"` or `"5.0"`), `text` as strings. `GET /kb/{id}/files/{fileId}/tabular/rows?table=<table_name>` (KB view + `downloadSources`) returns one page of a materialised table for the source preview. Parameters: `offset` (default 0), `limit` 1–500 (default 100), `q` (search, ≤200 characters, case-insensitive substring over all columns; a decimal comma also matches), `sort` (a column of that table) with `dir=asc|desc` (NULL last), `show_empty=true` (include empty template rows, which are hidden by default: every cell after the first is NULL, empty, or 0). Response: `{"table_name","sheet_name","columns":[…],"rows":[{"id","empty","cells":[…]}],"row_count","matched","offset","limit"}`, columns by SQL name, cells as SQL text (`null` for NULL), `id` = `_rowid` (ingest order, not the Excel row). The first page (`offset=0`) also carries `empty_rows` and `empty_columns`. `table` must be one of the file's own tables (`404` otherwise). `POST /kb/{id}/tabular/rematerialize` (KB admin) re-ingests every spreadsheet of the KB after `tabular_*` setting changes.
+- `GET /kb/{id}/files/{fileId}/tabular` (KB view + `previewSources`) serves the file's "Tabellen" panel (parse report + materialised tables; `{"report":null,"tables":[]}` for a non-spreadsheet). A column the ingest linked to a lookup table of the same file carries `lookup: {table, key, label, via?, source, compare?}`: without `via` its values are codes whose name is `label` where `key` equals the code; with `via` it holds an already looked-up value keyed by that column. `source` is `formula`, `validation` or `heuristic` (inferred; may be wrong). A `validation` link has `key == label`: the column holds the listed value itself, so there is no name to show. `compare` is present when the two columns have different types: `numeric` means match the values as numbers (a code `5` against a key `"05"` or `"5.0"`), `text` as strings. `GET /kb/{id}/files/{fileId}/tabular/rows?table=<table_name>` (KB view + `previewSources`) returns one page of a materialised table for the source preview. Parameters: `offset` (default 0), `limit` 1–500 (default 100), `q` (search, ≤200 characters, case-insensitive substring over all columns; a decimal comma also matches), `sort` (a column of that table) with `dir=asc|desc` (NULL last), `show_empty=true` (include empty template rows, which are hidden by default: every cell after the first is NULL, empty, or 0). Response: `{"table_name","sheet_name","columns":[…],"rows":[{"id","empty","cells":[…]}],"row_count","matched","offset","limit"}`, columns by SQL name, cells as SQL text (`null` for NULL), `id` = `_rowid` (ingest order, not the Excel row). The first page (`offset=0`) also carries `empty_rows` and `empty_columns`. `table` must be one of the file's own tables (`404` otherwise). `POST /kb/{id}/tabular/rematerialize` (KB admin) re-ingests every spreadsheet of the KB after `tabular_*` setting changes.
 
 ### User file library
 
@@ -1315,7 +1320,7 @@ All routes below are under `/api/v1` and require `Authorization: Bearer <api-key
 
 Notes:
 
-- `GET /api/v1/kb` rows carry the `capabilities` object (`seeSources`, `addSources`, `downloadSources`, `seeCitations`, `manageSources`) resolved for the API key's owner, the same shape as the web API's KB list. The `api-user` system role adds no KB rights of its own; only the owner's KB roles count.
+- `GET /api/v1/kb` rows carry the `capabilities` object (`seeSources`, `addSources`, `previewSources`, `downloadSources`, `seeCitations`, `manageSources`) resolved for the API key's owner, the same shape as the web API's KB list. The `api-user` system role adds no KB rights of its own; only the owner's KB roles count.
 - KB permissions are still enforced. A file selection (`selectedFileIds` on `POST /kb/{id}/chat`, `fileIds` on `POST /kb/{id}/research`) is not gated by the per-KB source permissions: any caller with KB view access may restrict a turn to chosen files.
 - `POST /api/v1/kb/{id}/research` supports streaming and non-streaming behavior.
 - Streaming responses (`POST /kb/{id}/chat` with `stream`, `POST /kb/{id}/research`) may carry SSE comment lines (`: ping`) in silent phases (model reasoning, slow tool calls): a keep-alive per the WHATWG SSE spec, carrying no `data:` payload. Clients that only parse `data:` lines are unaffected.

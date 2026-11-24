@@ -87,12 +87,12 @@ workflow, per-KB re-embed)
 
 ## Source permissions
 
-Migration 0089. On top of the ladder, never inside it.
+Migrations 0089 and 0107. On top of the ladder, never inside it.
 
-`kbaccess.CapabilitiesFor(kb, role)` turns the resolved role and the KB's seven flags into
-`Capabilities{seeSources, addSources, downloadSources, seeCitations, manageSources}`.
+`kbaccess.CapabilitiesFor(kb, role)` turns the resolved role and the KB's nine flags into
+`Capabilities{seeSources, addSources, previewSources, downloadSources, seeCitations, manageSources}`.
 
-**Flags:** `viewer_` and `editor_` × `see_sources`, `download_sources`, `see_citations`, plus
+**Flags:** `viewer_` and `editor_` × `see_sources`, `preview_sources`, `download_sources`, `see_citations`, plus
 `editor_add_sources` (default true). There is no viewer add flag. Written via `PATCH /api/kb/{id}`
 (`kbAdminChain`).
 
@@ -103,21 +103,26 @@ Migration 0089. On top of the ladder, never inside it.
 | Chat with the sources, restrict a turn to chosen files (`selectedFileIds` / `fileIds`) | KB access; not a permission |
 | `seeSources` | The role's `see_sources` flag |
 | `seeCitations` | The role's `see_citations` flag; independent of `seeSources` |
-| `downloadSources` | The role's `download_sources` flag AND `seeSources` |
+| `previewSources` (in-app preview, no download) | (The role's `preview_sources` flag OR its `download_sources` flag) AND `seeSources` |
+| `downloadSources` | The role's `download_sources` flag AND `seeSources`; includes `previewSources` |
 | `addSources` | `edit` AND `editor_add_sources` AND `seeSources`; never `view` |
 | `manageSources` (change, sync, poll, delete, retry) | `edit` AND `seeSources`; no flag; never `view` |
 
 - `admin` and `owner` get everything (incl. superadmin, and a system admin on a public KB).
 - An editor without `editor_see_sources` can do nothing with sources.
+- `previewSources` without `downloadSources` is a UI decision, not a protection: the preview hands
+  the file to the browser (`GET /api/files/{id}/preview`), where developer tools can save it. The
+  roles & rights matrix warns the KB admin whenever a role has it. Defaults: viewer `false`, editor
+  `true`; the download flag includes it, so mig 0107 needed no backfill.
 - The `api-user` system role has no rung of its own: it governs only use of the outgoing API
   (API-key management). An explicit `kb_members` row counts as for anyone.
 
 **Where it is applied** (`CapabilitiesFor` is the only reader of the flags)
 
 - `kbaccess.RequireKBCapability` on the route chains `kbSourceListChain`,
-  `kbSourceDownloadChain`, `kbAddSourcesChain`, `kbManageSourcesChain` (the last two gated at
+  `kbSourcePreviewChain`, `kbAddSourcesChain`, `kbManageSourcesChain` (the last two gated at
   `edit`) in `routes.go`.
-- Handler-internal checks in `internal/files` (download, delete, retry by file id) and
+- Handler-internal checks in `internal/files` (download, preview, text, delete, retry by file id) and
   `internal/academic` (`papers/add`, KB in the body).
 - The agent chat's KB-writing actions: `adkbridge.Scope.Capabilities`, policy
   `RequiresCapability: addSources` on `library_add_to_kb` / `confluence_import`.

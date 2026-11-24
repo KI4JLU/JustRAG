@@ -22,7 +22,7 @@ interface SourceDetailsModalProps {
     /** Absent for a caller without capabilities.manageSources: no delete button. */
     onDeleteFile?: (fileId: string, e: React.MouseEvent) => void;
     /** Opens an entry's source preview on a row click; absent without
-     *  capabilities.downloadSources (rows are then display-only). */
+     *  capabilities.previewSources (rows are then display-only). */
     onOpenFile?: (file: FileEntry) => void;
     onClose: () => void;
 }
