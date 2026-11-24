@@ -1,4 +1,5 @@
 import type { AdminSection } from '../../hooks/adminDialog';
+import { RIGHT_LABEL_KEY } from '../../utils/kbRoleRights';
 import { AGENT_SEARCH_KEYS } from './agentSections';
 
 /*
@@ -46,6 +47,8 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
     roles: [
         'arSystemRolesTitle', 'arKbRolesTitle', 'arMappingTitle', 'arPerTopic',
         'roleUser', 'roleApiUser', 'roleAdmin', 'roleSuperAdmin', 'kbRoleOwner', 'kbRoleAdmin', 'kbRoleEdit', 'kbRoleView',
+        // The per-topic rights matrix (read-only here): its row labels.
+        ...Object.values(RIGHT_LABEL_KEY),
     ],
     health: ['reembedAllTitle'],
     eval: [

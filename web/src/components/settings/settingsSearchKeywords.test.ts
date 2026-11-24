@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ADMIN_SEARCH_KEYS } from '../admin/adminSearchKeywords';
 import { KB_SETTINGS_SEARCH_KEYS } from '../kbSettings/kbSettingsSearchKeywords';
+import { RIGHT_LABEL_KEY } from '../../utils/kbRoleRights';
 import { USER_SETTINGS_SEARCH_KEYS } from './userSettingsSearchKeywords';
 
 /*
@@ -94,6 +95,13 @@ describe('settings search keywords', () => {
             }
         });
     }
+
+    // AdminRolesTab is exempt from the label scan (ADMIN_NO_ROWS) and builds its rights rows at
+    // runtime, so the rights table is the oracle: every right's label finds the roles section.
+    it('lists every topic right in the admin roles section', () => {
+        const missing = Object.values(RIGHT_LABEL_KEY).filter((k) => !ADMIN_SEARCH_KEYS.roles.includes(k));
+        expect(missing).toEqual([]);
+    });
 
     // A new admin tab or section file has to be listed above, or its rows escape the rule.
     it('covers every admin tab and section file', () => {
