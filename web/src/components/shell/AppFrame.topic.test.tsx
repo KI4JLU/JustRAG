@@ -40,7 +40,9 @@ vi.mock('@ki4jlu/design-system', async (importOriginal) => {
           {/* Wie die echte Shell: `showRight={false}` nimmt die Spalte aus der
               Desktop-Anordnung; der Stub kennt nur diese Anordnung. */}
           {props.rightPanel && props.showRight !== false && (
-            <div data-testid="shell-right">{props.rightPanel.content}</div>
+            <div data-testid="shell-right">
+              {typeof props.rightPanel.content === 'function' ? props.rightPanel.content({ inRail: false }) : props.rightPanel.content}
+            </div>
           )}
         </div>
       );

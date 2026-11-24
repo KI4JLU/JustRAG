@@ -441,7 +441,7 @@ const ChatViewComp = () => {
                 <ChatStage
                   // relative isolate: the start page's glow fills the stage, behind the content.
                   className="chat-column relative isolate"
-                  data-chat-width={chatWidth}
+                  width={chatWidth}
                   empty={chat.messages.length === 0}
                   footerId="chat-disclaimer"
                   footer={t('chatFooter')}
