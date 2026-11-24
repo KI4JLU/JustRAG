@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/fetcher"
@@ -360,16 +361,16 @@ func (h *Handler) sourceAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, 
 	return role, kbaccess.CapabilitiesFor(kb, role), nil
 }
 
-// canDownload reports whether the caller may download kb's source files:
-// at least view, plus the downloadSources capability (the KB's
-// viewer_download_sources flag for a viewer, editor_download_sources for an
-// editor).
-func (h *Handler) canDownload(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
+// canRead reports whether the caller may read kb's source files the way
+// capability allows: at least view, plus the capability —
+// kbaccess.CapDownloadSources for a download, kbaccess.CapPreviewSources for
+// the in-app preview (which the download flag grants too).
+func (h *Handler) canRead(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims, capability kbaccess.Capability) (bool, error) {
 	role, caps, err := h.sourceAccess(ctx, kb, user)
 	if err != nil {
 		return false, err
 	}
-	return kbaccess.AtLeast(role, kbaccess.RoleView) && caps.DownloadSources, nil
+	return kbaccess.AtLeast(role, kbaccess.RoleView) && caps.Has(capability), nil
 }
 
 // canManage reports whether the caller may delete or retry kb's files: the
@@ -387,12 +388,13 @@ func (h *Handler) canManage(ctx context.Context, kb *kbaccess.KnowledgeBase, use
 // Endpoint handlers
 // ---------------------------------------------------------------------------
 
-// downloadableFile resolves fileID to a stored file the authenticated caller
-// may download (canDownload), or writes the refusal and returns false: 404
-// for a missing file, KB or blob, 403 without downloadSources. The caller
-// has checked authentication. Shared by Download and Text, so the text
-// preview can never read what the download would refuse.
-func (h *Handler) downloadableFile(w http.ResponseWriter, r *http.Request, fileID string) (*FileInfo, bool) {
+// readableFile resolves fileID to a stored file the authenticated caller may
+// read with capability (canRead), or writes the refusal and returns false:
+// 404 for a missing file, KB or blob, 403 without the capability. The caller
+// has checked authentication. Shared by Download (downloadSources), Preview
+// and Text (previewSources), so no route reads a file through a gate of its
+// own.
+func (h *Handler) readableFile(w http.ResponseWriter, r *http.Request, fileID string, capability kbaccess.Capability) (*FileInfo, bool) {
 	ctx := r.Context()
 	file, err := h.store.GetFileByID(ctx, fileID)
 	if err != nil {
@@ -414,7 +416,7 @@ func (h *Handler) downloadableFile(w http.ResponseWriter, r *http.Request, fileI
 		return nil, false
 	}
 
-	ok, err := h.canDownload(ctx, kb, auth.UserFromContext(ctx))
+	ok, err := h.canRead(ctx, kb, auth.UserFromContext(ctx), capability)
 	if err != nil {
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
 		return nil, false
@@ -433,8 +435,8 @@ func (h *Handler) downloadableFile(w http.ResponseWriter, r *http.Request, fileI
 
 // Download handles GET /api/files/{id}/download.
 // Requires authentication; the user must have at least view access to the
-// file's KB and the downloadSources capability on it (canDownload). The
-// in-app PDF preview reads through this route, so it follows the same gate.
+// file's KB and the downloadSources capability on it (canRead). The file is
+// sent as an attachment.
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 	if auth.UserFromContext(r.Context()) == nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "Authentication required")
@@ -445,11 +447,42 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "Missing file ID")
 		return
 	}
-	file, ok := h.downloadableFile(w, r, fileID)
+	file, ok := h.readableFile(w, r, fileID, kbaccess.CapDownloadSources)
 	if !ok {
 		return
 	}
+	h.serveFile(w, r, file, "attachment")
+}
 
+// Preview handles GET /api/files/{id}/preview: the same bytes as Download,
+// for the in-app preview (PDF viewer, image, audio and video players,
+// spreadsheet and text sources). Gated by previewSources, which the download
+// flag also grants, so a KB can let viewers open the preview without
+// offering them a download. That keeps the download out of the UI only: the
+// file still reaches the browser, where developer tools can save it, so it
+// is no protection for confidential material.
+func (h *Handler) Preview(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if auth.UserFromContext(ctx) == nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "Invalid file ID")
+		return
+	}
+	file, ok := h.readableFile(w, r, id.String(), kbaccess.CapPreviewSources)
+	if !ok {
+		return
+	}
+	h.serveFile(w, r, file, "inline")
+}
+
+// serveFile streams a stored file with its Content-Type and the given
+// Content-Disposition type ("attachment" or "inline"), behind a restrictive
+// CSP so a user-uploaded file opened in the browser cannot run script.
+func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, file *FileInfo, disposition string) {
 	stream, err := h.storage.ReadFileStream(r.Context(), *file.StoragePath)
 	if err != nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusInternalServerError, "Failed to read file")
@@ -468,7 +501,7 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 	// Go 1.26 rejects CR/LF in header values, but a stray double-quote would
 	// still let an attacker break out of the quoted filename token, and control
 	// characters confuse some clients. Strip both.
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, sanitizeContentDispositionFilename(file.Name)))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposition, sanitizeContentDispositionFilename(file.Name)))
 	w.Header().Set("Content-Type", contentType)
 	// Restrictive CSP on user-uploaded files to prevent XSS if opened in browser.
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'none'; object-src 'none'")

@@ -24,7 +24,10 @@ import (
 //     viewer_see_sources AND viewer_download_sources on, an editor only
 //     with editor_see_sources AND editor_download_sources on (the pyramid:
 //     download requires seeing the sources); the other role's flags never
-//     help.
+//     help, and the preview flag never grants the download.
+//   - preview (GET /api/files/{id}/preview): as download, but the role's
+//     preview flag OR its download flag will do (download includes the
+//     preview, Sten 2026-11-24).
 //   - delete / retry ("edit sources", fixed by role): an editor whenever
 //     editor_see_sources is on (the pyramid), whatever the other flags; a
 //     viewer never, even with every flag on.
@@ -41,8 +44,8 @@ func sourcePermFile() *files.FileInfo {
 }
 
 var everyFlag = kbaccess.SourcePermissions{
-	ViewerSeeSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
-	EditorSeeSources: true, EditorAddSources: true, EditorDownloadSources: true,
+	ViewerSeeSources: true, ViewerPreviewSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
+	EditorSeeSources: true, EditorAddSources: true, EditorPreviewSources: true, EditorDownloadSources: true,
 	EditorSeeCitations: true,
 }
 
@@ -57,6 +60,15 @@ func allBut(clear func(*kbaccess.SourcePermissions)) kbaccess.SourcePermissions 
 func viewerDownload(p *kbaccess.SourcePermissions) { p.ViewerDownloadSources = false }
 func editorDownload(p *kbaccess.SourcePermissions) { p.EditorDownloadSources = false }
 
+// viewerReadOff / editorReadOff clear both flags that grant the preview.
+func viewerReadOff(p *kbaccess.SourcePermissions) {
+	p.ViewerPreviewSources, p.ViewerDownloadSources = false, false
+}
+
+func editorReadOff(p *kbaccess.SourcePermissions) {
+	p.EditorPreviewSources, p.EditorDownloadSources = false, false
+}
+
 func TestDownloadFollowsDownloadSourcesFlags(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -67,6 +79,7 @@ func TestDownloadFollowsDownloadSourcesFlags(t *testing.T) {
 		{"viewer_flag_on", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerDownloadSources: true}, http.StatusOK},
 		{"viewer_flag_on_see_off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources = false }), http.StatusForbidden},
 		{"viewer_flag_off", kbaccess.RoleView, allBut(viewerDownload), http.StatusForbidden},
+		{"viewer_preview_only", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerPreviewSources: true}, http.StatusForbidden},
 		{"editor_flag_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSeeSources: true, EditorDownloadSources: true}, http.StatusOK},
 		{"editor_flag_on_see_off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), http.StatusForbidden},
 		{"editor_flag_off", kbaccess.RoleEdit, allBut(editorDownload), http.StatusForbidden},
@@ -96,6 +109,66 @@ func TestDownloadFollowsDownloadSourcesFlags(t *testing.T) {
 				t.Fatalf("file content streamed = %v with status %d", streamed, rr.Code)
 			}
 		})
+	}
+}
+
+func TestPreviewFollowsPreviewSourcesFlags(t *testing.T) {
+	cases := []struct {
+		name  string
+		role  string
+		flags kbaccess.SourcePermissions
+		want  int
+	}{
+		{"viewer_preview_on", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerPreviewSources: true}, http.StatusOK},
+		{"viewer_download_on", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerDownloadSources: true}, http.StatusOK},
+		{"viewer_preview_on_see_off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources = false }), http.StatusForbidden},
+		{"viewer_preview_and_download_off", kbaccess.RoleView, allBut(viewerReadOff), http.StatusForbidden},
+		{"editor_preview_on", kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSeeSources: true, EditorPreviewSources: true}, http.StatusOK},
+		{"editor_preview_and_download_off", kbaccess.RoleEdit, allBut(editorReadOff), http.StatusForbidden},
+		{"kb_admin_flags_off", kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := sourcePermFile()
+			file.ID = textPreviewFileID
+			store := &mockStore{
+				file: file,
+				kb:   &kbaccess.KnowledgeBase{ID: "kb-1", UserID: strPtr("owner"), Sources: tc.flags},
+				role: tc.role,
+			}
+			stor := &mockStorage{stream: io.NopCloser(strings.NewReader("PDF content"))}
+			h := files.NewHandler(store, stor, noopChunks())
+
+			req := newRequest(http.MethodGet, "/api/files/"+textPreviewFileID+"/preview")
+			req.SetPathValue("id", textPreviewFileID)
+			req = withUser(req, ownerUser())
+			rr := httptest.NewRecorder()
+			h.Preview(rr, req)
+
+			if rr.Code != tc.want {
+				t.Fatalf("status %d, want %d", rr.Code, tc.want)
+			}
+			streamed := rr.Body.String() == "PDF content"
+			if streamed != (tc.want == http.StatusOK) {
+				t.Fatalf("file content streamed = %v with status %d", streamed, rr.Code)
+			}
+			if tc.want == http.StatusOK && !strings.HasPrefix(rr.Header().Get("Content-Disposition"), "inline;") {
+				t.Fatalf("Content-Disposition = %q, want inline", rr.Header().Get("Content-Disposition"))
+			}
+		})
+	}
+}
+
+// A path id that is not a UUID is refused before any lookup.
+func TestPreviewRejectsInvalidID(t *testing.T) {
+	h := files.NewHandler(&mockStore{}, &mockStorage{}, noopChunks())
+	req := newRequest(http.MethodGet, "/api/files/urn:uuid:x/preview")
+	req.SetPathValue("id", "urn:uuid:x")
+	req = withUser(req, ownerUser())
+	rr := httptest.NewRecorder()
+	h.Preview(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", rr.Code)
 	}
 }
 

@@ -176,10 +176,10 @@ func TestText_Unauthenticated(t *testing.T) {
 	}
 }
 
-// The text preview reads what the download would hand out, so it follows the
-// same flags. Oracle: the download's expected status per case, from
-// TestDownloadFollowsDownloadSourcesFlags; a refused request returns no text.
-func TestTextFollowsDownloadSourcesFlags(t *testing.T) {
+// The text preview is part of the in-app preview, so it follows the preview
+// gate. Oracle: the preview's expected status per case, from
+// TestPreviewFollowsPreviewSourcesFlags; a refused request returns no text.
+func TestTextFollowsPreviewSourcesFlags(t *testing.T) {
 	cases := []struct {
 		name  string
 		role  string
@@ -188,8 +188,9 @@ func TestTextFollowsDownloadSourcesFlags(t *testing.T) {
 	}{
 		{"viewer_flag_on", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerDownloadSources: true}, http.StatusOK},
 		{"viewer_flag_on_see_off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources = false }), http.StatusForbidden},
-		{"viewer_flag_off", kbaccess.RoleView, allBut(viewerDownload), http.StatusForbidden},
-		{"editor_flag_off", kbaccess.RoleEdit, allBut(editorDownload), http.StatusForbidden},
+		{"viewer_preview_only", kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerPreviewSources: true}, http.StatusOK},
+		{"viewer_flags_off", kbaccess.RoleView, allBut(viewerReadOff), http.StatusForbidden},
+		{"editor_flags_off", kbaccess.RoleEdit, allBut(editorReadOff), http.StatusForbidden},
 		{"kb_admin_flag_off", kbaccess.RoleAdmin, kbaccess.SourcePermissions{}, http.StatusOK},
 	}
 	for _, tc := range cases {

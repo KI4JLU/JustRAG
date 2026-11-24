@@ -29,10 +29,12 @@ type kbRow struct {
 	IsPublished           bool    `db:"is_published"`
 	Shared                bool    `db:"shared"`
 	ViewerSeeSources      bool    `db:"viewer_see_sources"`
+	ViewerPreviewSources  bool    `db:"viewer_preview_sources"`
 	ViewerDownloadSources bool    `db:"viewer_download_sources"`
 	ViewerSeeCitations    bool    `db:"viewer_see_citations"`
 	EditorSeeSources      bool    `db:"editor_see_sources"`
 	EditorAddSources      bool    `db:"editor_add_sources"`
+	EditorPreviewSources  bool    `db:"editor_preview_sources"`
 	EditorDownloadSources bool    `db:"editor_download_sources"`
 	EditorSeeCitations    bool    `db:"editor_see_citations"`
 }
@@ -47,9 +49,9 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 	// that share it — sees the same flags CapabilitiesFor resolves.
 	const sql = `SELECT kb.id, kb.user_id, (kb.visibility = 'public') AS is_global, kb.is_published,
 	                    ` + SharedSQL + ` AS shared,
-	                    kb.viewer_see_sources, kb.viewer_download_sources,
+	                    kb.viewer_see_sources, kb.viewer_preview_sources, kb.viewer_download_sources,
 	                    kb.viewer_see_citations, kb.editor_see_sources, kb.editor_add_sources,
-	                    kb.editor_download_sources, kb.editor_see_citations
+	                    kb.editor_preview_sources, kb.editor_download_sources, kb.editor_see_citations
 	             FROM knowledge_bases kb WHERE kb.id = $1`
 
 	rows, err := pgxutil.QueryRows[kbRow](ctx, s.pool, sql, id)
@@ -69,10 +71,12 @@ func (s *PGStore) GetKBByID(ctx context.Context, id string) (*KnowledgeBase, err
 		Shared:      r.Shared,
 		Sources: SourcePermissions{
 			ViewerSeeSources:      r.ViewerSeeSources,
+			ViewerPreviewSources:  r.ViewerPreviewSources,
 			ViewerDownloadSources: r.ViewerDownloadSources,
 			ViewerSeeCitations:    r.ViewerSeeCitations,
 			EditorSeeSources:      r.EditorSeeSources,
 			EditorAddSources:      r.EditorAddSources,
+			EditorPreviewSources:  r.EditorPreviewSources,
 			EditorDownloadSources: r.EditorDownloadSources,
 			EditorSeeCitations:    r.EditorSeeCitations,
 		},

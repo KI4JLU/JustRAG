@@ -38,10 +38,12 @@ type KnowledgeBase struct {
 // true there); PGStore.GetKBByID always loads them.
 type SourcePermissions struct {
 	ViewerSeeSources      bool
+	ViewerPreviewSources  bool
 	ViewerDownloadSources bool
 	ViewerSeeCitations    bool
 	EditorSeeSources      bool
 	EditorAddSources      bool
+	EditorPreviewSources  bool
 	EditorDownloadSources bool
 	EditorSeeCitations    bool
 }
@@ -136,8 +138,14 @@ type Capabilities struct {
 	// add academic papers, and the agent chat's KB-writing actions. Edit
 	// role and above only (a viewer never adds); requires SeeSources.
 	AddSources bool `json:"addSources"`
-	// DownloadSources: download a source file and open the spreadsheet
-	// source preview. Requires SeeSources.
+	// PreviewSources: open a source file in the in-app preview (PDF, media,
+	// document text, spreadsheet tables) without a download action. Granted
+	// by the preview flag or the download flag, and requires SeeSources.
+	// Not a protection: the preview hands the file to the browser, where
+	// developer tools can save it. It only keeps the download out of the UI.
+	PreviewSources bool `json:"previewSources"`
+	// DownloadSources: download a source file. Includes PreviewSources.
+	// Requires SeeSources.
 	DownloadSources bool `json:"downloadSources"`
 	// SeeCitations: see an answer's citations.
 	SeeCitations bool `json:"seeCitations"`
@@ -150,10 +158,11 @@ type Capabilities struct {
 // Capability names one field of Capabilities, for the route gates.
 type Capability string
 
-// The five source capabilities; the values match the JSON keys.
+// The six source capabilities; the values match the JSON keys.
 const (
 	CapSeeSources      Capability = "seeSources"
 	CapAddSources      Capability = "addSources"
+	CapPreviewSources  Capability = "previewSources"
 	CapDownloadSources Capability = "downloadSources"
 	CapSeeCitations    Capability = "seeCitations"
 	CapManageSources   Capability = "manageSources"
@@ -166,6 +175,8 @@ func (c Capabilities) Has(capability Capability) bool {
 		return c.SeeSources
 	case CapAddSources:
 		return c.AddSources
+	case CapPreviewSources:
+		return c.PreviewSources
 	case CapDownloadSources:
 		return c.DownloadSources
 	case CapSeeCitations:
@@ -188,10 +199,11 @@ func (c Capabilities) Has(capability Capability) bool {
 //     (selectedFileIds / fileIds) is part of it and not gated either.
 //   - level 1, independent of each other: seeSources (the source lists) and
 //     seeCitations (an answer's citations).
-//   - level 2, each requiring seeSources: downloadSources, addSources and
-//     manageSources. A flag on level 2 grants nothing while seeSources is
-//     off — an editor with editor_add_sources but not editor_see_sources
-//     can neither add nor manage.
+//   - level 2, each requiring seeSources: previewSources, downloadSources,
+//     addSources and manageSources. A flag on level 2 grants nothing while
+//     seeSources is off — an editor with editor_add_sources but not
+//     editor_see_sources can neither add nor manage. downloadSources
+//     includes previewSources: the download flag grants the preview too.
 //
 // Per role:
 //
@@ -202,10 +214,11 @@ func (c Capabilities) Has(capability Capability) bool {
 //     admin rung of its own, so it never gains admin capability from it.
 //   - edit: seeSources and seeCitations follow their editor_* flags;
 //     downloadSources and addSources follow theirs AND seeSources;
+//     previewSources is (preview OR download) AND seeSources;
 //     manageSources is seeSources (the role grants it, the pyramid
 //     requires the list).
-//   - view: seeSources, seeCitations and downloadSources as for edit with
-//     the viewer_* flags; never addSources or manageSources, whatever the
+//   - view: seeSources, seeCitations, previewSources and downloadSources as
+//     for edit with the viewer_* flags; never addSources or manageSources, whatever the
 //     flags say (adding or deleting would make the viewer an editor).
 //   - anything else (no access): nothing.
 //
@@ -222,25 +235,28 @@ func CapabilitiesFor(kb *KnowledgeBase, role string) Capabilities {
 	if kb == nil {
 		return Capabilities{}
 	}
-	var see, add, download, citations bool
+	var see, add, preview, download, citations bool
 	switch {
 	case AtLeast(role, RoleAdmin):
 		return Capabilities{
-			SeeSources: true, AddSources: true, DownloadSources: true,
+			SeeSources: true, AddSources: true, PreviewSources: true, DownloadSources: true,
 			SeeCitations: true, ManageSources: true,
 		}
 	case role == RoleEdit:
 		see, add = kb.Sources.EditorSeeSources, kb.Sources.EditorAddSources
-		download, citations = kb.Sources.EditorDownloadSources, kb.Sources.EditorSeeCitations
+		preview, download = kb.Sources.EditorPreviewSources, kb.Sources.EditorDownloadSources
+		citations = kb.Sources.EditorSeeCitations
 	case role == RoleView:
 		see = kb.Sources.ViewerSeeSources
-		download, citations = kb.Sources.ViewerDownloadSources, kb.Sources.ViewerSeeCitations
+		preview, download = kb.Sources.ViewerPreviewSources, kb.Sources.ViewerDownloadSources
+		citations = kb.Sources.ViewerSeeCitations
 	default:
 		return Capabilities{}
 	}
 	return Capabilities{
 		SeeSources:      see,
 		SeeCitations:    citations,
+		PreviewSources:  see && (preview || download),
 		DownloadSources: see && download,
 		AddSources:      see && add && role == RoleEdit,
 		ManageSources:   see && role == RoleEdit,

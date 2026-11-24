@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	capsAll  = kbaccess.Capabilities{SeeSources: true, AddSources: true, DownloadSources: true, SeeCitations: true, ManageSources: true}
+	capsAll  = kbaccess.Capabilities{SeeSources: true, AddSources: true, PreviewSources: true, DownloadSources: true, SeeCitations: true, ManageSources: true}
 	capsNone = kbaccess.Capabilities{}
 )
 
@@ -177,7 +177,7 @@ func TestUpdateKB_SourcePermissionFields(t *testing.T) {
 	store := &mockUpdateStore{kb: makeKBRow("kb-1", "KB"), reread: reread}
 	h := kb.NewUpdateHandler(store, nil)
 
-	body := []byte(`{"viewerSeeSources":true,"editorSeeSources":false,"editorSeeCitations":true,"viewerSeeCitations":null,"viewerAddSources":true,"editorAddSources":false}`)
+	body := []byte(`{"viewerSeeSources":true,"editorSeeSources":false,"editorSeeCitations":true,"viewerSeeCitations":null,"viewerAddSources":true,"editorAddSources":false,"viewerPreviewSources":true,"editorPreviewSources":false}`)
 	r := httptest.NewRequest(http.MethodPatch, "/api/kb/kb-1", bytes.NewReader(body))
 	staleKB := &kbaccess.KnowledgeBase{ID: "kb-1", Sources: kbaccess.SourcePermissions{EditorSeeSources: true}}
 	r = injectKBAccessAs(r, staleKB, kbaccess.RoleAdmin, auth.RoleUser)
@@ -199,6 +199,12 @@ func TestUpdateKB_SourcePermissionFields(t *testing.T) {
 	}
 	if u.EditorAddSources == nil || *u.EditorAddSources {
 		t.Errorf("editorAddSources = %v, want false", u.EditorAddSources)
+	}
+	if u.ViewerPreviewSources == nil || !*u.ViewerPreviewSources {
+		t.Errorf("viewerPreviewSources = %v, want true", u.ViewerPreviewSources)
+	}
+	if u.EditorPreviewSources == nil || *u.EditorPreviewSources {
+		t.Errorf("editorPreviewSources = %v, want false", u.EditorPreviewSources)
 	}
 	for name, f := range map[string]*bool{
 		"viewerSeeCitations": u.ViewerSeeCitations, "viewerDownloadSources": u.ViewerDownloadSources,

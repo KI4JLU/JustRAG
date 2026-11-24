@@ -93,6 +93,74 @@ func TestDownloadGateReadsFlagsFromTheDatabase(t *testing.T) {
 	}
 }
 
+// TestPreviewGateReadsFlagsFromTheDatabase runs the preview and download
+// handlers against the real stores, so the decision comes from the stored
+// *_preview_sources / *_download_sources columns (migration 0107).
+//
+// Oracle: the flags are set with plain SQL; the expected outcomes are the
+// spec's (Sten, 2026-11-24) — a viewer with see + preview opens the preview
+// but is refused the download; the download flag alone grants the preview.
+func TestPreviewGateReadsFlagsFromTheDatabase(t *testing.T) {
+	pool := openMainPool(t)
+	ctx := context.Background()
+	kbID, fileID := seedErrorFile(t, pool, "completed")
+
+	var viewerID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO users (username, password_hash, role)
+		VALUES ($1, 'x-not-a-real-hash', 'user') RETURNING id::text`,
+		"preview-perm-viewer-"+time.Now().Format("150405.000000")).Scan(&viewerID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(ctx, `DELETE FROM kb_members WHERE user_id = $1::uuid`, viewerID) //nolint:errcheck
+		pool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, viewerID)           //nolint:errcheck
+	})
+	if _, err := pool.Exec(ctx, `INSERT INTO kb_members (kb_id, user_id, role) VALUES ($1::uuid, $2::uuid, 'view')`,
+		kbID, viewerID); err != nil {
+		t.Fatalf("insert kb_members: %v", err)
+	}
+
+	call := func(route string) int {
+		stor := &mockStorage{stream: io.NopCloser(strings.NewReader("PDF content"))}
+		h := files.NewHandler(files.NewStore(pool), stor, noopChunks())
+		req := newRequest(http.MethodGet, "/api/files/"+fileID+"/"+route)
+		req.SetPathValue("id", fileID)
+		req = withUser(req, &auth.Claims{ID: viewerID, Role: auth.RoleUser})
+		rr := httptest.NewRecorder()
+		if route == "preview" {
+			h.Preview(rr, req)
+		} else {
+			h.Download(rr, req)
+		}
+		if rr.Code == http.StatusOK && rr.Body.String() != "PDF content" {
+			t.Fatalf("%s: 200 without the file body: %q", route, rr.Body.String())
+		}
+		return rr.Code
+	}
+	setFlags := func(set string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `UPDATE knowledge_bases SET `+set+` WHERE id = $1::uuid`, kbID); err != nil {
+			t.Fatalf("set flags %q: %v", set, err)
+		}
+	}
+
+	if code := call("preview"); code != http.StatusForbidden {
+		t.Fatalf("viewer at the migration defaults: preview status %d, want 403", code)
+	}
+	setFlags("viewer_see_sources = true, viewer_preview_sources = true, viewer_download_sources = false")
+	if code := call("preview"); code != http.StatusOK {
+		t.Fatalf("viewer with see + preview: preview status %d, want 200", code)
+	}
+	if code := call("download"); code != http.StatusForbidden {
+		t.Fatalf("viewer with see + preview: download status %d, want 403", code)
+	}
+	setFlags("viewer_preview_sources = false, viewer_download_sources = true")
+	if code := call("preview"); code != http.StatusOK {
+		t.Fatalf("viewer with see + download: preview status %d, want 200", code)
+	}
+}
+
 // TestAddGateReadsFlagsFromTheDatabase runs the add-sources gate
 // (RequireKBCapability(edit, addSources), the composition kbAddSourcesChain
 // mounts in front of the add routes) against the real kbaccess.PGStore, so

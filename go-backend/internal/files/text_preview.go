@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/httputil"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/parser"
 	"github.com/justrag/go-backend/internal/safego"
@@ -75,7 +76,7 @@ type textPreviewResponse struct {
 
 // Text handles GET /api/files/{id}/text: the text a document source's
 // preview shows (Word, PowerPoint, ODT, EPUB, TeX), extracted on demand with
-// the built-in parsers. Same gate as Download (downloadableFile). It is the
+// the built-in parsers. Same gate as Preview (previewSources). It is the
 // extraction the built-in parsers produce, not necessarily the ingested text
 // (a Docling ingest reads layout the built-in parsers do not). Nothing is
 // cached: these formats parse in well under a second.
@@ -90,7 +91,7 @@ func (h *Handler) Text(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(ctx, w, http.StatusBadRequest, "Invalid file ID")
 		return
 	}
-	file, ok := h.downloadableFile(w, r, id.String())
+	file, ok := h.readableFile(w, r, id.String(), kbaccess.CapPreviewSources)
 	if !ok {
 		return
 	}

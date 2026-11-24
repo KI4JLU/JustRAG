@@ -9,11 +9,11 @@ import (
 	"github.com/justrag/go-backend/internal/kbaccess"
 )
 
-// flagSets enumerates all 128 combinations of the seven source flags, so the
+// flagSets enumerates all 512 combinations of the nine source flags, so the
 // matrix below never depends on a hand-picked subset.
 func flagSets() []kbaccess.SourcePermissions {
-	out := make([]kbaccess.SourcePermissions, 0, 128)
-	for m := 0; m < 128; m++ {
+	out := make([]kbaccess.SourcePermissions, 0, 512)
+	for m := 0; m < 512; m++ {
 		out = append(out, kbaccess.SourcePermissions{
 			ViewerSeeSources:      m&1 != 0,
 			ViewerDownloadSources: m&2 != 0,
@@ -22,6 +22,8 @@ func flagSets() []kbaccess.SourcePermissions {
 			EditorAddSources:      m&16 != 0,
 			EditorDownloadSources: m&32 != 0,
 			EditorSeeCitations:    m&64 != 0,
+			ViewerPreviewSources:  m&128 != 0,
+			EditorPreviewSources:  m&256 != 0,
 		})
 	}
 	return out
@@ -29,8 +31,8 @@ func flagSets() []kbaccess.SourcePermissions {
 
 // allFlags turns every source flag on.
 var allFlags = kbaccess.SourcePermissions{
-	ViewerSeeSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
-	EditorSeeSources: true, EditorAddSources: true, EditorDownloadSources: true,
+	ViewerSeeSources: true, ViewerPreviewSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
+	EditorSeeSources: true, EditorAddSources: true, EditorPreviewSources: true, EditorDownloadSources: true,
 	EditorSeeCitations: true,
 }
 
@@ -47,8 +49,10 @@ func never(kbaccess.SourcePermissions) bool  { return false }
 // every cell is one sentence of the spec (Sten, 2026-10-16) —
 //
 //   - KB admin, owner, superadmin, system admin on a public KB: everything.
-//   - Pyramid: seeSources and seeCitations are independent; download, add
-//     and manage all require seeSources.
+//   - Pyramid: seeSources and seeCitations are independent; preview,
+//     download, add and manage all require seeSources.
+//   - preview: the role's preview flag OR its download flag ("download
+//     includes the preview", Sten, 2026-11-24), AND its see flag.
 //   - edit: see/citations follow their editor_* flag; download and add
 //     follow theirs AND editor_see_sources; manage ("edit sources", fixed
 //     by role) is editor_see_sources.
@@ -60,27 +64,33 @@ func never(kbaccess.SourcePermissions) bool  { return false }
 var specTable = map[string]map[kbaccess.Capability]grant{
 	"full": {
 		kbaccess.CapSeeSources: always, kbaccess.CapAddSources: always,
-		kbaccess.CapDownloadSources: always, kbaccess.CapSeeCitations: always,
-		kbaccess.CapManageSources: always,
+		kbaccess.CapPreviewSources: always, kbaccess.CapDownloadSources: always,
+		kbaccess.CapSeeCitations: always, kbaccess.CapManageSources: always,
 	},
 	"edit": {
-		kbaccess.CapSeeSources:      func(p kbaccess.SourcePermissions) bool { return p.EditorSeeSources },
-		kbaccess.CapAddSources:      func(p kbaccess.SourcePermissions) bool { return p.EditorSeeSources && p.EditorAddSources },
+		kbaccess.CapSeeSources: func(p kbaccess.SourcePermissions) bool { return p.EditorSeeSources },
+		kbaccess.CapAddSources: func(p kbaccess.SourcePermissions) bool { return p.EditorSeeSources && p.EditorAddSources },
+		kbaccess.CapPreviewSources: func(p kbaccess.SourcePermissions) bool {
+			return p.EditorSeeSources && (p.EditorPreviewSources || p.EditorDownloadSources)
+		},
 		kbaccess.CapDownloadSources: func(p kbaccess.SourcePermissions) bool { return p.EditorSeeSources && p.EditorDownloadSources },
 		kbaccess.CapSeeCitations:    func(p kbaccess.SourcePermissions) bool { return p.EditorSeeCitations },
 		kbaccess.CapManageSources:   func(p kbaccess.SourcePermissions) bool { return p.EditorSeeSources },
 	},
 	"view": {
-		kbaccess.CapSeeSources:      func(p kbaccess.SourcePermissions) bool { return p.ViewerSeeSources },
-		kbaccess.CapAddSources:      never,
+		kbaccess.CapSeeSources: func(p kbaccess.SourcePermissions) bool { return p.ViewerSeeSources },
+		kbaccess.CapAddSources: never,
+		kbaccess.CapPreviewSources: func(p kbaccess.SourcePermissions) bool {
+			return p.ViewerSeeSources && (p.ViewerPreviewSources || p.ViewerDownloadSources)
+		},
 		kbaccess.CapDownloadSources: func(p kbaccess.SourcePermissions) bool { return p.ViewerSeeSources && p.ViewerDownloadSources },
 		kbaccess.CapSeeCitations:    func(p kbaccess.SourcePermissions) bool { return p.ViewerSeeCitations },
 		kbaccess.CapManageSources:   never,
 	},
 	"none": {
 		kbaccess.CapSeeSources: never, kbaccess.CapAddSources: never,
-		kbaccess.CapDownloadSources: never, kbaccess.CapSeeCitations: never,
-		kbaccess.CapManageSources: never,
+		kbaccess.CapPreviewSources: never, kbaccess.CapDownloadSources: never,
+		kbaccess.CapSeeCitations: never, kbaccess.CapManageSources: never,
 	},
 }
 
@@ -100,12 +110,12 @@ func roleClass(role string) string {
 }
 
 var allCaps = []kbaccess.Capability{
-	kbaccess.CapSeeSources, kbaccess.CapAddSources, kbaccess.CapDownloadSources,
-	kbaccess.CapSeeCitations, kbaccess.CapManageSources,
+	kbaccess.CapSeeSources, kbaccess.CapAddSources, kbaccess.CapPreviewSources,
+	kbaccess.CapDownloadSources, kbaccess.CapSeeCitations, kbaccess.CapManageSources,
 }
 
 // TestCapabilitiesMatrix crosses every caller shape the ladder knows with all
-// 128 combinations of the seven flags (17 callers x 128 = 2176 cases).
+// 512 combinations of the nine flags (17 callers x 512 = 8704 cases).
 //
 // Oracles: the role part is the real EffectiveRole — the test never states a
 // caller's role itself, it asks the one ladder, so CapabilitiesFor is checked
@@ -232,6 +242,11 @@ func TestRequireKBCapability(t *testing.T) {
 		{"editor_download_off", kbaccess.RoleView, kbaccess.CapDownloadSources, kbaccess.RoleEdit, allViewer, false, 403},
 		{"editor_download_on", kbaccess.RoleView, kbaccess.CapDownloadSources, kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSeeSources: true, EditorDownloadSources: true}, false, 200},
 		{"editor_download_on_see_off", kbaccess.RoleView, kbaccess.CapDownloadSources, kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorDownloadSources: true}, false, 403},
+		{"viewer_preview_off", kbaccess.RoleView, kbaccess.CapPreviewSources, kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true}, false, 403},
+		{"viewer_preview_on", kbaccess.RoleView, kbaccess.CapPreviewSources, kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerPreviewSources: true}, false, 200},
+		{"viewer_preview_on_download_refused", kbaccess.RoleView, kbaccess.CapDownloadSources, kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerPreviewSources: true}, false, 403},
+		{"viewer_preview_via_download", kbaccess.RoleView, kbaccess.CapPreviewSources, kbaccess.RoleView, kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerDownloadSources: true}, false, 200},
+		{"editor_preview_only_viewer_flag", kbaccess.RoleView, kbaccess.CapPreviewSources, kbaccess.RoleEdit, kbaccess.SourcePermissions{EditorSeeSources: true, ViewerPreviewSources: true}, false, 403},
 		{"viewer_manage_all_flags_on", kbaccess.RoleEdit, kbaccess.CapManageSources, kbaccess.RoleView, allFlags, false, 403},
 		// Adding: an editor follows editor_add_sources (plus see); a viewer
 		// never adds, even with every flag on, and the editor flags never
@@ -293,11 +308,12 @@ func TestRequireCapabilityWithoutAccessIs500(t *testing.T) {
 
 // TestCapabilityPyramid pins the dependency cases of the pyramid by name,
 // as whole Capabilities values, so a regression reads as a sentence of the
-// spec rather than as one cell of the 2176-case matrix.
+// spec rather than as one cell of the 8704-case matrix.
 //
 // Oracle: the expected values are written by hand from the spec — level 2
-// (download, add, manage) needs seeSources; seeCitations is independent of
-// it; a viewer never adds and never manages.
+// (preview, download, add, manage) needs seeSources; download includes the
+// preview; seeCitations is independent of it; a viewer never adds and never
+// manages.
 func TestCapabilityPyramid(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -319,13 +335,25 @@ func TestCapabilityPyramid(t *testing.T) {
 			kbaccess.Capabilities{}},
 		{"viewer_every_flag_on_never_adds", kbaccess.RoleView,
 			allFlags,
-			kbaccess.Capabilities{SeeSources: true, DownloadSources: true, SeeCitations: true}},
+			kbaccess.Capabilities{SeeSources: true, PreviewSources: true, DownloadSources: true, SeeCitations: true}},
+		{"viewer_preview_without_download", kbaccess.RoleView,
+			kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerPreviewSources: true},
+			kbaccess.Capabilities{SeeSources: true, PreviewSources: true}},
+		{"viewer_download_includes_preview", kbaccess.RoleView,
+			kbaccess.SourcePermissions{ViewerSeeSources: true, ViewerDownloadSources: true},
+			kbaccess.Capabilities{SeeSources: true, PreviewSources: true, DownloadSources: true}},
+		{"viewer_preview_on_see_off", kbaccess.RoleView,
+			kbaccess.SourcePermissions{ViewerPreviewSources: true, EditorSeeSources: true, EditorPreviewSources: true},
+			kbaccess.Capabilities{}},
+		{"editor_preview_without_download", kbaccess.RoleEdit,
+			kbaccess.SourcePermissions{EditorSeeSources: true, EditorPreviewSources: true, ViewerDownloadSources: true},
+			kbaccess.Capabilities{SeeSources: true, PreviewSources: true, ManageSources: true}},
 		{"viewer_citations_without_see", kbaccess.RoleView,
 			kbaccess.SourcePermissions{ViewerSeeCitations: true},
 			kbaccess.Capabilities{SeeCitations: true}},
 		{"kb_admin_no_flags", kbaccess.RoleAdmin,
 			kbaccess.SourcePermissions{},
-			kbaccess.Capabilities{SeeSources: true, AddSources: true, DownloadSources: true, SeeCitations: true, ManageSources: true}},
+			kbaccess.Capabilities{SeeSources: true, AddSources: true, PreviewSources: true, DownloadSources: true, SeeCitations: true, ManageSources: true}},
 	}
 	for _, tc := range cases {
 		if got := kbaccess.CapabilitiesFor(&kbaccess.KnowledgeBase{ID: kbID, Sources: tc.flags}, tc.role); got != tc.want {

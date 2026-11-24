@@ -15,14 +15,14 @@ import (
 // capability. It is the oracle for the mount points below.
 //
 //   - kbSourceListChain (seeSources): the sidebar source lists.
-//   - kbSourceDownloadChain (downloadSources): the spreadsheet source
+//   - kbSourcePreviewChain (previewSources): the spreadsheet source
 //     preview, both routes.
 //   - kbAddSourcesChain (addSources, gated at edit): every route that
 //     creates a source.
 //   - kbManageSourcesChain (manageSources, gated at edit): every change /
 //     sync / poll / delete / retry route.
 //
-// GET /api/files/{id}/download, GET /api/files/{id}/text, DELETE /api/files/{id} and
+// GET /api/files/{id}/download, GET /api/files/{id}/preview, GET /api/files/{id}/text, DELETE /api/files/{id} and
 // POST /api/files/{id}/retry have no {id} KB in the path; their gates are
 // handler-internal and pinned in internal/files. POST
 // /api/academic-research/{researchId}/papers/add carries its KB in the body
@@ -34,8 +34,8 @@ var sourceGateRoutes = map[string]string{
 	"GET /api/kb/{id}/git-repos":            "kbSourceListChain",
 	"GET /api/kb/{id}/crawl/status/{jobId}": "kbSourceListChain",
 
-	"GET /api/kb/{id}/files/{fileId}/tabular":      "kbSourceDownloadChain",
-	"GET /api/kb/{id}/files/{fileId}/tabular/rows": "kbSourceDownloadChain",
+	"GET /api/kb/{id}/files/{fileId}/tabular":      "kbSourcePreviewChain",
+	"GET /api/kb/{id}/files/{fileId}/tabular/rows": "kbSourcePreviewChain",
 
 	"POST /api/kb/{id}/files":              "kbAddSourcesChain",
 	"POST /api/kb/{id}/files/from-library": "kbAddSourcesChain",
@@ -89,16 +89,16 @@ func TestSourceRoutesAreOnTheirGateChain(t *testing.T) {
 // installs for it (minus Authenticate, which the tests replace by injecting
 // the user), so the per-route test below runs exactly what the route runs.
 var gateInner = map[string]func(*kbaccess.Middleware) func(http.HandlerFunc) http.Handler{
-	"kbSourceListChain":     sourceListInner,
-	"kbSourceDownloadChain": sourceDownloadInner,
-	"kbAddSourcesChain":     addSourcesInner,
-	"kbManageSourcesChain":  manageSourcesInner,
+	"kbSourceListChain":    sourceListInner,
+	"kbSourcePreviewChain": sourcePreviewInner,
+	"kbAddSourcesChain":    addSourcesInner,
+	"kbManageSourcesChain": manageSourcesInner,
 }
 
 // allFlagsOn turns every source flag on.
 var allFlagsOn = kbaccess.SourcePermissions{
-	ViewerSeeSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
-	EditorSeeSources: true, EditorAddSources: true, EditorDownloadSources: true,
+	ViewerSeeSources: true, ViewerPreviewSources: true, ViewerDownloadSources: true, ViewerSeeCitations: true,
+	EditorSeeSources: true, EditorAddSources: true, EditorPreviewSources: true, EditorDownloadSources: true,
 	EditorSeeCitations: true,
 }
 
@@ -131,8 +131,9 @@ type gateCase struct {
 // hand from the spec (Sten, 2026-10-16):
 //   - list: a viewer passes only with viewer_see_sources, an editor only
 //     with editor_see_sources.
-//   - download (level 2 of the pyramid): the role's own flag AND its see
-//     flag; either off refuses.
+//   - preview (level 2 of the pyramid): the role's preview OR download
+//     flag (download includes the preview, Sten 2026-11-24) AND its see
+//     flag; see off, or both preview and download off, refuses.
 //   - add: a viewer never, even with every flag on ("that would be a
 //     promotion to editor"); an editor with editor_see_sources AND
 //     editor_add_sources.
@@ -145,13 +146,15 @@ var gateSpec = map[string][]gateCase{
 		{"edit/see-on", kbaccess.RoleEdit, only(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = true }), 200},
 		{"edit/see-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), 403},
 	},
-	"kbSourceDownloadChain": {
+	"kbSourcePreviewChain": {
+		{"view/see+preview", kbaccess.RoleView, only(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources, p.ViewerPreviewSources = true, true }), 200},
 		{"view/see+download", kbaccess.RoleView, only(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources, p.ViewerDownloadSources = true, true }), 200},
-		{"view/download-off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerDownloadSources = false }), 403},
-		{"view/download-on-see-off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources = false }), 403},
+		{"view/preview+download-off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerPreviewSources, p.ViewerDownloadSources = false, false }), 403},
+		{"view/preview-on-see-off", kbaccess.RoleView, allBut(func(p *kbaccess.SourcePermissions) { p.ViewerSeeSources = false }), 403},
+		{"edit/see+preview", kbaccess.RoleEdit, only(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources, p.EditorPreviewSources = true, true }), 200},
 		{"edit/see+download", kbaccess.RoleEdit, only(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources, p.EditorDownloadSources = true, true }), 200},
-		{"edit/download-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorDownloadSources = false }), 403},
-		{"edit/download-on-see-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), 403},
+		{"edit/preview+download-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorPreviewSources, p.EditorDownloadSources = false, false }), 403},
+		{"edit/preview-on-see-off", kbaccess.RoleEdit, allBut(func(p *kbaccess.SourcePermissions) { p.EditorSeeSources = false }), 403},
 	},
 	"kbAddSourcesChain": {
 		{"view/all-flags", kbaccess.RoleView, allFlagsOn, 403},
