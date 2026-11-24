@@ -9,6 +9,6 @@
 
 /* While a chat is carried (set by the panel on drag start), the rows it
    passes take no pointer: no hover fill and no preview under the carried row. */
-.history-panel__groups[data-carrying] [data-slot="sidebar-card"] {
+.history-panel__groups[data-carrying] .history-row {
   pointer-events: none;
 }

@@ -1,12 +1,3 @@
-.home-view__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.5rem;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
 .home-view__badge-row {
   display: flex;
   align-items: center;

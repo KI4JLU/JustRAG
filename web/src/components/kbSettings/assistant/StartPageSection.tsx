@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchMatches, useSearchReveal } from '../../../hooks/useSearchReveal';
 import { Check, Info, Pencil } from 'lucide-react';
-import { Button, Notice } from '@ki4jlu/design-system';
+import { Button, ChatStage, ChatStageColumn, Notice } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { RoleEntry } from './api';
 import { ChatStartEditor } from './ChatStartEditor';
@@ -84,9 +84,6 @@ export function StartPageSection() {
     const viewRole = (roleId: string) => store.send('behavior', { type: 'previewRole', roleId });
 
     // Exactly what members see: no frame, label or note of the editor's own.
-    // The chat's own layout classes (`chat-column` on the stage,
-    // `input-container--start` here): composer, role cards and dropzone as
-    // wide as the title card — as in ChatView's empty chat.
     const startView = (
         <StartView
             page={page}
@@ -125,50 +122,40 @@ export function StartPageSection() {
                     {previewChat ? (
                         <RoleChatPreview entry={previewChat} role={roles.find(r => r.id === previewChat.roleId)} fileCount={kb.fileCount} dynamicSample={dynamicSample} onBack={() => setPreviewChat(null)} />
                     ) : (
-                        // The chat's empty stage (ChatStage's slots and the chat's
-                        // layout classes), anchored at the top instead of centred:
-                        // the editors below the title grow downwards, so the
-                        // title stays where it is when „Bearbeiten" opens them.
-                        <div data-slot="chat-stage" className="chat-column flex min-h-0 min-w-0 flex-1 flex-col">
-                            <div data-slot="chat-stage-content" className="flex min-w-0 flex-col pt-12">
-                                <div className="mx-auto flex w-full max-w-2xl flex-col px-4 py-6">
-                                    {editing.card ? (
-                                        <TitleCardEditor
-                                            categories={categories}
-                                            fileCount={kb.fileCount}
-                                            asOf={kb.lastIngestedAt}
-                                        />
-                                    ) : (
-                                        <TitleCard
-                                            title={draft.title}
-                                            category={category}
-                                            role={soleRoleName(page, activeRoleId, roles)}
-                                            description={draft.description ?? t('kbHeaderDefault')}
-                                            fileCount={kb.fileCount}
-                                            asOf={kb.lastIngestedAt}
-                                        />
-                                    )}
-                                </div>
-                            </div>
-                            <div data-slot="chat-stage-composer" className="w-full shrink-0">
-                            {editing.start ? (
-                                // The editor takes the chat start's own place and width.
-                                <div className="input-container input-container--start">
-                                <ChatStartEditor
-                                    roles={roles}
-                                    activeRoleId={activeRoleId}
-                                    focusEntryId={focusEntryId}
-                                    onAdded={setFocusEntryId}
-                                    onFocused={onFocused}
-                                    onTry={setPreviewChat}
-                                    onViewRole={viewRole}
-                                />
-                                </div>
-                            ) : startView}
-                            </div>
-                            <div aria-hidden="true" className="flex-1" />
-                            <p data-slot="chat-stage-footer" className="m-0 shrink-0 px-6 pb-4 text-center text-xs text-on-surface-variant">{t('chatFooter')}</p>
-                        </div>
+                        // The chat's empty stage, anchored at the top instead of
+                        // centred: the editors below the title grow downwards, so
+                        // the title stays where it is when „Bearbeiten" opens them.
+                        <ChatStage empty align="start" footer={t('chatFooter')} composer={editing.start ? (
+                            // The editor takes the chat start's own place and width.
+                            <ChatStartEditor
+                                roles={roles}
+                                activeRoleId={activeRoleId}
+                                focusEntryId={focusEntryId}
+                                onAdded={setFocusEntryId}
+                                onFocused={onFocused}
+                                onTry={setPreviewChat}
+                                onViewRole={viewRole}
+                            />
+                        ) : startView}>
+                            <ChatStageColumn className="flex flex-col px-4 pt-18 pb-6">
+                                {editing.card ? (
+                                    <TitleCardEditor
+                                        categories={categories}
+                                        fileCount={kb.fileCount}
+                                        asOf={kb.lastIngestedAt}
+                                    />
+                                ) : (
+                                    <TitleCard
+                                        title={draft.title}
+                                        category={category}
+                                        role={soleRoleName(page, activeRoleId, roles)}
+                                        description={draft.description ?? t('kbHeaderDefault')}
+                                        fileCount={kb.fileCount}
+                                        asOf={kb.lastIngestedAt}
+                                    />
+                                )}
+                            </ChatStageColumn>
+                        </ChatStage>
                     )}
                 </div>
             </div>

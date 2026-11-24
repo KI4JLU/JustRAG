@@ -1,3 +1,4 @@
+import { ChatStage, ChatStageColumn } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { KbCategory } from '../../../types';
 import type { StartPage } from './api';
@@ -31,25 +32,20 @@ export function RoleChatMock({
     return (
         <div inert className="relative isolate flex flex-1 flex-col">
             <StartGlow category={category} />
-            <div data-slot="chat-stage" className="chat-column flex min-h-0 min-w-0 flex-1 flex-col">
-                <div data-slot="chat-stage-content" className="flex min-w-0 flex-col pt-12">
-                    <div className="mx-auto flex w-full max-w-2xl flex-col px-4 py-6">
-                        <TitleCard title={kbTitle} category={category} role={soleRoleName(page, activeRoleId, roles)} description={description} fileCount={fileCount} asOf={asOf} />
-                    </div>
-                </div>
-                <div data-slot="chat-stage-composer" className="w-full shrink-0">
-                    <StartView
-                        page={page}
-                        activeRoleId={activeRoleId}
-                        roles={roles}
-                        fileCount={fileCount}
-                        questions={questions}
-                        onStart={() => undefined}
-                    />
-                </div>
-                <div aria-hidden="true" className="flex-1" />
-                <p data-slot="chat-stage-footer" className="m-0 shrink-0 px-6 pb-4 text-center text-xs text-on-surface-variant">{t('chatFooter')}</p>
-            </div>
+            <ChatStage empty align="start" footer={t('chatFooter')} composer={(
+                <StartView
+                    page={page}
+                    activeRoleId={activeRoleId}
+                    roles={roles}
+                    fileCount={fileCount}
+                    questions={questions}
+                    onStart={() => undefined}
+                />
+            )}>
+                <ChatStageColumn className="flex flex-col px-4 pt-18 pb-6">
+                    <TitleCard title={kbTitle} category={category} role={soleRoleName(page, activeRoleId, roles)} description={description} fileCount={fileCount} asOf={asOf} />
+                </ChatStageColumn>
+            </ChatStage>
         </div>
     );
 }
