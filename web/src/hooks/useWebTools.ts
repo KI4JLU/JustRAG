@@ -10,6 +10,7 @@ import { getApiErrorMessage } from '../utils/apiError';
 import { previewKindOf } from '../utils/previewKind';
 import { userErrorMessage } from '../utils/userErrors';
 import type { MediaKind } from '../components/preview/MediaPreviewModal';
+import type { PdfFocus } from '../utils/passageMarks';
 
 interface UseWebToolsParams {
   currentKb: KnowledgeBase | null;
@@ -37,7 +38,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
   // `ownFile`: the caller's own library file (a chat attachment), which they may always download.
   const [previewPage, setPreviewPage] = useState<{ title: string; content: string; url: string; format?: 'markdown' | 'text'; back?: PreviewBack; extractedFrom?: string; origin?: string; fileId?: string; ownFile?: boolean } | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [pdfPreview, setPdfPreview] = useState<{ fileId: string; fileName: string; page: number; back?: PreviewBack; downloadPath?: string } | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<{ fileId: string; fileName: string; page: number; back?: PreviewBack; downloadPath?: string; focus?: PdfFocus } | null>(null);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [tabularFile, setTabularFile] = useState<{ fileId: string; fileName: string; back?: PreviewBack } | null>(null);
   const [mediaPreview, setMediaPreview] = useState<{ fileId: string; fileName: string; kind: MediaKind; back?: PreviewBack; userFileId?: string } | null>(null);
@@ -318,8 +319,9 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
     }
   }, [toolTab, searchResults, crawlResults, currentKb, t, toast]);
 
-  const handlePdfSourceOpen = useCallback((fileId: string, fileName: string, page: number, back?: PreviewBack) => {
-    setPdfPreview({ fileId, fileName, page, back });
+  // `focus`: only the cited pages, the passage marked (the source panel's full view).
+  const handlePdfSourceOpen = useCallback((fileId: string, fileName: string, page: number, back?: PreviewBack, focus?: PdfFocus) => {
+    setPdfPreview({ fileId, fileName, page, back, focus });
     setShowPdfPreview(true);
   }, []);
 

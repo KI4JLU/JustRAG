@@ -6,6 +6,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { cn } from '@ki4jlu/design-system';
 import { excerptAroundSpan, isValidSpan } from '../../utils/verification';
 import { parseTableChunk, recordForSpan, withoutOriginLine } from '../../utils/sourceDisplay';
+import { matchedSentences, type Span } from '../../utils/passageMarks';
 
 /**
  * The text of one cited passage, as the source preview and the source panel
@@ -44,32 +45,6 @@ const COMPONENTS = {
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 const WINDOW = 420;
-const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []));
-
-type Span = { start: number; end: number };
-
-// matchedSentences finds the lines or sentences of `content` that share at
-// least two words with `focus` (best match first), as RUNE offsets like a
-// verified span, so a passage without one still marks what the answer drew on.
-function matchedSentences(content: string, focus: string | undefined): Span[] {
-    if (!focus) return [];
-    const want = words(focus);
-    const hits: (Span & { score: number })[] = [];
-    const re = /[^\n.!?]+[.!?]?/g;
-    for (let m = re.exec(content); m; m = re.exec(content)) {
-        let score = 0;
-        for (const w of words(m[0])) if (want.has(w)) score++;
-        if (score < 2) continue;
-        const lead = m[0].length - m[0].trimStart().length;
-        const start = [...content.slice(0, m.index + lead)].length;
-        hits.push({ start, end: start + [...m[0].trim()].length, score });
-    }
-    const best = Math.max(0, ...hits.map(h => h.score));
-    return hits
-        .filter(h => h.score * 2 >= best)
-        .sort((a, b) => b.score - a.score || a.start - b.start)
-        .map(({ start, end }) => ({ start, end }));
-}
 
 // markAll wraps every span (rune offsets, non-overlapping) of `content` in <mark>.
 function markAll(content: string, spans: Span[]): string {

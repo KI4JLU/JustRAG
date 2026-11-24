@@ -199,7 +199,8 @@ describe('ChatView — the source panel follows previewSources and downloadSourc
     expect(panel).toHaveTextContent('sourcePanelPassagesOne');
     expect(screen.getByRole('button', { name: 'sourcePanelDownload' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'sourcePanelFullView' }));
-    expect(handlePdfSourceOpen).toHaveBeenCalledWith('f1', 'satzung.pdf', 2);
+    // The full view shows only the cited page, the passage the panel marks marked on it.
+    expect(handlePdfSourceOpen).toHaveBeenCalledWith('f1', 'satzung.pdf', 2, undefined, { highlights: [{ text: 'Beitrag 50 EUR', page: 2 }], pages: [2] });
   });
 
   it('offers the full view but no download with previewSources alone', () => {
@@ -209,7 +210,8 @@ describe('ChatView — the source panel follows previewSources and downloadSourc
     fireEvent.click(screen.getByRole('button', { name: 'openInSource' }));
     expect(screen.queryByRole('button', { name: 'sourcePanelDownload' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'sourcePanelFullView' }));
-    expect(handlePdfSourceOpen).toHaveBeenCalledWith('f1', 'satzung.pdf', 2);
+    // The full view shows only the cited page, the passage the panel marks marked on it.
+    expect(handlePdfSourceOpen).toHaveBeenCalledWith('f1', 'satzung.pdf', 2, undefined, { highlights: [{ text: 'Beitrag 50 EUR', page: 2 }], pages: [2] });
   });
 
   it('opens the panel without either, but offers neither the full view nor the download', () => {

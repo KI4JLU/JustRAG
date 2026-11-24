@@ -395,6 +395,8 @@ export const translations = {
     tabularIngestFailed: { de: 'Die Datei konnte nicht verarbeitet werden, daher gibt es keine Tabellenvorschau.', en: 'This file could not be processed, so there is no table preview.' },
     tabularNoPreview: { de: 'Für diese Datei gibt es keine Tabellenvorschau. Lade die Datei herunter, um sie anzusehen.', en: 'There is no table preview for this file. Download the file to view it.' },
     previewPdfSubtitle: { de: 'PDF · nur Lesen', en: 'PDF · read-only' },
+    previewPdfPageSingle: { de: 'Seite {page} von {total}', en: 'Page {page} of {total}' },
+    previewPdfGoToPage: { de: 'Seite', en: 'Page' },
     previewPdfSubtitlePages: { de: 'PDF · {pages} · nur Lesen', en: 'PDF · {pages} · read-only' },
     previewPageOne: { de: '1 Seite', en: '1 page' },
     previewPagesMany: { de: '{count} Seiten', en: '{count} pages' },

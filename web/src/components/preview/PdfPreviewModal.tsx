@@ -9,6 +9,8 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { PreviewDialog } from './PreviewDialog';
 import { usePreviewBackLink, type PreviewBack } from './PreviewHeader';
+import type { PdfHighlight } from '../../utils/passageMarks';
+import { fillTemplate } from '../../utils/sourceDisplay';
 
 interface PdfPreviewModalProps {
     show: boolean;
@@ -22,6 +24,10 @@ interface PdfPreviewModalProps {
     downloadPath?: string;
     /** Whether the viewer offers the download (downloadSources, or the caller's own file). */
     canDownload: boolean;
+    /** The cited passage, marked on its pages (opened from the source panel). */
+    highlights?: PdfHighlight[];
+    /** Only these pages (a citation's full view); default the whole document. */
+    pages?: number[];
 }
 
 type PdfPreviewContentProps = Omit<PdfPreviewModalProps, 'show'>;
@@ -33,7 +39,7 @@ type PdfPreviewContentProps = Omit<PdfPreviewModalProps, 'show'>;
  * The file is fetched once through the authenticated client; the same blob
  * feeds the viewer and the download action.
  */
-const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, fileName, page, back, downloadPath, canDownload }) => {
+const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, fileName, page, back, downloadPath, canDownload, highlights, pages }) => {
     const { t } = useTheme();
     const toast = useToast();
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -66,6 +72,11 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
     return (
         <PreviewDialog
             onClose={onClose}
+            // Escape in the viewer's page field drops what was typed there; it
+            // must not close the preview (the dialog sees the key first).
+            onEscapeKeyDown={(e) => {
+                if (e.target instanceof Element && e.target.closest('[data-slot="pdf-viewer-page-field"]')) e.preventDefault();
+            }}
             kind="pdf"
             // While the viewer is not there (loading, failed) its toolbar
             // row is, so the way back stays.
@@ -91,6 +102,8 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
                         plain
                         src={blobUrl}
                         initialPage={page}
+                        highlights={highlights}
+                        pages={pages}
                         onLoad={setPageCount}
                         toolbarStart={backLink}
                         className="min-h-0 flex-1"
@@ -102,6 +115,8 @@ const PdfPreviewContent: React.FC<PdfPreviewContentProps> = ({ onClose, fileId, 
                             loadError: t('pdfLoadError'),
                             fullscreen: t('fullscreen'),
                             exitFullscreen: t('exitFullscreen'),
+                            goToPage: t('previewPdfGoToPage'),
+                            pageSingle: (n: number, total: number) => fillTemplate(t('previewPdfPageSingle'), { page: n, total }),
                         }}
                         toolbarEnd={canDownload && (
                             <Button variant="ghost" size="icon" asChild>
