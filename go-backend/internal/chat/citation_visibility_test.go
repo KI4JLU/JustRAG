@@ -294,6 +294,13 @@ func TestCitationFilter_FlushesTextBeforeNextFrame(t *testing.T) {
 // caller role and KB flags and returns the body plus what was persisted.
 func streamCitingTurn(t *testing.T, role string, flags kbaccess.SourcePermissions, stream bool) (string, *AddMessageParams) {
 	t.Helper()
+	return citingTurn(t, role, flags, stream, `{"message": "hello"}`)
+}
+
+// citingTurn runs one successful turn with body against the citing model and
+// returns the response body and the persisted AI message.
+func citingTurn(t *testing.T, role string, flags kbaccess.SourcePermissions, stream bool, body string) (string, *AddMessageParams) {
+	t.Helper()
 	store := &capturingStore{mockStore: newMockStore()}
 	values := map[string]*string{
 		"citation_validation_enabled": strPtr("false"),
@@ -305,7 +312,7 @@ func streamCitingTurn(t *testing.T, role string, flags kbaccess.SourcePermission
 	if stream {
 		url = "/api/kb/kb1/chat?stream=true"
 	}
-	r := httptest.NewRequest(http.MethodPost, url, strings.NewReader(`{"message": "hello"}`))
+	r := httptest.NewRequest(http.MethodPost, url, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r = injectUser(r, "user1")
 	r = withKBAccess(r, "kb1", role, flags)

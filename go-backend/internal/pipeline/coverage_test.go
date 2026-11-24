@@ -185,7 +185,6 @@ var ignoredKeys = map[string]string{
 	"chat_factuality_verifier_model": "model selection",
 	"chat_citation_spans_model":      "model selection",
 	"chat_plan_execute_model":        "model selection",
-	"agent_team_router_model":        "model selection",
 	"describe_image_model":           "model selection",
 
 	// Ingestion-time — not part of the answering pipeline (spec: non-goals).

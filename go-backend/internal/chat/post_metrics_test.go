@@ -9,13 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/vector"
 )
 
 // fakeDecisionRecorder captures the arguments of the last Record call so
-// tests can assert recordAgentDecision forwards teamID/agentID faithfully
-// (Phase 2 AP-B4 follow-up: team/agent id telemetry).
+// tests can assert what recordAgentDecision forwards.
 //
 // done signals Record's completion — Fix round 2 (Task 2, W7-R3): under the
 // full-module test run (`go test ./... -count=1`, host loaded by other
@@ -39,12 +37,10 @@ type fakeDecisionRecorder struct {
 	rounds     int
 	latencyMs  int
 	toolCalls  []ToolCallRecord
-	teamID     *string
-	agentID    *string
 	policyRule *int
 }
 
-func (f *fakeDecisionRecorder) Record(ctx context.Context, kbID, mode, outcome string, hops, rounds, latencyMs int, toolCalls []ToolCallRecord, teamID, agentID *string, policyRule *int) {
+func (f *fakeDecisionRecorder) Record(ctx context.Context, kbID, mode, outcome string, hops, rounds, latencyMs int, toolCalls []ToolCallRecord, policyRule *int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.called = true
@@ -55,8 +51,6 @@ func (f *fakeDecisionRecorder) Record(ctx context.Context, kbID, mode, outcome s
 	f.rounds = rounds
 	f.latencyMs = latencyMs
 	f.toolCalls = toolCalls
-	f.teamID = teamID
-	f.agentID = agentID
 	f.policyRule = policyRule
 	if f.done == nil {
 		f.done = make(chan struct{})
@@ -93,8 +87,6 @@ type recordSnapshot struct {
 	rounds     int
 	latencyMs  int
 	toolCalls  []ToolCallRecord
-	teamID     *string
-	agentID    *string
 	policyRule *int
 }
 
@@ -110,8 +102,6 @@ func (f *fakeDecisionRecorder) snapshot() recordSnapshot {
 		rounds:     f.rounds,
 		latencyMs:  f.latencyMs,
 		toolCalls:  f.toolCalls,
-		teamID:     f.teamID,
-		agentID:    f.agentID,
 		policyRule: f.policyRule,
 	}
 }
@@ -144,112 +134,6 @@ func waitForRecord(t *testing.T, f *fakeDecisionRecorder) recordSnapshot {
 	}
 }
 
-func TestRecordAgentDecision_ForwardsTeamAndAgentID(t *testing.T) {
-	fake := &fakeDecisionRecorder{}
-	h := NewHandler(nil, nil, nil, WithDecisionRecorder(fake))
-
-	teamID := "team-123"
-	h.recordAgentDecision(context.Background(), "kb-1", "team", "answered", 2, 0, 42, &teamID, nil, nil)
-
-	snap := waitForRecord(t, fake)
-	if snap.teamID == nil || *snap.teamID != teamID {
-		t.Errorf("teamID = %v, want %q", snap.teamID, teamID)
-	}
-	if snap.agentID != nil {
-		t.Errorf("agentID = %v, want nil", snap.agentID)
-	}
-	if snap.kbID != "kb-1" || snap.mode != "team" || snap.outcome != "answered" {
-		t.Errorf("unexpected forwarded core fields: %+v", snap)
-	}
-}
-
-func TestRecordAgentDecision_StandardPathForwardsNilIDs(t *testing.T) {
-	fake := &fakeDecisionRecorder{}
-	h := NewHandler(nil, nil, nil, WithDecisionRecorder(fake))
-
-	h.recordAgentDecision(context.Background(), "kb-1", "crag", "answered", 0, 0, 10, nil, nil, nil)
-
-	snap := waitForRecord(t, fake)
-	if snap.teamID != nil {
-		t.Errorf("teamID = %v, want nil", snap.teamID)
-	}
-	if snap.agentID != nil {
-		t.Errorf("agentID = %v, want nil", snap.agentID)
-	}
-}
-
-// TestRecordAgentDecision_ForwardsAgentID covers the Task-4 gap the fake
-// recorder's fields already supported but no test exercised: an explicit
-// single-agent pick (as opposed to a team) should forward agentID and leave
-// teamID nil.
-func TestRecordAgentDecision_ForwardsAgentID(t *testing.T) {
-	fake := &fakeDecisionRecorder{}
-	h := NewHandler(nil, nil, nil, WithDecisionRecorder(fake))
-
-	agentID := "agent-456"
-	h.recordAgentDecision(context.Background(), "kb-1", "team", "answered", 0, 0, 42, nil, &agentID, nil)
-
-	snap := waitForRecord(t, fake)
-	if snap.agentID == nil || *snap.agentID != agentID {
-		t.Errorf("agentID = %v, want %q", snap.agentID, agentID)
-	}
-	if snap.teamID != nil {
-		t.Errorf("teamID = %v, want nil", snap.teamID)
-	}
-}
-
-// TestAttributionIDs covers the gating bug fixed alongside this test: a
-// resolved team/agent selection (teamSel != nil) must NOT be attributed to
-// the message/decision row unless the team actually answered the turn
-// (willRunTeam). Comparison turns (runCompare wins) and Enhance follow-ups
-// (willRunTeam forced false) both resolve teamSel but must attribute nil,
-// nil — contradicting that would wrongly tag those rows with the team that
-// was merely picked, not run.
-func TestAttributionIDs(t *testing.T) {
-	team := &teamSelection{team: &agentteams.TeamForChat{Team: agentteams.TeamRecord{ID: "team-1"}}}
-	agent := &teamSelection{agent: &agentteams.AgentRecord{ID: "agent-1"}}
-
-	cases := []struct {
-		name        string
-		willRunTeam bool
-		teamSel     *teamSelection
-		wantTeamID  *string
-		wantAgentID *string
-	}{
-		{"resolved but not run (comparison/Enhance) -> nil,nil", false, team, nil, nil},
-		{"run + team selected -> teamID", true, team, ptr("team-1"), nil},
-		{"run + single agent selected -> agentID", true, agent, nil, ptr("agent-1")},
-		{"run + nil selection -> nil,nil", true, nil, nil, nil},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			gotTeamID, gotAgentID := attributionIDs(tc.willRunTeam, tc.teamSel)
-			if !strPtrEqual(gotTeamID, tc.wantTeamID) {
-				t.Errorf("teamID = %v, want %v", strPtrVal(gotTeamID), strPtrVal(tc.wantTeamID))
-			}
-			if !strPtrEqual(gotAgentID, tc.wantAgentID) {
-				t.Errorf("agentID = %v, want %v", strPtrVal(gotAgentID), strPtrVal(tc.wantAgentID))
-			}
-		})
-	}
-}
-
-func ptr(s string) *string { return &s }
-
-func strPtrEqual(a, b *string) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
-}
-
-func strPtrVal(a *string) string {
-	if a == nil {
-		return "<nil>"
-	}
-	return *a
-}
-
 // W6-R6: the orchestrator-policy rule index reaches the recorder, and stays
 // nil when the flag ladder decided. Without the plumbing the first arm's
 // snapshot would carry nil and the test fails.
@@ -258,7 +142,7 @@ func TestRecordAgentDecision_ForwardsPolicyRule(t *testing.T) {
 	h := NewHandler(nil, nil, nil, WithDecisionRecorder(fake))
 
 	rule := 2
-	h.recordAgentDecision(context.Background(), "kb-1", "supervisor", "answered", 0, 0, 42, nil, nil, &rule)
+	h.recordAgentDecision(context.Background(), "kb-1", "supervisor", "answered", 0, 0, 42, &rule)
 
 	snap := waitForRecord(t, fake)
 	if snap.policyRule == nil || *snap.policyRule != rule {
@@ -273,7 +157,7 @@ func TestRecordAgentDecision_ForwardsPolicyRuleZero(t *testing.T) {
 	h := NewHandler(nil, nil, nil, WithDecisionRecorder(fake))
 
 	rule := 0
-	h.recordAgentDecision(context.Background(), "kb-1", "agentic", "answered", 0, 0, 7, nil, nil, &rule)
+	h.recordAgentDecision(context.Background(), "kb-1", "agentic", "answered", 0, 0, 7, &rule)
 
 	snap := waitForRecord(t, fake)
 	if snap.policyRule == nil {
@@ -288,7 +172,7 @@ func TestRecordAgentDecision_NilPolicyRuleStaysNil(t *testing.T) {
 	fake := &fakeDecisionRecorder{}
 	h := NewHandler(nil, nil, nil, WithDecisionRecorder(fake))
 
-	h.recordAgentDecision(context.Background(), "kb-1", "crag", "answered", 0, 0, 10, nil, nil, nil)
+	h.recordAgentDecision(context.Background(), "kb-1", "crag", "answered", 0, 0, 10, nil)
 
 	snap := waitForRecord(t, fake)
 	if snap.policyRule != nil {
@@ -327,9 +211,6 @@ func TestRecordStandardPathDecision_DefaultsToCragAndAnswered(t *testing.T) {
 	}
 	if snap.policyRule == nil || *snap.policyRule != rule {
 		t.Errorf("policyRule = %v, want %d", snap.policyRule, rule)
-	}
-	if snap.teamID != nil || snap.agentID != nil {
-		t.Errorf("teamID/agentID = %v/%v, want nil/nil", snap.teamID, snap.agentID)
 	}
 }
 
@@ -390,7 +271,7 @@ func TestRecordStandardPathDecision_OutcomeFromEvents(t *testing.T) {
 // SendMessage with stream=false (the query param SendMessage reads —
 // no "?stream=true" on the request), all the way to writeJSONResponse,
 // adapting the wiringConfigResolver/wiringSearcher-style harness from
-// comparison_team_wiring_test.go (an httptest server standing in for the
+// comparison_wiring_test.go (an httptest server standing in for the
 // AI provider, and a Searcher fake keyed by query string) plus
 // fakeDecisionRecorder. Mutation-tested: temporarily removing the
 // recordStandardPathDecision call at http_send_helpers.go's writeJSONResponse
@@ -442,8 +323,5 @@ func TestSendMessage_NonStreamingStandardPath_RecordsAgentDecision(t *testing.T)
 	}
 	if snap.outcome != "answered" {
 		t.Errorf("outcome = %q, want answered (no orchestrator trajectory on the standard path)", snap.outcome)
-	}
-	if snap.teamID != nil || snap.agentID != nil {
-		t.Errorf("teamID/agentID = %v/%v, want nil/nil", snap.teamID, snap.agentID)
 	}
 }

@@ -136,10 +136,6 @@ func (m *mockStore) StarterContext(_ context.Context, _ string, _ int) (chat.Sta
 	return chat.StarterSource{}, m.err
 }
 
-func (m *mockStore) UpdateChatAgentSelection(_ context.Context, _ string, _, _ *string) error {
-	return m.err
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -291,12 +287,10 @@ func getChatRequest(id string, user *auth.Claims) *http.Request {
 	return req
 }
 
-// Oracle: the stored row — the caller gets it back as is (topic, sticky
-// team/agent), looked up by the canonical form of the path id.
+// Oracle: the stored row — the caller gets it back as is (topic), looked up
+// by the canonical form of the path id.
 func TestGetChat_OwnChat_OK(t *testing.T) {
 	chatRow := makeChat(renameChatIDCanonical, "kb-1", "user-1")
-	team := "team-1"
-	chatRow.TeamID = &team
 	store := &mockStore{chat: &chatRow}
 	h := chat.NewHandler(store, nil, nil)
 
@@ -313,7 +307,7 @@ func TestGetChat_OwnChat_OK(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if got.ID != renameChatIDCanonical || got.KbID != "kb-1" || got.TeamID == nil || *got.TeamID != "team-1" {
+	if got.ID != renameChatIDCanonical || got.KbID != "kb-1" {
 		t.Errorf("got %+v, want the stored row", got)
 	}
 	if rr.Header().Get("Cache-Control") != "no-cache" {

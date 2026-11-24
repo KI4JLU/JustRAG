@@ -65,7 +65,7 @@ type turnDocument struct {
 
 // turnDocuments is the attachment state of one chat turn, carried on the
 // request context (withTurnDocuments) so every answer path — standard,
-// orchestrators, teams, answer tools — reads the same documents.
+// orchestrators, answer tools — reads the same documents.
 type turnDocuments struct {
 	lang string
 	// all is every document of the conversation, in attach order.

@@ -97,11 +97,29 @@ func reqAuth(method, target, id string, body string) *http.Request {
 func TestCreateRunForKB_InFlightGuard(t *testing.T) {
 	kb := uuid.New()
 	gs := uuid.New()
-	h := NewHandler(&fakeRunStore{active: true}, fakeKB{}, fakeCfg{}, nil, &fakeGSStore{get: &eval.GoldenSet{ID: gs, KBID: kb}}, nil, nil)
+	h := NewHandler(&fakeRunStore{active: true}, fakeKB{}, fakeCfg{}, nil, &fakeGSStore{get: &eval.GoldenSet{ID: gs, KBID: kb}}, nil)
 	w := httptest.NewRecorder()
 	h.CreateRunForKB(w, reqAuth(http.MethodPost, "/api/kb/"+kb.String()+"/eval/runs", kb.String(), `{"golden_set_id":"`+gs.String()+`"}`))
 	if w.Code != http.StatusConflict {
 		t.Fatalf("want 409 when a run is in flight, got %d", w.Code)
+	}
+}
+
+// CreateRunForKB refuses a request naming a team (team eval runs were
+// removed) before any insert. Oracle: the 400 and an untouched run store.
+func TestCreateRunForKB_TeamIDRefused(t *testing.T) {
+	kb := uuid.New()
+	gs := uuid.New()
+	rs := &fakeRunStore{}
+	h := NewHandler(rs, fakeKB{}, fakeCfg{}, nil, &fakeGSStore{get: &eval.GoldenSet{ID: gs, KBID: kb}}, nil)
+	w := httptest.NewRecorder()
+	body := `{"golden_set_id":"` + gs.String() + `","team_id":"` + uuid.New().String() + `"}`
+	h.CreateRunForKB(w, reqAuth(http.MethodPost, "/api/kb/"+kb.String()+"/eval/runs", kb.String(), body))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for a team run, got %d", w.Code)
+	}
+	if rs.inserted != nil {
+		t.Fatal("must not insert a team run")
 	}
 }
 
@@ -111,7 +129,7 @@ func TestCreateRunForKB_CrossKBGoldenSetRejected(t *testing.T) {
 	otherKB := uuid.New()
 	gs := uuid.New()
 	rs := &fakeRunStore{}
-	h := NewHandler(rs, fakeKB{}, fakeCfg{}, nil, &fakeGSStore{get: &eval.GoldenSet{ID: gs, KBID: otherKB}}, nil, nil)
+	h := NewHandler(rs, fakeKB{}, fakeCfg{}, nil, &fakeGSStore{get: &eval.GoldenSet{ID: gs, KBID: otherKB}}, nil)
 	w := httptest.NewRecorder()
 	h.CreateRunForKB(w, reqAuth(http.MethodPost, "/api/kb/"+kb.String()+"/eval/runs", kb.String(), `{"golden_set_id":"`+gs.String()+`"}`))
 	if w.Code != http.StatusBadRequest && w.Code != http.StatusNotFound {
@@ -127,7 +145,7 @@ func TestGetRunForKB_CrossKBRejected(t *testing.T) {
 	kb := uuid.New()
 	otherKB := uuid.New()
 	run := &eval.Run{ID: uuid.New(), KBID: otherKB}
-	h := NewHandler(&fakeRunStore{got: run}, fakeKB{}, fakeCfg{}, nil, &fakeGSStore{}, nil, nil)
+	h := NewHandler(&fakeRunStore{got: run}, fakeKB{}, fakeCfg{}, nil, &fakeGSStore{}, nil)
 	r := httptest.NewRequest(http.MethodGet, "/api/kb/"+kb.String()+"/eval/runs/"+run.ID.String(), nil)
 	r.SetPathValue("id", kb.String())
 	r.SetPathValue("runId", run.ID.String())
@@ -141,7 +159,7 @@ func TestGetRunForKB_CrossKBRejected(t *testing.T) {
 // ListGoldenSetsForKB returns only the path KB's sets.
 func TestListGoldenSetsForKB(t *testing.T) {
 	kb := uuid.New()
-	h := NewHandler(&fakeRunStore{}, fakeKB{}, fakeCfg{}, nil, &fakeGSStore{}, nil, nil)
+	h := NewHandler(&fakeRunStore{}, fakeKB{}, fakeCfg{}, nil, &fakeGSStore{}, nil)
 	w := httptest.NewRecorder()
 	h.ListGoldenSetsForKB(w, req(http.MethodGet, "/api/kb/"+kb.String()+"/eval/golden-sets", kb.String(), ""))
 	if w.Code != http.StatusOK {
@@ -156,7 +174,7 @@ func TestUpdateGoldenSetForKB_RejectsForeignSet(t *testing.T) {
 	otherKB := uuid.New()
 	gs := uuid.New()
 	gsStore := &fakeGSStore{get: &eval.GoldenSet{ID: gs, KBID: otherKB}}
-	h := NewHandler(&fakeRunStore{}, fakeKB{}, fakeCfg{}, nil, gsStore, nil, nil)
+	h := NewHandler(&fakeRunStore{}, fakeKB{}, fakeCfg{}, nil, gsStore, nil)
 
 	r := httptest.NewRequest(http.MethodPatch, "/api/kb/"+kb.String()+"/eval/golden-sets/"+gs.String(), strings.NewReader(`{"schedule":"daily"}`))
 	r.SetPathValue("id", kb.String())

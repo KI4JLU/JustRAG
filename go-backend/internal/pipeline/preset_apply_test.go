@@ -71,7 +71,7 @@ func (s *recordingStore) value(key string) (string, bool) {
 }
 
 func newApplyHandler(s *recordingStore, globals map[string]string) *Handler {
-	return NewHandler(s, fakeReader{vals: globals}, fakeBindings{})
+	return NewHandler(s, fakeReader{vals: globals})
 }
 
 // withPresets swaps the curated preset table for the duration of one test.

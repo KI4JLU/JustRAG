@@ -11,10 +11,9 @@
 // hardcoded — see embeddingDim.
 //
 // Privacy contract: every memory row is FK'd to users(id) ON DELETE
-// CASCADE — deleting a user evicts their entire memory. The GDPR
-// "My Memory" drawer (per-row + bulk delete + JSON export) ships via
-// the internal/memory handler package + Profile.tsx, backed by
-// /api/user/memory. The embedding column is widened to the active
+// CASCADE — deleting a user evicts their entire memory. Per-row and bulk
+// delete plus JSON export are served by the internal/memory handler
+// package at /api/user/memory. The embedding column is widened to the active
 // embedder dim at startup (migrate.EnsureUserMemoryEmbedding); the
 // admin re-embed-user-memory job repopulates existing rows after a
 // change.

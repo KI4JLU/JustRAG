@@ -15,7 +15,6 @@ type Orchestrator string
 
 const (
 	OrchComparison  Orchestrator = "comparison"
-	OrchTeam        Orchestrator = "team"
 	OrchCorpusTable Orchestrator = "corpus_table"
 	OrchDrift       Orchestrator = "drift"
 	OrchLongContext Orchestrator = "longcontext"
@@ -41,8 +40,6 @@ type OrchestratorInputs struct {
 	// ComparisonReady is the fully-resolved in-chat comparison gate:
 	// attachment store present AND willRunComparison(...) true.
 	ComparisonReady bool
-	// TeamSelected reports an explicit user-created team/agent selection.
-	TeamSelected bool
 
 	CorpusTableEnabled    bool
 	CorpusChunksAvailable bool
@@ -109,13 +106,13 @@ func SelectOrchestrator(in OrchestratorInputs, confirmCorpus func() bool) Orches
 }
 
 // SelectOrchestratorWithPolicy is SelectOrchestrator with the operator's
-// chat_orchestrator_policy table evaluated AFTER the three always-first arms
-// (comparison / team / corpus-table) and BEFORE the flag ladder (W6-R6).
+// chat_orchestrator_policy table evaluated AFTER the two always-first arms
+// (comparison / corpus-table) and BEFORE the flag ladder.
 //
-// The ordering is the ruling, not an implementation detail: comparison, team
-// and corpus-table are explicit-intent routes — an attachment, a picked team,
-// a corpus question — and a routing policy must never be able to hijack them
-// (W6-R16). On those three arms the policy is not even consulted, so the
+// The ordering is the ruling, not an implementation detail: comparison and
+// corpus-table are explicit-intent routes — an attachment, a corpus
+// question — and a routing policy must never be able to hijack them. On
+// those two arms the policy is not even consulted, so the
 // returned decision reports Matched=false and the caller emits no event.
 //
 // A nil/empty policy makes Decide return an immediate no-match, so this
@@ -124,9 +121,6 @@ func SelectOrchestrator(in OrchestratorInputs, confirmCorpus func() bool) Orches
 func SelectOrchestratorWithPolicy(in OrchestratorInputs, pol chatpolicy.OrchestratorPolicy, sig chatpolicy.Signals, confirmCorpus func() bool) (Orchestrator, PolicyDecision) {
 	if in.ComparisonReady {
 		return OrchComparison, noPolicyDecision()
-	}
-	if in.TeamSelected && !in.EnhanceRequested {
-		return OrchTeam, noPolicyDecision()
 	}
 	if in.CorpusTableEnabled && in.CorpusChunksAvailable && !in.EnhanceRequested &&
 		in.IsCorpusQuery && (!in.CorpusRouterLLMOn || confirmCorpus()) {

@@ -359,3 +359,5 @@ func TestResolveRegenerateTurn_NamingTheQuestionAnswersIt(t *testing.T) {
 		t.Fatalf("history = %+v, want u1, a1", got.HistoryRows)
 	}
 }
+
+func ptr(s string) *string { return &s }

@@ -63,7 +63,7 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 - **User file library** (no gate) — `user_files`, `/api/library/...`, index copy reuse, library chat, adoption, orphan sweep. **Only `cascade.DeleteUserFile` may delete a blob of a row with `user_file_id`.** Bump `parseCacheVersion` on parser output changes, `fingerprintVersion` on index-shaping changes, `prompts.KGPromptVersion` on KG prompt changes. Contract `docs/api-contracts/user-file-library.md`.
 
 **Agents, validation, ops**
-- **User-created agents & teams** (no gate) — `agents_allow_privileged_tools` (off) gates `code_exec`/`sql_query`/`web_search`. `internal/agentteams`.
+- `agents_allow_privileged_tools` (global-only, off) — lets the agent chat (`chat_agent_chat_enabled`) offer `code_exec`/`sql_query`/`web_search`. The user-created agents and teams are removed from the code; their tables stay until a follow-up migration drops them.
 - `ragas_*`, `factcheck_*`, `citation_validation_*`, `langfuse_*` — validation + observability (RAGAS samples persisted, mig 0072).
 - `kb_stale_days` (global-only, 180) — freshness surface on the admin KB overview.
 - `system_notice_*` (global-only, off) — admin-set system message for every user; `system_notice_placement` (`banner` above the app | `inline` pill over the main area | `toast` bottom right) or empty = by tone (`error` = banner, other tones = inline); public keys, validated at save time, admins edit them via `PUT /api/admin/system-notice`, automation via `GET`/`PUT /api/v1/system-notice` with an admin's API key (`internal/siteconfig/system_notice*.go`).
@@ -78,7 +78,7 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 ## KB access (summary — full model in `docs/kb-access.md`)
 
 - Four roles `view < edit < admin < owner`. `kb_members` is the **sole authority**; `knowledge_bases.user_id` is a trigger-maintained mirror — never write it.
-- Resolution: `kbaccess.EffectiveRole` (only ladder), `kbaccess.RequireKBRole(min)` (only route gate; `RequireOperableKB`/`RequireKBRoleOrOperable` admit system admins to shared, global or their own KBs on `kbAdvancedChain`/`kbAgentListChain` only). SQL mirrors `kbaccess.VisibleKBsCTE` and `kbaccess.SeeSourcesSQL` must change in the same commit as the Go logic (parity test `TestVisibilityAgreesWithEffectiveRole`).
+- Resolution: `kbaccess.EffectiveRole` (only ladder), `kbaccess.RequireKBRole(min)` (only route gate; `RequireOperableKB` admits system admins to shared, global or their own KBs on `kbAdvancedChain` only). SQL mirrors `kbaccess.VisibleKBsCTE` and `kbaccess.SeeSourcesSQL` must change in the same commit as the Go logic (parity test `TestVisibilityAgreesWithEffectiveRole`).
 - Per-KB source permissions: `kbaccess.CapabilitiesFor` → `seeSources`, `addSources`, `downloadSources`, `seeCitations`, `manageSources` (mig 0089). `seeCitations` is enforced on output only.
 - `visibility` (`private`|`public`) is the truth; `is_global` is a generated column no Go code reads. Public KBs have no owner; publishing is staged (`is_published=false`).
 
@@ -150,7 +150,7 @@ Details: `docs/feature-reference.md` § Environment variables.
 | Cluster | Packages |
 |---|---|
 | Wire / HTTP | `app`, `httputil`, `middleware`, `auth`, `authhandler`, `apikeyauth`, `sserelay`, `requestid` |
-| Chat orchestration | `chat` (orchestrators, trajectory, gates, post-response), `chatpolicy`, `kbbehavior` (roles, rules, the compiled KB prompt), `kbstartpage`, `kbassistant` (combined settings save + versions), `agents`, `agentteams`, `prompts`, `longmem`, `chatattach`, `recencylister` (adapter to avoid a `chat`↔`mcp/builtin` cycle), `adkbridge`, `agui` |
+| Chat orchestration | `chat` (orchestrators, trajectory, gates, post-response), `chatpolicy`, `kbbehavior` (roles, rules, the compiled KB prompt), `kbstartpage`, `kbassistant` (combined settings save + versions), `agents`, `prompts`, `longmem`, `chatattach`, `recencylister` (adapter to avoid a `chat`↔`mcp/builtin` cycle), `adkbridge`, `agui` |
 | Retrieval / ingest | `vector`, `ai`, `splitter`, `processor` (incl. KG write path), `parser` (+ `parser/docling`), `pptx`, `sheetsource`, `tabular` (+ `profile`, `render`, `ingest`, `sqlcheck`, `sqlexec`), `promptsafety` |
 | Tools (MCP) | `mcp`, `mcp/builtin`, `sessionmem`, `aibudget` |
 | Knowledge graph | `kg` (read path), `kggraph`, `kgevents`, `canonicalize`, `community` |
@@ -164,7 +164,7 @@ Details: `docs/feature-reference.md` § Environment variables.
 
 ## Agentic chat orchestration
 
-Streaming `complex_reasoning` turns dispatch through the first orchestrator whose flag is on; the default runs the legacy 2-step `RunDeepChat`. Explicit agent/team selection and in-chat comparison come first; `chat_orchestrator_policy` rules come before the ladder.
+Streaming `complex_reasoning` turns dispatch through the first orchestrator whose flag is on; the default runs the legacy 2-step `RunDeepChat`. In-chat comparison and the corpus-comparison table come first; `chat_orchestrator_policy` rules come before the ladder.
 
 | # | Orchestrator | Flag |
 |---|---|---|

@@ -25,7 +25,7 @@ type ragSystemPromptResponse struct {
 // enumeration/recency/conflict addenda and the CONTEXT block; the session
 // and long-term memory blocks are prepended to the KB prompt and the tabular
 // guidance appended to it, when those features are on. The corpus-table path
-// and the document-comparison summary without a team use their own
+// and the document-comparison summary use their own
 // instructions instead of these.
 //
 // The language comes from ?lang alone, with the same fallback a chat turn

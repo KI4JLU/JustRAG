@@ -10,7 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/justrag/go-backend/internal/agentteams"
 	"github.com/justrag/go-backend/internal/mcp"
 	"github.com/justrag/go-backend/internal/siteconfig"
 )
@@ -109,7 +108,7 @@ func stageDecisions(frames []map[string]any) []string {
 
 // TestAnswerToolsForTurn_FlagMatrix pins, for each combination of the admin
 // gate (chat_web_search_enabled), the answer-tools flag, the request's
-// webSearch (absent / true / false), a team-authored turn and a route
+// webSearch (absent / true / false), a library-chat turn and a route
 // allowlist: whether the tool loop is configured at all, the EXACT catalog
 // the answer LLM is shown, which tools a call can actually reach, whether
 // the web-search prompt block is added, and whether a "web_search skipped"
@@ -118,7 +117,7 @@ func stageDecisions(frames []map[string]any) []string {
 // Oracle: every expected value is written out by hand from the card's
 // acceptance rules (absent = upstream behaviour; true = web_search, and only
 // web_search when answer tools are off, with allowPrivileged from the admin
-// gate; false = web_search neither listed nor dispatchable; team-authored =
+// gate; false = web_search neither listed nor dispatchable; library chat =
 // no tools; an admin route allowlist wins over the request). Reachability is
 // observed through the fixture tools' own handlers (invocationCounter), not
 // through anything the code under test reports about itself.
@@ -138,7 +137,6 @@ func TestAnswerToolsForTurn_FlagMatrix(t *testing.T) {
 		chatGate    bool
 		answerTools bool
 		webSearch   *bool
-		team        bool
 		library     bool
 		byRoute     string
 		queryType   string
@@ -174,14 +172,6 @@ func TestAnswerToolsForTurn_FlagMatrix(t *testing.T) {
 		{name: "on/gate on/true — full catalog plus the hint", chatGate: true, answerTools: true, webSearch: boolPtr(true), queryType: lookup,
 			wantOK: true, wantCatalog: answerToolNames, wantReach: answerToolNames, wantHint: true, wantNoEvents: true},
 
-		// --- team-authored turn: no answer tools, and a request is reported --
-		{name: "team/on/absent — no tools, nothing to report", chatGate: true, answerTools: true, team: true, queryType: lookup,
-			wantOK: false, wantNoEvents: true},
-		{name: "team/on/true — reported", chatGate: true, answerTools: true, webSearch: boolPtr(true), team: true, queryType: lookup,
-			wantOK: false, wantEvents: []string{skipped}},
-		{name: "team/off/true — reported", chatGate: true, webSearch: boolPtr(true), team: true, queryType: lookup,
-			wantOK: false, wantEvents: []string{skipped}},
-
 		// --- library-chat turn (P3-R5): no answer tools, a request is reported
 		{name: "library/on/absent — no tools, nothing to report", chatGate: true, answerTools: true, library: true, queryType: lookup,
 			wantOK: false, wantNoEvents: true},
@@ -210,12 +200,11 @@ func TestAnswerToolsForTurn_FlagMatrix(t *testing.T) {
 			}
 			var frames []map[string]any
 			set, ok := h.answerToolsForTurn(context.Background(), answerToolsInput{
-				kbID:         "kb-1",
-				lang:         "en",
-				queryType:    tc.queryType,
-				webSearch:    tc.webSearch,
-				teamAuthored: tc.team,
-				library:      tc.library,
+				kbID:      "kb-1",
+				lang:      "en",
+				queryType: tc.queryType,
+				webSearch: tc.webSearch,
+				library:   tc.library,
 			}, func(pl map[string]any) { frames = append(frames, pl) })
 
 			if ok != tc.wantOK {
@@ -301,20 +290,6 @@ func TestAnswerToolSet_HintGoesBeforeContext(t *testing.T) {
 // refuseWebSearchTurn through the real SendMessage handler
 // ---------------------------------------------------------------------------
 
-// failingTeamLoader satisfies TeamLoader; any call means the turn got past
-// the up-front web-search check, which the team case must not.
-type failingTeamLoader struct{ t *testing.T }
-
-func (l failingTeamLoader) LoadTeamForChat(context.Context, string, string) (*agentteams.TeamForChat, error) {
-	l.t.Error("team loader reached: the web-search refusal must happen before team resolution")
-	return nil, context.Canceled
-}
-
-func (l failingTeamLoader) LoadAgentForChat(context.Context, string, string) (*agentteams.AgentRecord, error) {
-	l.t.Error("agent loader reached: the web-search refusal must happen before team resolution")
-	return nil, context.Canceled
-}
-
 // TestSendMessage_WebSearchRefusalHasNoSideEffects drives the real handler
 // and checks the 422 cases leave no chat and no usage event, while the
 // positive controls (same harness, same config, a request that may proceed)
@@ -346,14 +321,16 @@ func TestSendMessage_WebSearchRefusalHasNoSideEffects(t *testing.T) {
 		{"cx missing", without("google_search_cx"), false, `{"message":"hello","webSearch":true}`, true, http.StatusUnprocessableEntity},
 		{"tool not registered", full(), true, `{"message":"hello","webSearch":true}`, true, http.StatusUnprocessableEntity},
 		{"non-streaming request", full(), false, `{"message":"hello","webSearch":true}`, false, http.StatusUnprocessableEntity},
-		{"team selection", full(), false, `{"message":"hello","webSearch":true,"teamId":"00000000-0000-0000-0000-000000000001"}`, true, http.StatusUnprocessableEntity},
-		{"agent selection", full(), false, `{"message":"hello","webSearch":true,"agentId":"00000000-0000-0000-0000-000000000001"}`, true, http.StatusUnprocessableEntity},
 
 		// Positive controls: the turn is accepted (chat + usage written) and
 		// then fails at the stub searcher with a 500.
 		{"control: everything configured", full(), false, `{"message":"hello","webSearch":true}`, true, http.StatusInternalServerError},
 		{"control: false is never refused (gate off, non-streaming)", without("chat_web_search_enabled"), false, `{"message":"hello","webSearch":false}`, false, http.StatusInternalServerError},
 		{"control: absent is never refused", without("chat_web_search_enabled"), false, `{"message":"hello"}`, true, http.StatusInternalServerError},
+		// An old client may still send a team or agent: the fields are
+		// ignored, so the turn is accepted like any other.
+		{"control: a stray teamId is ignored", full(), false, `{"message":"hello","webSearch":true,"teamId":"00000000-0000-0000-0000-000000000001"}`, true, http.StatusInternalServerError},
+		{"control: a stray agentId is ignored", full(), false, `{"message":"hello","webSearch":true,"agentId":"00000000-0000-0000-0000-000000000001"}`, true, http.StatusInternalServerError},
 	}
 
 	for _, tc := range cases {
@@ -371,7 +348,6 @@ func TestSendMessage_WebSearchRefusalHasNoSideEffects(t *testing.T) {
 				usageRecorder:    rec,
 				siteConfigReader: &fakeSiteConfigReader{values: tc.cfg},
 				toolDispatcher:   NewMCPDispatcher(reg),
-				teamLoader:       failingTeamLoader{t: t},
 			}
 			target := "/api/kb/kb1/chat"
 			if tc.stream {
@@ -432,131 +408,18 @@ func TestChatWebSearchEnabled_DefaultOffAndParse(t *testing.T) {
 	}
 }
 
-// TestChatWebSearchEnabled_IsGlobalOnly pins that no per-KB or per-agent
-// override can switch the admin gate on. Oracle: the real KB and agent
-// overlays (siteconfig.NewKBOverlay / NewAgentOverlay) fed a hostile
-// override over a global "off".
+// TestChatWebSearchEnabled_IsGlobalOnly pins that no per-KB override can
+// switch the admin gate on. Oracle: the real KB overlay
+// (siteconfig.NewKBOverlay) fed a hostile override over a global "off".
 func TestChatWebSearchEnabled_IsGlobalOnly(t *testing.T) {
 	const key = "chat_web_search_enabled"
-	if siteconfig.IsPerKB(key) || siteconfig.IsPerAgent(key) {
-		t.Fatalf("%s must not be in the per-KB/per-agent registry", key)
+	if siteconfig.IsPerKB(key) {
+		t.Fatalf("%s must not be in the per-KB registry", key)
 	}
 	global := &fakeSiteConfigReader{values: map[string]*string{key: strPtr("false")}}
 	hostile := map[string]*string{key: strPtr("true")}
 	ctx := context.Background()
 	if ChatWebSearchEnabled(ctx, siteconfig.NewKBOverlay(global, hostile)) {
 		t.Error("a per-KB override switched the global-only gate on")
-	}
-	if ChatWebSearchEnabled(ctx, siteconfig.NewAgentOverlay(siteconfig.NewKBOverlay(global, hostile), hostile)) {
-		t.Error("a per-agent override switched the global-only gate on")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Regenerate + team selection: the up-front check sees the effective turn
-// ---------------------------------------------------------------------------
-
-// stubTeamLoader fails every load quietly (the "deleted team" case), for
-// controls where reaching team resolution is expected.
-type stubTeamLoader struct{}
-
-func (stubTeamLoader) LoadTeamForChat(context.Context, string, string) (*agentteams.TeamForChat, error) {
-	return nil, context.Canceled
-}
-
-func (stubTeamLoader) LoadAgentForChat(context.Context, string, string) (*agentteams.AgentRecord, error) {
-	return nil, context.Canceled
-}
-
-// TestSendMessage_WebSearchRegenerateWithTeamIsRefused: a regenerate request
-// that carries a team AND an Enhance value. resolveRegenerate clears Enhance
-// later in the turn, which makes the team selection effective — so the
-// up-front check must refuse it as a team turn, before anything is written.
-//
-// Oracle: HTTP status, the store's message list, the usage recorder, and
-// failingTeamLoader (team resolution must never be reached).
-func TestSendMessage_WebSearchRegenerateWithTeamIsRefused(t *testing.T) {
-	h, store := regenHandler(erroringSearcher{})
-	rec := &fakeUsageRecorder{}
-	h.usageRecorder = rec
-	h.siteConfigReader = &fakeSiteConfigReader{values: webSearchConfig(true, false, "")}
-	h.toolDispatcher = NewMCPDispatcher(newWebSearchFixtureRegistry(&invocationCounter{calls: map[string]int{}}))
-	h.teamLoader = failingTeamLoader{t: t}
-	messagesBefore := len(store.messages)
-
-	r := regenRequest(`{"message":"x","chatId":"chat-1","regenerateOfMessageId":"` + regenAIMsgID +
-		`","enhance":"rewrite","teamId":"00000000-0000-0000-0000-000000000001","webSearch":true}`)
-	r.URL.RawQuery = "stream=true"
-	w := httptest.NewRecorder()
-	h.SendMessage(w, r)
-
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422: %s", w.Code, w.Body.String())
-	}
-	if got := len(rec.snapshot()); got != 0 {
-		t.Errorf("usage events = %d, want 0", got)
-	}
-	if got := len(store.messages); got != messagesBefore {
-		t.Errorf("messages = %d, want %d (nothing written)", got, messagesBefore)
-	}
-}
-
-// TestSendMessage_WebSearchEnhanceWithTeamIsNotRefused is the control: on a
-// fresh (non-regenerate) Enhance turn the team selection is NOT used
-// (SendMessage only hands teamSel on when Enhance is empty), so web search
-// can run and the request must not be refused.
-func TestSendMessage_WebSearchEnhanceWithTeamIsNotRefused(t *testing.T) {
-	store := newMockStore()
-	h := &Handler{
-		store:            store,
-		searchService:    erroringSearcher{},
-		usageRecorder:    &fakeUsageRecorder{},
-		siteConfigReader: &fakeSiteConfigReader{values: webSearchConfig(true, false, "")},
-		toolDispatcher:   NewMCPDispatcher(newWebSearchFixtureRegistry(&invocationCounter{calls: map[string]int{}})),
-		teamLoader:       stubTeamLoader{},
-	}
-	r := regenRequest(`{"message":"hello","enhance":"rewrite","teamId":"00000000-0000-0000-0000-000000000001","webSearch":true}`)
-	r.URL.RawQuery = "stream=true"
-	w := httptest.NewRecorder()
-	h.SendMessage(w, r)
-	if w.Code == http.StatusUnprocessableEntity {
-		t.Fatalf("an Enhance turn does not use the team selection; it must not be refused: %s", w.Body.String())
-	}
-	if len(store.chats) != 1 {
-		t.Errorf("chats = %d, want 1 (the turn was accepted)", len(store.chats))
-	}
-}
-
-// TestTeamTurnRequested_MatchesResolveRegenerate pins teamTurnRequested
-// against the real rewrite it anticipates: for each body, the up-front
-// verdict must equal "Enhance is empty and a team/agent is named" evaluated
-// on the body AFTER the real resolveRegenerate has run (for regenerates).
-// Oracle: resolveRegenerate itself, so a future change to its rewrite makes
-// this fail instead of reopening the bypass.
-func TestTeamTurnRequested_MatchesResolveRegenerate(t *testing.T) {
-	const team = "00000000-0000-0000-0000-000000000001"
-	bodies := []sendMessageRequest{
-		{Message: "q", Enhance: "rewrite", TeamID: team},
-		{Message: "q", TeamID: team},
-		{Message: "q", Enhance: "rewrite", AgentID: team},
-		{Message: "q", Enhance: "rewrite"},
-		{Message: "q", ChatID: "chat-1", RegenerateOfMessageID: regenAIMsgID, Enhance: "rewrite", TeamID: team},
-		{Message: "q", ChatID: "chat-1", RegenerateOfMessageID: regenAIMsgID, Enhance: "expand", AgentID: team},
-		{Message: "q", ChatID: "chat-1", RegenerateOfMessageID: regenAIMsgID, TeamID: team},
-		{Message: "q", ChatID: "chat-1", RegenerateOfMessageID: regenAIMsgID, Enhance: "rewrite"},
-	}
-	for i, b := range bodies {
-		upFront := teamTurnRequested(b)
-		effective := b
-		if effective.RegenerateOfMessageID != "" {
-			h, _ := regenHandler(erroringSearcher{})
-			if _, ok := h.resolveRegenerate(context.Background(), httptest.NewRecorder(), "chat-1", &effective); !ok {
-				t.Fatalf("body %d: fixture regenerate did not resolve", i)
-			}
-		}
-		want := effective.Enhance == "" && (effective.TeamID != "" || effective.AgentID != "")
-		if upFront != want {
-			t.Errorf("body %d: teamTurnRequested = %v, but the effective turn uses its team = %v", i, upFront, want)
-		}
 	}
 }

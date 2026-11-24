@@ -76,7 +76,7 @@ func TestPgStore_RecordPersistsPolicyRule(t *testing.T) {
 	})
 
 	rule := 2
-	store.Record(context.Background(), kbID.String(), "supervisor", "answered", 0, 0, 42, nil, nil, nil, &rule)
+	store.Record(context.Background(), kbID.String(), "supervisor", "answered", 0, 0, 42, nil, &rule)
 
 	got, isNull := readPolicyRule(t, pool, kbID)
 	if isNull {
