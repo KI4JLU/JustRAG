@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stubViewport } from '../../test/viewport';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { AppShell } from '@ki4jlu/design-system';
+import { AppShellLayout } from '@ki4jlu/design-system';
 import { ChatView } from './ChatView';
 import type { Message, KnowledgeBase, KbCapabilities } from '../../types';
 
@@ -185,9 +185,9 @@ describe('ChatView — citations follow seeCitations', () => {
 describe('ChatView — the source panel follows downloadSources', () => {
   // The cited source is a tab of the shell's side panel, so the chat needs its frame.
   const renderInShell = () => render(
-    <AppShell topBar={<span />} mobileTabs={[]} activeMobileTab="" onMobileTabChange={() => {}}>
+    <AppShellLayout logo={<span />} nav={<span />} leftOpen onLeftOpenChange={() => {}} mobileTabs={[]} activeMobileTab="" onMobileTabChange={() => {}}>
       <ChatView />
-    </AppShell>,
+    </AppShellLayout>,
   );
 
   it('opens the cited source beside the answer, with the full view and download', () => {
@@ -215,9 +215,9 @@ describe('ChatView — the source panel follows downloadSources', () => {
 
 describe('ChatView — the side panel', () => {
   const renderInShell = () => render(
-    <AppShell topBar={<span />} mobileTabs={[]} activeMobileTab="" onMobileTabChange={() => {}}>
+    <AppShellLayout logo={<span />} nav={<span />} leftOpen onLeftOpenChange={() => {}} mobileTabs={[]} activeMobileTab="" onMobileTabChange={() => {}}>
       <ChatView />
-    </AppShell>,
+    </AppShellLayout>,
   );
   // The wide shell: the panel is a column there and can be maximised.
   beforeEach(() => { stubViewport(true); });
