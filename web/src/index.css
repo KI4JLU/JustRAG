@@ -554,22 +554,20 @@ button.source-card {
   /* One width for the transcript and the composer (`.input-container`): an
      answer spans exactly the composer's box. cqw keeps both relative to this
      column, whatever the scroller's scrollbar takes. */
-  container-type: inline-size;
-  /* The user's chat width (settings → Chat): a share of this column, capped
-     so a line stays readable on a large screen. `comfortable` is the default;
-     the other two are below. */
-  --chat-width-share: 80cqw;
-  --chat-width-cap: 60rem;
-  /* What the open floating sources card covers at the end edge (published
-     by the design system's shell); 0 while it is closed. */
-  --chat-clear: var(--app-shell-bubble-inset, 0px);
-  /* The room beside that card. It stops at 20rem (or the column, if that is
-     narrower): a card that leaves less than that lies over the content's end
-     instead of squeezing it further. */
-  --chat-room: max(min(20rem, 100cqw), 100cqw - var(--chat-clear));
-  --chat-column-width: min(var(--chat-width-share), var(--chat-width-cap), var(--chat-room));
+  /* The design system's ChatStage is the size container and publishes the
+     column's width from the user's chat width setting (`width`):
+     `--chat-column-width`, `--chat-room` beside the open sources card and
+     `--chat-clear`, what that card covers. */
   /* The centred box the shift below is worked out for. */
   --chat-box: var(--chat-column-width);
+  /* The column's centre axis, handed to the design system's ChatStage: its
+     header row and the scroll-to-end button move by this length, as the
+     transcript and the composer do below, and the header row wraps within
+     `--chat-axis-width`. `--chat-axis-box` is the box the axis belongs to —
+     the column, or the start page's narrower one. */
+  --chat-axis-box: var(--chat-column-width);
+  --chat-axis-shift: clamp(0px, var(--chat-clear) - (100cqw - var(--chat-axis-box)) / 2, (100cqw - var(--chat-axis-box)) / 2);
+  --chat-axis-width: var(--chat-axis-box);
   --chat-column-inset: 2rem;
   --chat-message-max: 700px;
   flex: 1;
@@ -579,14 +577,8 @@ button.source-card {
   min-width: 0;
 }
 
-.chat-column[data-chat-width="wide"] {
-  --chat-width-share: 90cqw;
-  --chat-width-cap: 80rem;
-}
-
-.chat-column[data-chat-width="full"] {
-  --chat-width-share: 100cqw;
-  --chat-width-cap: 100cqw;
+.chat-column[data-empty] {
+  --chat-axis-box: min(42rem, var(--chat-room));
 }
 
 /* Inside the DS ChatStage (centring and the pinned disclaimer live there):
@@ -1414,9 +1406,6 @@ button.source-card {
    ======================================== */
 @media (max-width: 767px) {
   .chat-column {
-    /* One area at a time here: no card floats over the chat. */
-    --chat-clear: 0px;
-    --chat-column-width: 100cqw;
     --chat-column-inset: 0.75rem;
   }
 

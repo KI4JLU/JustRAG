@@ -448,10 +448,28 @@ const ChatViewComp = () => {
                 <ChatStage
                   // relative isolate: the start page's glow fills the stage, behind the content.
                   className="chat-column relative isolate"
-                  data-chat-width={chatWidth}
+                  width={chatWidth}
                   empty={chat.messages.length === 0}
                   footerId="chat-disclaimer"
                   footer={t('chatFooter')}
+                  // The chat's role — for the whole chat, also when reopened from the history.
+                  // The start page itself names it in its title block (a single role) or on its
+                  // cards. The stage's header row: it stays on the column's centre axis when the
+                  // sources card opens.
+                  header={((startPage && (chat.chatRoleId || (chat.roleStart && chat.messages.length === 0))) || (chat.messages.length > 0 && chatRoleName)) ? (
+                    <>
+                      {chat.roleStart && chat.messages.length === 0 && (
+                        <Button variant="ghost" size="sm" onClick={chat.handleNewChat}>
+                          <ArrowLeft className="size-4" aria-hidden="true" /> {t('asstBackToStart')}
+                        </Button>
+                      )}
+                      {chatRoleName ? (
+                        <Badge tone="primary">{t('asstRoleBadge').replace('{role}', chatRoleName)}</Badge>
+                      ) : chat.chatRoleId ? (
+                        <Notice tone="neutral" className="max-w-xl">{t('asstRoleDeleted')}</Notice>
+                      ) : null}
+                    </>
+                  ) : undefined}
                   composer={(
                   // An empty chat (the start page) is as wide as the title card —
                   // composer, role cards and dropzone alike; with messages the
@@ -753,22 +771,6 @@ const ChatViewComp = () => {
                 >
                   {chat.messages.length === 0 && startPage && !chat.roleStart && !(noSources && sourceRights.addSources) && (
                     <StartGlow category={startPage.category} />
-                  )}
-                  {((startPage && (chat.chatRoleId || (chat.roleStart && chat.messages.length === 0))) || (chat.messages.length > 0 && chatRoleName)) && (
-                    // The chat's role — for the whole chat, also when reopened from the history.
-                    // The start page itself names it in its title block (a single role) or on its cards.
-                    <div className="flex flex-wrap items-center justify-center gap-2 px-4 pt-3">
-                      {chat.roleStart && chat.messages.length === 0 && (
-                        <Button variant="ghost" size="sm" onClick={chat.handleNewChat}>
-                          <ArrowLeft className="size-4" aria-hidden="true" /> {t('asstBackToStart')}
-                        </Button>
-                      )}
-                      {chatRoleName ? (
-                        <Badge tone="primary">{t('asstRoleBadge').replace('{role}', chatRoleName)}</Badge>
-                      ) : chat.chatRoleId ? (
-                        <Notice tone="neutral" className="max-w-xl">{t('asstRoleDeleted')}</Notice>
-                      ) : null}
-                    </div>
                   )}
                   {chat.messages.length === 0 ? (
                     <div
