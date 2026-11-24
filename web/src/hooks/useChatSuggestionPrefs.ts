@@ -22,7 +22,7 @@ export type ChatWidth = typeof CHAT_WIDTHS[number];
 
 /**
  * User setting: the chat column's width. `comfortable` by default — a reading
- * column; the widths themselves are CSS (`.chat-column[data-chat-width]`).
+ * column; the widths themselves are the design system's (ChatStage `width`).
  */
 export const useChatWidth = () =>
     useSharedStoredChoice<ChatWidth>(`${STORAGE_NAMESPACE}chat.width`, CHAT_WIDTHS, 'comfortable');
