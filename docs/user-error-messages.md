@@ -124,6 +124,12 @@ this table only maps each code to the message the web client shows.
 | `parse_timeout` | 422 | Reading the file took longer than the server allows | `errorParseTimeout` ([S8](#2-shared-messages)) |
 | `already_in_kb` | 409 | The topic already holds this file | `errorAlreadyInKb` ([S9](#2-shared-messages)) |
 | `invalid_upload` | 400 | The request is not a well-formed file upload | `errorUploadFailed` (the upload fallback, section 1) |
+| `translator_model_failed` | 502 | The translation model could not answer, or answered with no usable result | `errorTranslatorModelFailed`: Das Sprachmodell konnte nicht antworten. Bitte versuche es erneut. / The language model could not answer. Please try again. |
+| `translator_model_timeout` | 504 | The model did not answer in time (30 seconds plus 10 ms per character sent, at most 110 s) | `errorTranslatorModelTimeout`: Das Sprachmodell hat zu lange gebraucht. Bitte versuche es gleich noch einmal. / The language model took too long. Please try again in a moment. |
+| `translator_model_unavailable` | 503 | No model provider is active, or it rejects the credentials; only an administrator can fix that | `errorTranslatorModelUnavailable`: Die Übersetzung ist gerade nicht verfügbar. Bitte wende dich an die Administration. / Translation is not available right now. Please contact the administration. |
+| `glossary_too_many_entries` | 400 | A translator glossary (create, update or CSV import) has more than 5,000 entries (`config.limits.glossaryEntriesMax`) | `errorGlossaryTooManyEntries`: Ein Glossar darf höchstens 5.000 Einträge haben. Teile es auf mehrere Glossare auf. |
+| `glossary_term_invalid` | 400 | A glossary term is longer than 200 characters (`config.limits.glossaryTermMaxRunes`) or holds a control character or line break | `errorGlossaryTermInvalid`: Ein Begriff darf höchstens 200 Zeichen lang sein und keine Zeilenumbrüche oder Steuerzeichen enthalten. |
+| `translator_disabled` | 403 | The translation extension is switched off (`translator_enabled`) | `errorTranslatorDisabled`: Die Übersetzung ist nicht aktiviert. / Translation is not switched on. |
 
 On a chat send, every file code other than `too_large_for_context` shows
 `chatAttachmentsUnusable`, because the send knows no file name.

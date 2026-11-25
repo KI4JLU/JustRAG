@@ -71,7 +71,7 @@ describe('AdminUI navigation — groups', () => {
 
     it('groups the sections for a superadmin', () => {
         renderAs('superadmin');
-        expect(rowsOf('adminNavGroupConfig')).toEqual(['adminTabAiModels', 'adminTabAuth', 'adminTabSearch', 'adminTabAgents', 'adminTabSettings', 'systemNotice']);
+        expect(rowsOf('adminNavGroupConfig')).toEqual(['adminTabAiModels', 'adminTabAuth', 'adminTabSearch', 'adminTabAgents', 'adminTabSettings', 'adminTabExtensions', 'systemNotice']);
         expect(rowsOf('adminNavGroupKbs')).toEqual(['adminTabKbOverview', 'adminTabGlobalKbs', 'adminTabTemplates']);
         expect(rowsOf('adminNavGroupUsers')).toEqual(['adminTabUsers', 'adminTabRoles']);
         expect(rowsOf('adminNavGroupMonitoring')).toEqual(['adminTabHealth', 'evalRunner']);

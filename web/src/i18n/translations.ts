@@ -2,6 +2,7 @@ import { assistantTranslations } from './translations.assistant';
 import { adminTranslations } from './translations.admin';
 import { agentStepsTranslations } from './translations.agentSteps';
 import { workflowTranslations } from './translations.workflow';
+import { translatorTranslations } from './translations.translator';
 
 export type Language = 'en' | 'de';
 
@@ -3166,4 +3167,6 @@ export const translations = {
     ...workflowTranslations,
     // Admin console strings that were hardcoded in the components (translations.admin.ts)
     ...adminTranslations,
+    // Translation extension: page, glossaries, invite link, admin section (translations.translator.ts)
+    ...translatorTranslations,
 };

@@ -89,6 +89,7 @@ const NAV = {
   onViewMyTopics: vi.fn(),
   onViewSharedTopics: vi.fn(),
   onViewDiscover: vi.fn(),
+  onViewTranslator: vi.fn(),
   onViewProfile: vi.fn(),
   onEditGlobalKb: vi.fn(),
   onViewLegal: vi.fn(),

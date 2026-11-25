@@ -19,6 +19,8 @@ import {
 //   - apiKeyChain: admin, superadmin, api-user;
 //   - kbAdvancedChain: api-user or admin (superadmin bypasses) AND KB admin;
 //   - POST /api/kb: Authenticate only;
+//   - the translation permission (API.md "Translator and glossaries", docs/api-contracts/translator.md):
+//     fixed in code for user, admin, superadmin and api-user;
 //   - UpdateUserRole: a superadmin assigns user/api-user/admin, an admin only
 //     user/api-user and never touches an admin/superadmin; nobody assigns
 //     superadmin.
@@ -29,21 +31,25 @@ const SPEC: Record<string, Record<string, string>> = {
         manageUsers: 'Y', appointAdmins: 'Y', deleteUsers: 'Y',
         createPrivateTopic: 'Y', manageGlobalTopics: 'Y', advancedTopicSettings: 'Y', manageAnyTopic: 'Y',
         apiAccess: 'Y', aiModels: 'Y', authProviders: 'Y', monitoring: 'Y', systemSettings: 'Y', auditLogs: 'Y',
+        useTranslation: 'Y',
     },
     admin: {
         manageUsers: 'Y:arScopeUpToApiUser', appointAdmins: '-', deleteUsers: '-',
         createPrivateTopic: 'Y', manageGlobalTopics: 'Y', advancedTopicSettings: 'Y:arScopeAsTopicAdmin', manageAnyTopic: '-',
         apiAccess: 'Y', aiModels: 'Y', authProviders: '-', monitoring: 'Y', systemSettings: '-', auditLogs: '-',
+        useTranslation: 'Y',
     },
     'api-user': {
         manageUsers: '-', appointAdmins: '-', deleteUsers: '-',
         createPrivateTopic: 'Y', manageGlobalTopics: '-', advancedTopicSettings: 'Y:arScopeAsTopicAdmin', manageAnyTopic: '-',
         apiAccess: 'Y', aiModels: '-', authProviders: '-', monitoring: '-', systemSettings: '-', auditLogs: '-',
+        useTranslation: 'Y',
     },
     user: {
         manageUsers: '-', appointAdmins: '-', deleteUsers: '-',
         createPrivateTopic: 'Y', manageGlobalTopics: '-', advancedTopicSettings: '-', manageAnyTopic: '-',
         apiAccess: '-', aiModels: '-', authProviders: '-', monitoring: '-', systemSettings: '-', auditLogs: '-',
+        useTranslation: 'Y',
     },
 };
 
@@ -52,11 +58,12 @@ describe('layout model', () => {
         expect(SYSTEM_ROLE_COLUMNS).toEqual(['superadmin', 'admin', 'api-user', 'user']);
     });
 
-    it('groups the rights as users / topics / system', () => {
+    it('groups the rights as users / topics / system / extensions', () => {
         expect(SYSTEM_RIGHT_GROUPS.map(g => [g.id, [...g.rights]])).toEqual([
             ['users', ['manageUsers', 'appointAdmins', 'deleteUsers']],
             ['topics', ['createPrivateTopic', 'manageGlobalTopics', 'advancedTopicSettings', 'manageAnyTopic']],
             ['system', ['apiAccess', 'aiModels', 'authProviders', 'monitoring', 'systemSettings', 'auditLogs']],
+            ['extensions', ['useTranslation']],
         ]);
     });
 

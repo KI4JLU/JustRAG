@@ -69,7 +69,7 @@ const onViewSharedTopics = vi.fn();
 const onViewDiscover = vi.fn();
 vi.mock('../../contexts/AppNavContext', () => ({
   useAppNav: () => ({
-    onViewMyTopics, onViewSharedTopics, onViewDiscover,
+    onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTranslator: vi.fn(),
     onOpenTopic: vi.fn(), onOpenSource: vi.fn(), onOpenChat: vi.fn(),
   }),
 }));

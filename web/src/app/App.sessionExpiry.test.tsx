@@ -7,6 +7,7 @@ import App from './App';
 import { translations } from '../i18n/translations';
 import { goToSsoLogin, reloadPage } from '../routing/sessionExpiry';
 import { POST_LOGIN_PATH_KEY } from '../routing/postLoginPath';
+import { SESSION_KEY } from '../components/translator/translatorSessionStorage';
 
 /* What a 401 does to a signed-in app: the session ended, the user did not log
  * out. Renders the real App and Login; the signed-in half is a stub, since
@@ -32,12 +33,19 @@ let reportError: (message: string) => void = () => {};
 // A caller whose request failed with the session reports its own error.
 vi.mock('./AuthenticatedApp', async () => {
   const { useToast } = await import('../contexts/ToastContext');
+  const { useAuth } = await import('../contexts/AuthContext');
   const { Button } = await import('@ki4jlu/design-system');
   return {
     default: function SignedInApp() {
       const toast = useToast();
+      const { logout } = useAuth();
       reportError = toast.error;
-      return <Button>signed-in app</Button>;
+      return (
+        <>
+          <Button>signed-in app</Button>
+          <Button onClick={() => void logout()}>log out</Button>
+        </>
+      );
     },
   };
 });
@@ -107,6 +115,59 @@ function expireThroughAxios(token = 'old-token', registration = -1) {
   });
   return rejection!;
 }
+
+/** The translator's text, stored in the tab by the user who is signed in. */
+function storeTranslatorSession() {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: 'u1', translate: { source: 'Vertraulich' } }));
+}
+
+describe('App — the translator’s text when the session ends', () => {
+  it('is forgotten on logout', async () => {
+    signIn('local');
+    storeTranslatorSession();
+    render(<App />);
+    await userEvent.click(await screen.findByRole('button', { name: 'log out' }));
+
+    expect(await screen.findByLabelText(translations.username.en)).toBeInTheDocument();
+    expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
+  it('is forgotten when a 401 ends the session, for a password user', async () => {
+    signIn('local');
+    storeTranslatorSession();
+    render(<App />);
+    await screen.findByText('signed-in app');
+
+    expire();
+
+    expect(await screen.findByText(translations.sessionExpired.en)).toBeInTheDocument();
+    expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
+  it('is forgotten when a 401 sends an SSO user to sign in again', async () => {
+    signIn('oidc');
+    storeTranslatorSession();
+    render(<App />);
+    await screen.findByText('signed-in app');
+
+    expire();
+
+    expect(goToSsoLogin).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
+  it('stays when a late 401 for an earlier session is ignored', async () => {
+    localStorage.setItem('token', 'new-token');
+    localStorage.setItem('user', JSON.stringify({ id: 'u1', username: 'alice', role: 'user', authMethod: 'local' }));
+    storeTranslatorSession();
+    render(<App />);
+    await screen.findByText('signed-in app');
+
+    expire('old-token');
+
+    expect(sessionStorage.getItem(SESSION_KEY)).not.toBeNull();
+  });
+});
 
 describe('App — an expired session', () => {
   it('sends an SSO user through the SSO login again, back to the same page, and logs out nowhere', async () => {

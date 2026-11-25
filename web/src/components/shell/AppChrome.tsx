@@ -18,7 +18,7 @@ import {
 import { HistoryControls } from './HistoryControls';
 import {
   Home, Users,
-  LayoutGrid, Menu, Compass, FolderOpen, History, Lock, MessageSquare,
+  LayoutGrid, Menu, Compass, FolderOpen, History, Languages, Lock, MessageSquare,
 } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -47,6 +47,7 @@ import { SourcesPanel } from '../sources/SourcesPanel';
 import { HistoryPanel, NewChatButton } from '../history/HistoryPanel';
 import type { MobileTab } from '../../utils/activeMobileTab';
 import { canOpenKbTopicSettings, kbSourceRights } from '../../utils/kbAccess';
+import { loadTranslatorConfig, resetTranslatorConfig, useTranslatorEnabled } from '../translator/translatorConfig';
 import { topicSection } from '../../utils/topicSection';
 import { visibilityState } from '../../utils/kbVisibility';
 import { useKbPreview } from '../../preview/kbPreview';
@@ -83,13 +84,14 @@ import '../topics/HomeView.css';
  * ------------------------------------------------------------------------- */
 
 /** Which top-level view is currently on screen. One row, one `aria-current`. */
-export type AppChromeView = 'my-topics' | 'shared-topics' | 'discover';
+export type AppChromeView = 'my-topics' | 'shared-topics' | 'discover' | 'translator';
 
 /** The skip link's target per overview page; each page puts the id on its content landmark. */
 const CONTENT_IDS: Record<AppChromeView, string> = {
   'my-topics': 'my-topics-content',
   'shared-topics': 'shared-topics-content',
   discover: 'discover-content',
+  translator: 'translator-content',
 };
 
 /** What the frame needs to show a topic: the four topic contexts and the narrow-screen area. */
@@ -159,9 +161,18 @@ export function AppFrame({ active, contentId, topic = null, children }: AppFrame
   const { t } = useTheme();
   const { user, siteConfigs } = useAuth();
   const {
-    onViewMyTopics, onViewSharedTopics, onViewDiscover,
+    onViewMyTopics, onViewSharedTopics, onViewDiscover, onViewTranslator,
     onOpenTopic, onOpenSource, onOpenChat,
   } = useAppNav();
+  // The translation extension's entry shows only while it is switched on for this user. What the
+  // server says belongs to the signed-in user, so it is read again when another one signs in.
+  const translatorEnabled = useTranslatorEnabled();
+  const userId = user?.id;
+  useEffect(() => {
+    void loadTranslatorConfig();
+    // Another user, or none: what was read is not theirs.
+    return resetTranslatorConfig;
+  }, [userId]);
   const accountSearchGroup = useAccountSearchGroup();
   const { query, setQuery, applyCatalogQuery, focusPendingFor, requestFocus, consumeFocus } = useKbSearch();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -317,6 +328,17 @@ export function AppFrame({ active, contentId, topic = null, children }: AppFrame
         <Compass size={20} aria-hidden="true" />
         <span>{t('discoverTopics')}</span>
       </NavItem>
+      {translatorEnabled && (
+        <NavItem
+          type="button"
+          label={t('translatorNav')}
+          active={active === 'translator'}
+          onClick={go(onViewTranslator)}
+        >
+          <Languages size={20} aria-hidden="true" />
+          <span>{t('translatorNav')}</span>
+        </NavItem>
+      )}
     </>
   );
 
@@ -330,6 +352,9 @@ export function AppFrame({ active, contentId, topic = null, children }: AppFrame
         { id: 'my-topics', label: t('myTopics'), icon: <Home aria-hidden="true" />, onSelect: onViewMyTopics },
         { id: 'shared-topics', label: t('sharedTopics'), icon: <Users aria-hidden="true" />, onSelect: onViewSharedTopics },
         { id: 'discover', label: t('discoverTopics'), icon: <Compass aria-hidden="true" />, onSelect: onViewDiscover },
+        ...(translatorEnabled
+          ? [{ id: 'translator', label: t('translatorNav'), icon: <Languages aria-hidden="true" />, onSelect: onViewTranslator }]
+          : []),
       ].filter((item) => item.id !== active),
     },
     accountSearchGroup,

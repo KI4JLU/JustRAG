@@ -5,7 +5,7 @@ import { fromShortId, toShortId } from './shortId';
 
 /** Views with no parameter of their own. */
 export type PageView =
-  | 'my-topics' | 'shared-topics' | 'discover'
+  | 'my-topics' | 'shared-topics' | 'discover' | 'translator'
   | 'terms' | 'privacy' | 'accessibility';
 
 /** Views of one topic; the topic id is part of the URL. */
@@ -19,6 +19,8 @@ export type AppRoute =
   /** An existing chat; its topic is the chat's own (resolved by AuthenticatedApp). */
   | { view: 'chat'; chatId: string }
   | { view: 'global-kb-settings'; kbId: string }
+  /** A glossary invite link reached inside the running app; its token is the path's. */
+  | { view: 'join-glossary'; token: string }
   /** No route matched, or a parameter is not one the page knows. */
   | { view: 'not-found' };
 
@@ -63,6 +65,8 @@ export function routeFromMatch(match: LastMatch | null): AppRoute {
     case '/': return { view: 'my-topics' };
     case '/shared': return { view: 'shared-topics' };
     case '/discover': return { view: 'discover' };
+    case '/translator': return { view: 'translator' };
+    case '/join-glossary/$token': return { view: 'join-glossary', token: params.token };
     case '/terms': return { view: 'terms' };
     case '/privacy': return { view: 'privacy' };
     case '/accessibility': return { view: 'accessibility' };
@@ -112,6 +116,7 @@ export function useAppNavigate(): AppNavigate {
       case 'my-topics': void navigate({ to: '/', replace }); return;
       case 'shared-topics': void navigate({ to: '/shared', replace }); return;
       case 'discover': void navigate({ to: '/discover', replace }); return;
+      case 'translator': void navigate({ to: '/translator', replace }); return;
       case 'terms': void navigate({ to: '/terms', replace }); return;
       case 'privacy': void navigate({ to: '/privacy', replace }); return;
       case 'accessibility': void navigate({ to: '/accessibility', replace }); return;

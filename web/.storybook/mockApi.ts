@@ -154,6 +154,14 @@ export interface ApiMockParameters {
   kbMembers?: unknown;
   /** GET /api/kb/{id}/invite-links — MembersModal's third tab. */
   kbInviteLinks?: unknown;
+  /** GET /api/translator/config — the translation extension's switch, languages and limits. */
+  translatorConfig?: unknown;
+  /** GET /api/glossaries — `{glossaries, languages}`, each glossary with the caller's role and flags. */
+  glossaries?: unknown;
+  /** GET /api/glossaries/{id}/members — `{members, pending}`. */
+  glossaryMembers?: unknown;
+  /** The glossary's writes answer 204: the visibility PATCH and the ownership transfer. */
+  glossaryWrites?: boolean;
   /* -- The header's global search (card KI-837) ----------------------------
    * `GET /api/search?q&kb_id&limit` — one object with four arrays, the shape
    * of API.md's `### Search` section. A story hands the BODY; the handler
@@ -193,6 +201,13 @@ const URLS = {
    * anchor is what makes that independent of the verb. */
   kbMembers: /\/api\/kb\/[^/]+\/members(\?|$)/,
   kbInviteLinks: /\/api\/kb\/[^/]+\/invite-links(\?|$)/,
+  /* The translation extension. `/api/glossaries` is tail-anchored, so a glossary's own
+   * routes (`/api/glossaries/{id}/…`) are not answered by the list. */
+  translatorConfig: /\/api\/translator\/config$/,
+  glossaries: /\/api\/glossaries$/,
+  glossaryMembers: /\/api\/glossaries\/[^/]+\/members(\?|$)/,
+  glossary: /\/api\/glossaries\/[^/]+$/,
+  glossaryTransferOwner: /\/api\/glossaries\/[^/]+\/transfer-owner$/,
   /* The global search. `/api/search` has no `/api/kb/…` prefix, so none of
    * the patterns above can match it, and it cannot match theirs. */
   search: /\/api\/search(\?|$)/,
@@ -340,6 +355,16 @@ export function installApiMock(params: ApiMockParameters): () => void {
    * above. */
   for (const key of ['kbCategories', 'kbCatalog', 'kbMembers', 'kbInviteLinks'] as const) {
     if (params[key] !== undefined) mock.onGet(URLS[key]).reply(200, params[key]);
+  }
+
+  /* -- The translation extension ------------------------------------------ */
+
+  for (const key of ['translatorConfig', 'glossaries', 'glossaryMembers'] as const) {
+    if (params[key] !== undefined) mock.onGet(URLS[key]).reply(200, params[key]);
+  }
+  if (params.glossaryWrites) {
+    mock.onPatch(URLS.glossary).reply(204);
+    mock.onPost(URLS.glossaryTransferOwner).reply(204);
   }
 
   /* -- The header's global search (card KI-837) -------------------------- */

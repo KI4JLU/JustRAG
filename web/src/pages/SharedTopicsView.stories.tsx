@@ -181,6 +181,7 @@ function SharedKbsHarness(args: SharedKbsStoryArgs) {
             onViewMyTopics: args.onViewHome,
             onViewSharedTopics: args.onViewSharedKbs,
             onViewDiscover: args.onViewDiscover,
+            onViewTranslator: () => {},
             onViewProfile: idle(),
             onEditGlobalKb: idle(),
             onViewLegal: idle(),

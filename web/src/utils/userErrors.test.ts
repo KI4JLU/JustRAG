@@ -34,6 +34,11 @@ describe('userErrorKey', () => {
     ['file_name_too_long', 'errorFileNameTooLong'],
     ['parse_timeout', 'errorParseTimeout'],
     ['already_in_kb', 'errorAlreadyInKb'],
+    ['translator_model_failed', 'errorTranslatorModelFailed'],
+    ['translator_model_timeout', 'errorTranslatorModelTimeout'],
+    ['glossary_too_many_entries', 'errorGlossaryTooManyEntries'],
+    ['glossary_term_invalid', 'errorGlossaryTermInvalid'],
+    ['translator_model_unavailable', 'errorTranslatorModelUnavailable'],
     ['too_large_for_context', 'errorTooLongForContext'],
     ['invalid_upload', 'errorUploadFailed'],
   ])('maps code %s to %s, whatever the status', (code, key) => {

@@ -20,6 +20,8 @@ Every view the web app renders and how each one is reached. Code: `web/src/`.
 | `/` | `my-topics` | `pages/MyTopicsView.tsx` | `AppFrame` |
 | `/shared` | `shared-topics` | `pages/SharedTopicsView.tsx` | `AppFrame` |
 | `/discover` | `discover` | `pages/DiscoverView.tsx` | `AppFrame` |
+| `/translator` | `translator` | `pages/TranslatorView.tsx` | `AppFrame` |
+| `/join-glossary/<token>` | `join-glossary` | Nothing: the token goes to the glossary join dialog (see signed out), the URL is replaced with `/` | — |
 | `/kb/<id>` | `kb` | `components/chat/ChatView.tsx` on a new chat | `AppFrame` with a topic |
 | `/c/<id>` | `chat` | `components/chat/ChatView.tsx` on that chat; the chat names its topic | `AppFrame` with a topic |
 | `/kb/<id>/admin` | `global-kb-settings` | `pages/GlobalKbSettings.tsx` | Full page |
@@ -50,6 +52,7 @@ a join link is replaced with `/`.
 | Password login | `pages/Login.tsx` on `/admin` | Forces the password form and hides SSO; the same login endpoint. Replaces the URL with `/` on success. Signed in, `/admin` is an unknown path. |
 | Legal pages | `pages/LegalPage.tsx` | `/terms`, `/privacy`, `/accessibility`, linked from the login footer (`components/shell/Footer.tsx`). |
 | Join link | — | `/join/<token>` is captured before the router starts, kept in `sessionStorage`, and the URL replaced with `/`. After sign-in (and the AI-use notice) `useJoinInvite` resolves it and `JoinInviteDialog` (`components/shell/`) shows one of three states: invitation (Beitreten / Ablehnen), already a member (Als Favorit speichern / Thema öffnen), link revoked. Only „Beitreten" joins. |
+| Glossary join link | — | `/join-glossary/<token>` is handled the same way, with its own parked token (`hooks/useJoinLink.ts`). `useJoinGlossary` calls `GET /api/glossary-invites/{token}` and `JoinGlossaryDialog` (`components/shell/`) shows the same three states: invitation with the role the link grants (Beitreten / Ablehnen), already a member (Zur Übersetzung), link revoked. Only „Beitreten" calls `POST …/redeem`; joined, it opens the translator page. |
 
 ## The shell (`AppFrame`)
 
@@ -62,7 +65,7 @@ the sidebar stays mounted when the main area changes. Layout comes from the desi
 | Part | Content |
 |---|---|
 | Logo | The configured app name. Inside a topic it is a button to `/`. |
-| Navigation | Search (opens the palette), „Mein Wissen" (`/`), „Geteiltes Wissen" (`/shared`), „Entdecken" (`/discover`) |
+| Navigation | Search (opens the palette), „Mein Wissen" (`/`), „Geteiltes Wissen" (`/shared`), „Entdecken" (`/discover`), „Übersetzung" (`/translator`; only while the extension is on for the user: `GET /api/translator/config` answers `enabled`) |
 | Chat history | `components/history/HistoryPanel.tsx`: filters, empty and filtered-empty states, hover previews, rename |
 | Footer | The user menu (`components/shell/AppUserMenu.tsx`); it also hosts the `?settings=` and `?admin=` dialogs |
 
@@ -173,6 +176,21 @@ search leaves such hits out. The previews' download action needs `downloadSource
 file's own topic (a library attachment is always downloadable). Attachments preview as PDF,
 text, Markdown, image, audio or video; Word files and spreadsheets do not.
 
+## Extension: translation
+
+`pages/TranslatorView.tsx`, components in `components/translator/`. Reached from the „Übersetzung" nav row; while `translator_enabled` is
+off the row is hidden and a direct visit says so. Texts only pass through the server; the tab's `sessionStorage` keeps the page's text, settings and what the last request was made with, for the signed-in user only (`translatorSessionStorage.ts`: another user's session is deleted unread; logout and a 401 clear it; a closed page writes nothing more).
+
+| Part | Component | Content |
+|---|---|---|
+| Mode | `SegmentedControl` in the page | „Text übersetzen" (translate) and „Text überarbeiten" (rephrase); each mode keeps its own text and result |
+| Text board | `TextBoard`, `OutputBoard`, `LanguageMenu` | Source and editable result side by side, languages on top (swap, detected source), counts, copy, the main button (Ctrl/Cmd+Enter); a click on a result sentence opens `SentenceMenu` (undo, other wordings, other words, into the source) |
+| Settings column | `TranslatorSettings` | Live editing, „Änderungen anzeigen" (rephrase), glossaries (choose, „Glossare verwalten"), style, tone and formality (one of them at most) |
+| Glossary dialog | `GlossaryDialog` | List with each glossary's owner, size and the caller's role; a row offers what the flags `canEdit`, `canManage`, `canDelete` allow: view or edit (`GlossaryForm`), „Freigabe" (`GlossarySharing`: visibility `private`/`global` and the shared `people/SharingPanel` — members, bulk add by username, pending invites, invite links opening `/join-glossary/<token>`, ownership transfer), delete (owner), leave (everyone else); new glossary and CSV import (`GlossaryImportForm`, 5 MiB), both off until the list (with the languages a term can be in) is read; a failed read shows „Erneut versuchen"; the sharing view re-reads the glossary from the list after a transfer or a visibility change |
+
+Errors: `translator_model_failed` (502) and `translator_disabled` (403) have their own messages, a 429 the shared one
+(`docs/user-error-messages.md`). Roles and rights: `docs/glossary-access.md`.
+
 ## URL dialogs
 
 - Opening adds a history entry, switching sections replaces it, closing goes back.
@@ -220,12 +238,13 @@ A section the user may not see falls back to `configs`.
 | `search` | `admin/AdminSearchTab` | Superadmin | — |
 | `agent` | `admin/AdminAgentTab` | Superadmin | — |
 | `site` | `admin/AdminSiteTab` | Superadmin | — |
+| `extensions` | `admin/AdminExtensionsTab` | Superadmin | One block per extension; „Übersetzung": on/off (`translator_enabled`), default target language (`translator_default_target_lang`), the Fast Tier model in use (read-only) |
 | `notice` | `admin/AdminSystemNoticeTab` | Admin | — |
 | `kb-overview` | `components/admin/KBOverviewDashboard.tsx` | Admin | Publish (non-public topics), transfer ownership and delete by typed name (both superadmin), „RAG-Settings" (deprecated) |
 | `global-kbs` | `admin/AdminGlobalKbsTab` | Admin | Take-back dialog with impact and owner picker; opens the public-topic editor |
 | `templates` | `admin/AdminTemplatesTab` | Admin | Tabs `roles` and `categories`; role-template editor |
 | `users` | `admin/AdminUsersTab` | Admin | Read-only user details |
-| `roles` | `admin/AdminRolesTab` | Admin | — |
+| `roles` | `admin/AdminRolesTab` | Admin | System roles, topic roles and glossary roles (read-only tables) |
 | `health` | `components/admin/SystemHealthDashboard.tsx` | Admin | `ReembedSection` (superadmin) |
 | `eval` | `admin/AdminEvalTab` | Superadmin | Run comparison panel |
 

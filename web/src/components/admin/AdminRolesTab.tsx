@@ -5,11 +5,17 @@ import {
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { KbRole } from '../../types';
+import type { GlossaryRole } from '../translator/types';
+import { GLOSSARY_ROLE_LABEL_KEY } from '../translator/glossarySharingConfig';
 import { roleLabel as systemRoleLabel } from '../../utils/roleLabel';
 import {
     countUsersByRole, SYSTEM_ALWAYS_ALL_ROLE, SYSTEM_RIGHT_GROUPS, SYSTEM_RIGHT_ROUTES, SYSTEM_ROLE_COLUMNS,
     systemRightCell, type SystemRight, type SystemRightGroupId, type SystemRole,
 } from '../../utils/systemRoleRights';
+import {
+    GLOSSARY_GROUP_LABEL_KEY, GLOSSARY_RIGHT_GROUPS, GLOSSARY_RIGHT_HINT_KEY, GLOSSARY_RIGHT_LABEL_KEY, GLOSSARY_ROLE_COLUMNS,
+    glossaryRoleHas, type GlossaryRight,
+} from '../../utils/glossaryRoleRights';
 import {
     cellRequires, KB_ALWAYS_ALL_ROLES, KB_RIGHT_GROUPS, KB_ROLE_COLUMNS, kbRightCell, SOURCE_FLAG_DEFAULTS,
     type KbRight,
@@ -34,6 +40,7 @@ const SYSTEM_RIGHT_LABEL_KEY: Record<SystemRight, string> = {
     apiAccess: 'arRightApiAccess', aiModels: 'arRightAiModels', authProviders: 'arRightAuthProviders',
     monitoring: 'arRightMonitoring',
     systemSettings: 'arRightSystemSettings', auditLogs: 'arRightAuditLogs',
+    useTranslation: 'arRightUseTranslation',
 };
 const SYSTEM_RIGHT_HINT_KEY: Record<SystemRight, string> = {
     manageUsers: 'arRightManageUsersHint', appointAdmins: 'arRightAppointAdminsHint', deleteUsers: 'arRightDeleteUsersHint',
@@ -42,9 +49,10 @@ const SYSTEM_RIGHT_HINT_KEY: Record<SystemRight, string> = {
     apiAccess: 'arRightApiAccessHint', aiModels: 'arRightAiModelsHint', authProviders: 'arRightAuthProvidersHint',
     monitoring: 'arRightMonitoringHint',
     systemSettings: 'arRightSystemSettingsHint', auditLogs: 'arRightAuditLogsHint',
+    useTranslation: 'arRightUseTranslationHint',
 };
 const SYSTEM_GROUP_LABEL_KEY: Record<SystemRightGroupId, string> = {
-    users: 'arGroupUsers', topics: 'arGroupTopics', system: 'arGroupSystem',
+    users: 'arGroupUsers', topics: 'arGroupTopics', system: 'arGroupSystem', extensions: 'arGroupExtensions',
 };
 const LAST_SYSTEM_RIGHT = SYSTEM_RIGHT_GROUPS[SYSTEM_RIGHT_GROUPS.length - 1].rights.at(-1);
 
@@ -66,6 +74,8 @@ const isKbAlwaysAll = (role: KbRole) => KB_ALWAYS_ALL_ROLES.includes(role);
 /** Owner + admin read as ONE muted band, as in the topic's own Berechtigungen tab. */
 const kbMutedJoin = (role: KbRole): 'start' | 'end' | undefined =>
     role === 'owner' ? 'start' : role === 'admin' ? 'end' : undefined;
+
+const GLOSSARY_ROLE_ICON: Record<GlossaryRole, typeof Eye> = { owner: Crown, admin: Shield, editor: Pencil, viewer: Eye };
 
 interface AdminRolesTabProps {
     /** GET /api/admin/users as fetched by AdminUI; null while not loaded. */
@@ -118,6 +128,15 @@ export default function AdminRolesTab({ users }: AdminRolesTabProps) {
                         <li><strong className="text-on-surface">{t('arMapOthersLabel')}</strong>: {t('arMapOthers')}</li>
                     </ul>
                 </div>
+            </PanelSection>
+
+            <PanelSection
+                title={t('arGlossaryRolesTitle')}
+                aside={<Badge tone="neutral">{roleCount(GLOSSARY_ROLE_COLUMNS.length)}</Badge>}
+                hint={t('arGlossaryRolesHint')}
+                className="gap-4"
+            >
+                <GlossaryRolesTable t={t} />
             </PanelSection>
         </div>
     );
@@ -251,6 +270,50 @@ function KbRolesTable({ t }: { t: T }) {
                                     </TableCell>
                                 );
                             })}
+                        </TableRow>
+                    ))}
+                </TableBody>
+            ))}
+        </Table>
+    );
+}
+
+function GlossaryRolesTable({ t }: { t: T }) {
+    const label = (role: GlossaryRole) => t(GLOSSARY_ROLE_LABEL_KEY[role]);
+    const rightLabel = (right: GlossaryRight) => t(GLOSSARY_RIGHT_LABEL_KEY[right]);
+    return (
+        <Table aria-label={t('arGlossaryRolesTitle')}>
+            <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                    <TableHead wrap="words" className="align-bottom">{t('rrColRight')}</TableHead>
+                    {GLOSSARY_ROLE_COLUMNS.map(role => (
+                        <TableHead
+                            key={role}
+                            wrap="words"
+                            className="h-auto py-2 text-center align-top"
+                            aria-label={label(role)}
+                        >
+                            <RoleHeader id={`ar-glossary-${role}`} Icon={GLOSSARY_ROLE_ICON[role]} label={label(role)} t={t} />
+                        </TableHead>
+                    ))}
+                </TableRow>
+            </TableHeader>
+            {GLOSSARY_RIGHT_GROUPS.map(g => (
+                <TableBody key={g.id}>
+                    <TableRow>
+                        <TableHead section="band" count={g.rights.length}>{t(GLOSSARY_GROUP_LABEL_KEY[g.id])}</TableHead>
+                        {GLOSSARY_ROLE_COLUMNS.map(role => <TableCell key={role} aria-hidden="true" />)}
+                    </TableRow>
+                    {g.rights.map(right => (
+                        <TableRow key={right}>
+                            <TableHead scope="row" wrap="words" className="font-normal text-on-surface" title={t(GLOSSARY_RIGHT_HINT_KEY[right])}>
+                                {rightLabel(right)}
+                            </TableHead>
+                            {GLOSSARY_ROLE_COLUMNS.map(role => (
+                                <TableCell key={role} wrap="words" className="text-center">
+                                    <Mark granted={glossaryRoleHas(role, right)} label={`${label(role)}: ${rightLabel(right)}`} t={t} />
+                                </TableCell>
+                            ))}
                         </TableRow>
                     ))}
                 </TableBody>
