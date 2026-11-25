@@ -17,6 +17,7 @@ import { FieldRow } from '../components/form/FieldRow';
 import { peekJoinToken } from '../hooks/useJoinLink';
 import { useAppNavigate, useAppRoute } from '../routing/navigation';
 import { parkPostLoginPath, takePostLoginPath } from '../routing/postLoginPath';
+import { loginErrorKey, oidcErrorKey } from '../utils/loginErrors';
 
 interface LoginProps {
     onLogin: (token: string, user: { id: string; username: string; role: string }) => void;
@@ -113,7 +114,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
                 oidcHandled.current = true;
                 // The SSO attempt is over: its parked path must not apply to a later login.
                 takePostLoginPath();
-                setError(`${t('oidcLoginFailed')} (${oidcErr})`);
+                setError(t(oidcErrorKey(oidcErr)));
                 params.delete('oidc_error');
                 const newSearch = params.toString();
                 router.history.replace(window.location.pathname + (newSearch ? '?' + newSearch : ''));
@@ -154,8 +155,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
             onLogin(token, user);
         } catch (err: unknown) {
             console.error('Login failed:', err);
-            const axiosErr = err as { response?: { data?: { error?: string } } };
-            setError(axiosErr.response?.data?.error || t('invalidCredentials'));
+            setError(t(loginErrorKey(err)));
         } finally {
             setLoading(false);
         }

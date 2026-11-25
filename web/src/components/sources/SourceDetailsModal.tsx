@@ -2,7 +2,7 @@ import React, { createElement, useCallback, useEffect, useRef, useState } from '
 import { BookOpen, GitBranch, Maximize2, Minimize2, RefreshCw, Rss, Trash2 } from 'lucide-react';
 import { Button, Dialog, DialogContent, cn } from '@ki4jlu/design-system';
 import type { FileEntry } from '../../types';
-import { sourceDetailsTitle, type SourceDetailsTarget } from './sourceDetails';
+import { SOURCE_SYNC_ERROR_KEY, sourceDetailsTitle, type SourceDetailsTarget } from './sourceDetails';
 import { useTheme } from '../../contexts/ThemeContext';
 import { IngestStageIndicator } from '../sidebar/IngestStageIndicator';
 import { PreviewHeaderBand } from '../preview/PreviewDialog';
@@ -129,8 +129,9 @@ export const SourceDetailsModal: React.FC<SourceDetailsModalProps> = ({ target, 
                     )}
                 />
 
-                {s.status === 'error' && s.errorMessage && (
-                    <p className="m-0 border-b border-outline-variant bg-error/10 px-6 py-2 text-sm text-error">{s.errorMessage}</p>
+                {/* The source's errorMessage is the remote system's text: never shown. */}
+                {s.status === 'error' && (
+                    <p className="m-0 border-b border-outline-variant bg-error/10 px-6 py-2 text-sm text-error">{t(SOURCE_SYNC_ERROR_KEY[target.kind])}</p>
                 )}
 
                 {files && (

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, waitFor, within } from 'storybook/test';
 import AdminConfigsTab from './AdminConfigsTab';
+import { translations } from '../../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * The AI-configuration tab: provider credentials, five model lists, the
@@ -350,7 +351,7 @@ export const ConfigsList: Story = {
  * No configurations — a fresh deployment, before anyone has entered a
  * provider. The per-job selects still render, with nothing but the
  * fall-through option, which is the state that makes the placeholder wording
- * ("KB-Standardmodell verwenden") the only thing on eight triggers.
+ * ("Standardmodell des Themas verwenden") the only thing on eight triggers.
  */
 export const ConfigsEmpty: Story = {
     args: { configs: [], availableChatModels: [], initialSiteConfigs: {} },
@@ -450,9 +451,9 @@ export const FormEdit: Story = {
         // ORACLE: the fixture. Two chat models and two embedding models, so
         // both lists show their per-row remove control; the dimensions field
         // carries the number EDIT_FORM set.
-        await expect(await canvas.findByLabelText('Chat model 2')).toHaveValue('qwen3-32b');
+        await expect(await canvas.findByLabelText(translations.admChatModelN.de.replace('{n}', '2'))).toHaveValue('qwen3-32b');
         await expect(
-            await canvas.findByLabelText('Dimensions for embedding model 1'),
+            await canvas.findByLabelText(translations.admEmbeddingDimensionsN.de.replace('{n}', '1')),
         ).toHaveValue(1024);
         await expect(canvas.getAllByRole('button', { name: 'Modell entfernen' })).toHaveLength(4);
     },

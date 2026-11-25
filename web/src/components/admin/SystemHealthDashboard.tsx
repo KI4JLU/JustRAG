@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useId } from 'react';
 import axios from 'axios';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import {
     AreaChart, Area, BarChart, Bar, LineChart, Line,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -130,8 +130,8 @@ const formatBytes = (bytes: number): string => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
-const formatTime = (isoString: string): string => {
-    return new Date(isoString).toLocaleTimeString('de-DE', {
+const formatTime = (isoString: string, locale: string): string => {
+    return new Date(isoString).toLocaleTimeString(locale, {
         hour: '2-digit',
         minute: '2-digit'
     });
@@ -201,25 +201,28 @@ const StatCard = ({ title, value, subtitle, icon: Icon, tone }: {
     </MotionCard>
 );
 
-const QueueCard = ({ name, stats }: { name: string; stats: QueueStats }) => (
+const QueueCard = ({ name, stats }: { name: string; stats: QueueStats }) => {
+    const { t } = useTheme();
+    return (
     <Card className="p-4">
         <div className="mb-3 text-sm font-medium text-on-surface">{name}</div>
         <div className="flex gap-4 text-sm">
             <div className="text-center">
                 <div className="font-semibold text-warning">{stats.waiting}</div>
-                <div className="text-xs text-on-surface-variant">Wartend</div>
+                <div className="text-xs text-on-surface-variant">{t('queueWaiting')}</div>
             </div>
             <div className="text-center">
                 <div className="font-semibold text-primary">{stats.active}</div>
-                <div className="text-xs text-on-surface-variant">Aktiv</div>
+                <div className="text-xs text-on-surface-variant">{t('queueActive')}</div>
             </div>
             <div className="text-center">
                 <div className="font-semibold text-error">{stats.failed}</div>
-                <div className="text-xs text-on-surface-variant">Fehler</div>
+                <div className="text-xs text-on-surface-variant">{t('queueFailed')}</div>
             </div>
         </div>
     </Card>
-);
+    );
+};
 
 const HealthIndicator = ({ name, health }: { name: string; health: SubsystemHealth }) => {
     const statusIcon = {
@@ -305,7 +308,7 @@ const ChartEmpty = ({ children }: { children: React.ReactNode }) => (
 );
 
 export default function SystemHealthDashboard() {
-    const { t } = useTheme();
+    const { t, language } = useTheme();
     const [metrics, setMetrics] = useState<LiveMetrics | null>(null);
     const [historicalData, setHistoricalData] = useState<{
         activeUsers: HistoricalData | null;
@@ -346,9 +349,9 @@ export default function SystemHealthDashboard() {
                 providerName: data.providerName,
             });
         } catch {
-            setAiHealth({ status: 'unhealthy', error: 'Prüfung fehlgeschlagen' });
+            setAiHealth({ status: 'unhealthy', error: t('admHealthCheckFailed') });
         }
-    }, []);
+    }, [t]);
 
     const getDateRange = useCallback(() => {
         const to = new Date();
@@ -399,16 +402,16 @@ export default function SystemHealthDashboard() {
             setError(null);
         } catch (err: unknown) {
             console.error('Failed to fetch metrics:', err);
-            setError(getApiErrorMessage(err, 'Fehler beim Laden der Metriken'));
+            setError(userErrorMessage(err, t, { fallbackKey: 'metricsFetchError' }));
         }
-    }, [loadMetrics]);
+    }, [loadMetrics, t]);
 
     const fetchHistoricalData = useCallback(async () => {
         try {
             setHistoricalData(await loadHistoricalData());
         } catch (err: unknown) {
             console.error('Failed to fetch historical data:', err);
-            setError(getApiErrorMessage(err, t('historicalDataError')));
+            setError(userErrorMessage(err, t, { fallbackKey: 'historicalDataError' }));
         }
     }, [loadHistoricalData, t]);
 
@@ -434,7 +437,7 @@ export default function SystemHealthDashboard() {
             .catch((err: unknown) => {
                 if (cancelled) return;
                 console.error('Failed to fetch metrics:', err);
-                setError(getApiErrorMessage(err, 'Fehler beim Laden der Metriken'));
+                setError(userErrorMessage(err, t, { fallbackKey: 'metricsFetchError' }));
             });
 
         const historicalDone = loadHistoricalData()
@@ -444,7 +447,7 @@ export default function SystemHealthDashboard() {
             .catch((err: unknown) => {
                 if (cancelled) return;
                 console.error('Failed to fetch historical data:', err);
-                setError(getApiErrorMessage(err, t('historicalDataError')));
+                setError(userErrorMessage(err, t, { fallbackKey: 'historicalDataError' }));
             });
 
         Promise.allSettled([metricsDone, historicalDone]).then(() => {
@@ -469,8 +472,8 @@ export default function SystemHealthDashboard() {
                 gap="sm"
                 className="h-[400px] text-on-surface-variant"
             >
-                <Spinner label="Lade System-Health-Dashboard..." />
-                <span aria-hidden="true">Lade System-Health-Dashboard...</span>
+                <Spinner label={t('admHealthLoading')} />
+                <span aria-hidden="true">{t('admHealthLoading')}</span>
             </Stack>
         );
     }
@@ -486,7 +489,7 @@ export default function SystemHealthDashboard() {
                 <AlertCircle size={48} className="text-error" />
                 <div>{error}</div>
                 <Button variant="outline" onClick={fetchAll}>
-                    Erneut versuchen
+                    {t('admRetry')}
                 </Button>
             </Stack>
         );
@@ -497,7 +500,7 @@ export default function SystemHealthDashboard() {
     const formatChartData = (data: HistoricalData | null) => {
         if (!data) return [];
         return data.data.map(d => ({
-            time: formatTime(d.timestamp),
+            time: formatTime(d.timestamp, language),
             value: d.value
         }));
     };
@@ -513,7 +516,7 @@ export default function SystemHealthDashboard() {
             const diff = Math.max(0, current.value - previous.value);
 
             deltaData.push({
-                time: formatTime(current.timestamp),
+                time: formatTime(current.timestamp, language),
                 value: diff
             });
         }
@@ -532,13 +535,13 @@ export default function SystemHealthDashboard() {
             title={
                 <span className="inline-flex items-center gap-2">
                     <Activity size={24} aria-hidden="true" />
-                    System Health
+                    {t('adminTabHealth')}
                 </span>
             }
             description={lastUpdated ? (
                 <span className="inline-flex items-center gap-1">
                     <Clock size={14} aria-hidden="true" />
-                    Zuletzt aktualisiert: {lastUpdated.toLocaleTimeString('de-DE')}
+                    {t('admHealthLastUpdated').replace('{time}', lastUpdated.toLocaleTimeString(language))}
                 </span>
             ) : undefined}
             actions={
@@ -554,18 +557,18 @@ export default function SystemHealthDashboard() {
                             onCheckedChange={(next) => setAutoRefresh(next === true)}
                         />
                         <Label htmlFor={autoRefreshId} className="cursor-pointer">
-                            Auto-Refresh (10s)
+                            {t('admHealthAutoRefresh')}
                         </Label>
                     </div>
                     <Button
                         variant="outline"
                         size="icon"
                         onClick={fetchAll}
-                        title="Aktualisieren"
-                        aria-label="Aktualisieren"
+                        title={t('refresh')}
+                        aria-label={t('refresh')}
                     >
                         {loading
-                            ? <Spinner size="sm" label="Aktualisiere …" />
+                            ? <Spinner size="sm" label={t('admHealthRefreshing')} />
                             : <RefreshCw size={16} aria-hidden="true" />}
                     </Button>
                 </>
@@ -573,53 +576,53 @@ export default function SystemHealthDashboard() {
             stats={
                 <>
                     <StatCard
-                        title="Aktive Benutzer"
+                        title={t('admHealthActiveUsers')}
                         value={metrics.activeUsers}
-                        subtitle="Letzte 15 Min"
+                        subtitle={t('admHealthLast15Min')}
                         icon={Users}
                         tone="primary"
                     />
                     <StatCard
-                        title="Dateien in Verarbeitung"
+                        title={t('admHealthProcessingSources')}
                         value={metrics.processingFiles}
                         icon={FileText}
                         tone="warning"
                     />
                     <StatCard
-                        title="Knowledge Bases"
+                        title={t('admHealthTopics')}
                         value={metrics.totalKnowledgeBases}
                         icon={Database}
                         tone="success"
                     />
                     <StatCard
-                        title="Dateien gesamt"
+                        title={t('admHealthTotalSources')}
                         value={metrics.totalFiles}
                         icon={FileText}
                         tone="tertiary"
                     />
                     <StatCard
-                        title="Speicher"
+                        title={t('admHealthStorage')}
                         value={formatBytes(metrics.totalStorageBytes)}
                         icon={HardDrive}
                         tone="secondary"
                     />
                     <StatCard
-                        title="Benutzer gesamt"
+                        title={t('admHealthTotalUsers')}
                         value={metrics.totalUsers}
                         icon={Users}
                         tone="info"
                     />
                     <StatCard
-                        title="Nachrichten gesamt"
+                        title={t('admHealthTotalMessages')}
                         value={metrics.totalMessages}
-                        subtitle={`davon ${metrics.totalMessagesApi} über API`}
+                        subtitle={t('admHealthViaApi').replace('{n}', String(metrics.totalMessagesApi))}
                         icon={MessageSquare}
                         tone="primary"
                     />
                     <StatCard
-                        title="Nachrichten (24 h)"
+                        title={t('admHealthMessages24h')}
                         value={metrics.messages24h}
-                        subtitle={`davon ${metrics.messages24hApi} über API`}
+                        subtitle={t('admHealthViaApi').replace('{n}', String(metrics.messages24hApi))}
                         icon={MessageSquare}
                         tone="info"
                     />
@@ -628,7 +631,7 @@ export default function SystemHealthDashboard() {
         >
             {/* Queue Stats */}
             <Stack gap="md">
-                <SectionHeading>Job-Warteschlangen</SectionHeading>
+                <SectionHeading>{t('admHealthQueues')}</SectionHeading>
                 <Grid cols={3}>
                     <QueueCard name="rag-quick" stats={metrics.queueStats['rag-quick']} />
                     <QueueCard name="rag-heavy" stats={metrics.queueStats['rag-heavy']} />
@@ -639,12 +642,12 @@ export default function SystemHealthDashboard() {
             {/* Subsystem Health + Resources */}
             <Grid cols={2}>
                 <Stack gap="md">
-                    <SectionHeading>Subsystem-Status</SectionHeading>
+                    <SectionHeading>{t('admHealthSubsystems')}</SectionHeading>
                     <Stack gap="sm">
-                        <HealthIndicator name="Haupt-Datenbank" health={metrics.subsystemHealth.mainDb} />
-                        <HealthIndicator name="Vektor-Datenbank" health={metrics.subsystemHealth.vectorDb} />
+                        <HealthIndicator name={t('admHealthMainDb')} health={metrics.subsystemHealth.mainDb} />
+                        <HealthIndicator name={t('admHealthVectorDb')} health={metrics.subsystemHealth.vectorDb} />
                         <HealthIndicator name="Redis" health={metrics.subsystemHealth.redis} />
-                        <HealthIndicator name="Speicher" health={metrics.subsystemHealth.storage} />
+                        <HealthIndicator name={t('admHealthStorage')} health={metrics.subsystemHealth.storage} />
 
                         {/* AI Provider Health — manual check. Not a
                           * HealthIndicator: its status vocabulary is
@@ -659,20 +662,20 @@ export default function SystemHealthDashboard() {
                             )}
                         >
                             <div className="flex items-center gap-2">
-                                {aiHealth.status === 'testing' && <Spinner size="default" label="Teste …" />}
+                                {aiHealth.status === 'testing' && <Spinner size="default" label={t('admHealthTesting')} />}
                                 {aiHealth.status === 'healthy' && <CheckCircle size={18} className="text-success" />}
                                 {aiHealth.status === 'unhealthy' && <AlertCircle size={18} className="text-error" />}
                                 {aiHealth.status === 'idle' && <Cpu size={18} className="text-on-surface-variant" />}
                                 <span className="font-medium">
-                                    {aiHealth.providerName ? `KI-Anbieter (${aiHealth.providerName})` : 'KI-Anbieter'}
+                                    {aiHealth.providerName ? t('admHealthAiProviderNamed').replace('{name}', aiHealth.providerName) : t('admHealthAiProvider')}
                                 </span>
                             </div>
                             <div className="flex items-center gap-3 text-sm">
                                 {aiHealth.status === 'idle' && (
-                                    <span className="text-on-surface-variant">Nicht getestet</span>
+                                    <span className="text-on-surface-variant">{t('admHealthNotTested')}</span>
                                 )}
                                 {aiHealth.status === 'testing' && (
-                                    <span className="text-on-surface-variant">Teste...</span>
+                                    <span className="text-on-surface-variant">{t('admHealthTesting')}</span>
                                 )}
                                 {aiHealth.status === 'healthy' && aiHealth.latencyMs !== undefined && (
                                     <span className="text-on-surface-variant">{aiHealth.latencyMs}ms</span>
@@ -686,7 +689,7 @@ export default function SystemHealthDashboard() {
                                     onClick={checkAiHealth}
                                     disabled={aiHealth.status === 'testing'}
                                 >
-                                    Prüfen
+                                    {t('admHealthCheck')}
                                 </Button>
                             </div>
                         </Card>
@@ -698,26 +701,26 @@ export default function SystemHealthDashboard() {
                     <CardHeader>
                         <h3 className="m-0 flex items-center gap-2 text-base font-medium text-on-surface">
                             <Server size={18} aria-hidden="true" />
-                            Ressourcenverbrauch
+                            {t('admHealthResources')}
                         </h3>
                     </CardHeader>
                     <CardContent>
                         <GaugeBar
                             value={metrics.resourceUsage.cpuLoadAvg1m}
                             max={metrics.resourceUsage.cpuCount || 4}
-                            label="CPU Load (1m)"
+                            label={t('admHealthCpuLoad')}
                             barClassName="bg-primary"
                         />
                         <GaugeBar
                             value={metrics.resourceUsage.systemMemoryUsedPercent}
                             max={100}
-                            label="Systemspeicher"
+                            label={t('admHealthSystemMemory')}
                             barClassName="bg-success"
                         />
                         <GaugeBar
                             value={metrics.resourceUsage.nodeHeapUsedMB}
                             max={1024}
-                            label={`Node Heap (${metrics.resourceUsage.nodeHeapUsedMB} MB)`}
+                            label={t('admHealthNodeHeap').replace('{n}', String(metrics.resourceUsage.nodeHeapUsedMB))}
                             barClassName="bg-tertiary"
                         />
                     </CardContent>
@@ -727,7 +730,7 @@ export default function SystemHealthDashboard() {
             {/* Historical Charts */}
             <Stack gap="md">
                 <div className="flex items-center justify-between gap-2">
-                    <SectionHeading>Historische Daten</SectionHeading>
+                    <SectionHeading>{t('admHealthHistory')}</SectionHeading>
                     {/* Replaces four raw <button>s that already looked like a
                       * segmented control. `SegmentedControl` is the DS control
                       * for exactly this, and its docstring names the
@@ -735,7 +738,7 @@ export default function SystemHealthDashboard() {
                       * buttons INSIDE the design system, where the
                       * raw-elements rule does not apply. */}
                     <SegmentedControl
-                        aria-label="Zeitraum"
+                        aria-label={t('admHealthRange')}
                         options={RANGE_OPTIONS}
                         value={dateRange}
                         onValueChange={(next) => {
@@ -749,7 +752,7 @@ export default function SystemHealthDashboard() {
                 </div>
 
                 <Grid cols={2}>
-                    <ChartCard title="Aktive Benutzer">
+                    <ChartCard title={t('admHealthActiveUsers')}>
                         <div className="h-[200px]">
                             {formatChartData(historicalData.activeUsers).length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
@@ -762,12 +765,12 @@ export default function SystemHealthDashboard() {
                                     </AreaChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <ChartEmpty>Keine Daten vorhanden</ChartEmpty>
+                                <ChartEmpty>{t('admNoData')}</ChartEmpty>
                             )}
                         </div>
                     </ChartCard>
 
-                    <ChartCard title="Speicherverbrauch">
+                    <ChartCard title={t('admHealthStorageUsage')}>
                         <div className="h-[200px]">
                             {formatChartData(historicalData.storage).length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
@@ -783,12 +786,12 @@ export default function SystemHealthDashboard() {
                                     </AreaChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <ChartEmpty>Keine Daten vorhanden</ChartEmpty>
+                                <ChartEmpty>{t('admNoData')}</ChartEmpty>
                             )}
                         </div>
                     </ChartCard>
 
-                    <ChartCard title="Dateien verarbeitet (pro Intervall)">
+                    <ChartCard title={t('admHealthSourcesProcessed')}>
                         <div className="h-[200px]">
                             {formatChartDataDelta(historicalData.totalFiles).length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
@@ -801,12 +804,12 @@ export default function SystemHealthDashboard() {
                                     </BarChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <ChartEmpty>Keine Daten vorhanden</ChartEmpty>
+                                <ChartEmpty>{t('admNoData')}</ChartEmpty>
                             )}
                         </div>
                     </ChartCard>
 
-                    <ChartCard title="Fehler in Warteschlangen">
+                    <ChartCard title={t('admHealthQueueFailures')}>
                         <div className="h-[200px]">
                             {formatChartData(historicalData.queueFailed).length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
@@ -819,7 +822,7 @@ export default function SystemHealthDashboard() {
                                     </LineChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <ChartEmpty>Keine Daten vorhanden</ChartEmpty>
+                                <ChartEmpty>{t('admNoData')}</ChartEmpty>
                             )}
                         </div>
                     </ChartCard>

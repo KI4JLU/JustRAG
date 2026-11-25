@@ -1,5 +1,7 @@
 import { assistantTranslations } from './translations.assistant';
+import { adminTranslations } from './translations.admin';
 import { agentStepsTranslations } from './translations.agentSteps';
+import { workflowTranslations } from './translations.workflow';
 
 export type Language = 'en' | 'de';
 
@@ -29,6 +31,7 @@ export const translations = {
     login: { de: 'Anmelden', en: 'Login' },
     sessionExpired: { de: 'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.', en: 'Your session has expired. Please sign in again.' },
     invalidCredentials: { de: 'Ungültiger Benutzername oder Passwort', en: 'Invalid username or password' },
+    loginUnavailable: { de: 'Die Anmeldung ist gerade nicht möglich. Bitte versuche es später erneut.', en: 'Signing in is not possible right now. Please try again later.' },
     joinLinkLoginHint: { de: 'Melde dich an, um dem geteilten Thema beizutreten.', en: 'Sign in to join the shared topic.' },
     joinLinkJoined: { de: 'Du bist jetzt Mitglied von „{kb}"', en: 'You joined "{kb}"' },
     joinLinkInvalid: { de: 'Dieser Einladungslink ist ungültig.', en: 'This invite link is invalid.' },
@@ -61,47 +64,32 @@ export const translations = {
     skipToContent: { de: 'Zum Inhalt springen', en: 'Skip to content' },
 
     // App Layout
-    myKBs: { de: 'Meine Knowledge Bases', en: 'My Knowledge Bases' },
-    kbDescription: { de: 'Erstelle einen Raum, um deine Forschungsarbeiten, Notizen und Dokumente zu organisieren und zu diskutieren.', en: 'Create a space to organize and discuss your research, notes, and documents.' },
-    newKB: { de: 'Neue Knowledge Base', en: 'New Knowledge Base' },
     profile: { de: 'Mein Profil', en: 'My Profile' },
     logout: { de: 'Abmelden', en: 'Logout' },
 
     // App shell (AppShellLayout, card KI-776).
     //
-    // `home` is DELIBERATELY not `myKBs`. The sidebar's Home row, the page
-    // <h1> and the "Meine KBs" section title would otherwise be three
-    // elements with the same accessible name on one screen — a real a11y
-    // problem that also makes `getByRole('button', { name: /^Meine Knowledge
-    // Bases/ })` ambiguous. Decided by the developer on 2026-09-14; it amends
-    // the slot spec on KI-776, which had said `t('myKBs')`.
+    // `home` is DELIBERATELY its own key, not the page <h1>'s `myTopics`:
+    // the sidebar row and the heading are separate slots even while they
+    // read alike.
     home: { de: 'Mein Wissen', en: 'My Knowledge' },
-    // The „Geteilte Knowledge Bases" view (KI-783). Three separate keys on
-    // purpose, even though two of them read alike today:
+    // The „Geteiltes Wissen" view. Separate keys on purpose:
     //   - `sharedKbs` is the SIDEBAR ROW and the page <h1>. It is not
     //     `homeSharedWithMe` („Mit mir geteilt"), because that string is the
     //     overview SECTION's title and both can be on screen at once — and
     //     because the row names a place while the section names a relationship.
-    //   - `sharedKbsDescription` is the page's muted subtitle, the slot
-    //     `kbDescription` fills on the overview.
     //   - the empty state reuses `homeSharedWithMeEmpty`: it is the same
     //     sentence about the same absence, and two wordings for it would be a
     //     translation to keep in sync for nothing.
     sharedKbs: { de: 'Geteiltes Wissen', en: 'Shared Knowledge' },
-    sharedKbsDescription: {
-      de: 'Knowledge Bases, die andere mit dir geteilt haben. Deine eigenen findest du unter „Mein Wissen".',
-      en: 'Knowledge bases other people have shared with you. Your own are under "My Knowledge".',
-    },
 
     /* The four content views of the shell (18.09.2026).
      *
      * THE SCREENS KEEP THEIR GERMAN NAMES — „Mein Wissen", „Geteiltes Wissen"
      * — because those are what the developer called them. What is
-     * new is the ENTITY: a knowledge base is a „Thema" / „topic" on these four
-     * pages. The rename is deliberately scoped to them (developer ruling): the
-     * KB settings panel, the topic view, the admin console and every toast still
-     * say Knowledge Base, so `myKBs` / `newKB` / `createNewKb` above stay and
-     * are still used there. Two vocabularies coexist until the rest follows.
+     * new is the ENTITY: a knowledge base is a „Thema" / „topic" and its files
+     * are „Quellen" / „sources" in every string a user or admin reads,
+     * the admin console included.
      *
      * `home` and `sharedKbs` are kept above rather than renamed: they are the
      * same strings, still referenced by the tour and the legal footer. */
@@ -372,15 +360,15 @@ export const translations = {
     // Visible label of the bulk-retry button; the count follows it. The long
     // form above stays as its tooltip.
     retryAllFailedShort: { de: 'Erneut versuchen', en: 'Retry all' },
-    retryRequestFailed: { de: 'Die fehlgeschlagene Datei konnte nicht neu verarbeitet werden. Bitte versuche es später erneut.', en: 'The failed file could not be processed again. Please try again later.' },
-    retryAllRequestFailed: { de: 'Die fehlgeschlagenen Dateien konnten nicht neu verarbeitet werden. Bitte versuche es später erneut.', en: 'The failed files could not be processed again. Please try again later.' },
+    retryRequestFailed: { de: 'Die fehlgeschlagene Quelle konnte nicht neu verarbeitet werden. Bitte versuche es später erneut.', en: 'The failed source could not be processed again. Please try again later.' },
+    retryAllRequestFailed: { de: 'Die fehlgeschlagenen Quellen konnten nicht neu verarbeitet werden. Bitte versuche es später erneut.', en: 'The failed sources could not be processed again. Please try again later.' },
     fileErrorUnsupportedType: { de: 'Dieses Dateiformat wird nicht unterstützt.', en: 'This file format is not supported.' },
-    fileErrorParse: { de: 'Die Datei konnte nicht gelesen werden. Sie ist möglicherweise beschädigt.', en: 'The file could not be read. It may be damaged.' },
-    fileErrorEmbedding: { de: 'Die Datei konnte nicht durchsuchbar gemacht werden, weil ein Dienst nicht erreichbar war. Versuche es später erneut.', en: 'The file could not be made searchable because a service was unavailable. Please try again later.' },
+    fileErrorParse: { de: 'Die Quelle konnte nicht gelesen werden. Sie ist möglicherweise beschädigt.', en: 'The source could not be read. It may be damaged.' },
+    fileErrorEmbedding: { de: 'Die Quelle konnte nicht durchsuchbar gemacht werden, weil ein Dienst nicht erreichbar war. Versuche es später erneut.', en: 'The source could not be made searchable because a service was unavailable. Please try again later.' },
     fileErrorCanceled: { de: 'Die Verarbeitung wurde unterbrochen. Versuche es erneut.', en: 'Processing was interrupted. Please try again.' },
     fileErrorProcessing: { de: 'Die Verarbeitung ist fehlgeschlagen. Versuche es erneut.', en: 'Processing failed. Please try again.' },
     fileErrorTimeout: { de: 'Die Verarbeitung hat zu lange gedauert. Versuche es erneut.', en: 'Processing took too long. Please try again.' },
-    fileErrorQueue: { de: 'Die Datei konnte nicht zur Verarbeitung eingeplant werden. Versuche es erneut.', en: 'The file could not be scheduled for processing. Please try again.' },
+    fileErrorQueue: { de: 'Die Quelle konnte nicht zur Verarbeitung eingeplant werden. Versuche es erneut.', en: 'The source could not be scheduled for processing. Please try again.' },
     fileErrorUnknown: { de: 'Bei der Verarbeitung ist etwas schiefgelaufen. Versuche es erneut.', en: 'Something went wrong while processing. Please try again.' },
     ingestStageParse: { de: 'Dokument wird gelesen', en: 'Parsing document' },
     ingestStageTabular: { de: 'Tabellen werden importiert', en: 'Importing tables' },
@@ -391,9 +379,9 @@ export const translations = {
     ingestStageRaptor: { de: 'Zusammenfassungen werden erstellt', en: 'Building summary tree' },
     ingestStageGeneric: { de: 'Wird verarbeitet', en: 'Processing' },
     // Spreadsheet source preview (components/tablePreview): the ingested SQL tables
-    tabularIngesting: { de: 'Die Datei wird noch verarbeitet. Die Tabellenvorschau erscheint hier, sobald die Verarbeitung abgeschlossen ist.', en: 'This file is still being processed. The table preview will appear here once processing has finished.' },
-    tabularIngestFailed: { de: 'Die Datei konnte nicht verarbeitet werden, daher gibt es keine Tabellenvorschau.', en: 'This file could not be processed, so there is no table preview.' },
-    tabularNoPreview: { de: 'Für diese Datei gibt es keine Tabellenvorschau. Lade die Datei herunter, um sie anzusehen.', en: 'There is no table preview for this file. Download the file to view it.' },
+    tabularIngesting: { de: 'Die Quelle wird noch verarbeitet. Die Tabellenvorschau erscheint hier, sobald die Verarbeitung abgeschlossen ist.', en: 'This source is still being processed. The table preview will appear here once processing has finished.' },
+    tabularIngestFailed: { de: 'Die Quelle konnte nicht verarbeitet werden, daher gibt es keine Tabellenvorschau.', en: 'This source could not be processed, so there is no table preview.' },
+    tabularNoPreview: { de: 'Für diese Quelle gibt es keine Tabellenvorschau. Lade sie herunter, um sie anzusehen.', en: 'There is no table preview for this source. Download it to view it.' },
     previewPdfSubtitle: { de: 'PDF · nur Lesen', en: 'PDF · read-only' },
     previewPdfPageSingle: { de: 'Seite {page} von {total}', en: 'Page {page} of {total}' },
     previewPdfGoToPage: { de: 'Seite', en: 'Page' },
@@ -477,11 +465,16 @@ export const translations = {
     ltpFooterCounts: { de: '{shown} von {total} Zeilen · {cols} Spalten', en: '{shown} of {total} rows · {cols} columns' },
     resume: { de: 'Fortsetzen', en: 'Resume' },
     pause: { de: 'Pausieren', en: 'Pause' },
-    deleteRssFeedConfirm: { de: 'Der Feed und alle zugehörigen Dateien werden gelöscht.', en: 'The feed and all associated files will be deleted.' },
+    deleteRssFeedConfirm: { de: 'Der Feed und alle zugehörigen Quellen werden gelöscht.', en: 'The feed and all associated sources will be deleted.' },
     rssFeedAdded: { de: 'RSS-Feed hinzugefügt', en: 'RSS feed added' },
     rssFeedDeleted: { de: 'RSS-Feed gelöscht', en: 'RSS feed deleted' },
     rssFeedUpdated: { de: 'RSS-Feed aktualisiert', en: 'RSS feed updated' },
     rssPollTriggered: { de: 'Abfrage gestartet', en: 'Poll triggered' },
+    rssFeedAddFailed: { de: 'Der RSS-Feed konnte nicht hinzugefügt werden.', en: 'Could not add the RSS feed.' },
+    rssFeedUpdateFailed: { de: 'Der RSS-Feed konnte nicht geändert werden.', en: 'Could not update the RSS feed.' },
+    rssFeedDeleteFailed: { de: 'Der RSS-Feed konnte nicht entfernt werden.', en: 'Could not remove the RSS feed.' },
+    rssPollFailed: { de: 'Die Abfrage des RSS-Feeds konnte nicht gestartet werden.', en: 'Could not start polling the RSS feed.' },
+    rssFeedSyncError: { de: 'Der RSS-Feed konnte nicht abgerufen werden. Prüfe die Adresse oder versuche es später erneut.', en: 'The RSS feed could not be fetched. Check the address or try again later.' },
     sourceEntriesProcessing: { de: '{count} Einträge in Verarbeitung', en: '{count} entries processing' },
     rssViewEntries: { de: 'Einträge anzeigen', en: 'View entries' },
     rssEntries: { de: 'Einträge', en: 'Entries' },
@@ -586,6 +579,7 @@ export const translations = {
     researchGenerating: { de: 'Erstelle Bericht...', en: 'Generating report...' },
     researchComplete: { de: 'Recherche abgeschlossen!', en: 'Research complete!' },
     researchCancelled: { de: 'Recherche abgebrochen', en: 'Research cancelled' },
+    webResearchFailed: { de: 'Die Webrecherche konnte nicht abgeschlossen werden. Bitte versuche es erneut.', en: 'The web research could not be completed. Please try again.' },
     cancelResearch: { de: 'Abbrechen', en: 'Cancel' },
 
     // Academic Research
@@ -653,16 +647,16 @@ export const translations = {
 
     // Prompts & Alerts
     confirmDeleteChat: { de: 'Bist du sicher, dass du diesen Chat-Verlauf löschen möchtest?', en: 'Are you sure you want to delete this chat history?' },
-    confirmDeleteKB: { de: 'Bist du sicher, dass du diese Knowledge Base löschen möchtest?', en: 'Are you sure you want to delete this knowledge base?' },
+    confirmDeleteKB: { de: 'Bist du sicher, dass du dieses Thema löschen möchtest?', en: 'Are you sure you want to delete this topic?' },
     // Zwei Varianten derselben Frage: die Chat-Warnung erscheint nur, wenn es
     // wirklich Chats zu verlieren gibt (chatCount > 0 in useKbRemoval) — sonst
     // stuende dort "0 deiner Chats werden geloescht".
-    confirmLeaveKb: { de: 'Diese Knowledge Base verlassen? {count} deiner Chats darin werden dabei gelöscht.', en: 'Leave this knowledge base? {count} of your chats in it will be deleted.' },
-    confirmLeaveKbNoChats: { de: 'Diese Knowledge Base verlassen?', en: 'Leave this knowledge base?' },
+    confirmLeaveKb: { de: 'Dieses Thema verlassen? {count} deiner Chats darin werden dabei gelöscht.', en: 'Leave this topic? {count} of your chats in it will be deleted.' },
+    confirmLeaveKbNoChats: { de: 'Dieses Thema verlassen?', en: 'Leave this topic?' },
     // Subscriber (no kb_members row) removing a public KB tile: unlike
     // leaving a membership, this deletes no chats — access survives via rule
     // 4 of EffectiveRole — so the wording must not carry a chat warning.
-    confirmUnsubscribeKb: { de: 'Diese Knowledge Base nicht mehr abonnieren?', en: 'Unsubscribe from this knowledge base?' },
+    confirmUnsubscribeKb: { de: 'Dieses Thema nicht mehr abonnieren?', en: 'Unsubscribe from this topic?' },
     // Ein globales Thema abbestellen („Abbestellen…" im Kartenmenü von
     // „Geteiltes Wissen"): keine Mitgliedschaft wird aufgeloest, keine Chats
     // werden geloescht, das Thema bleibt unter „Entdecken" auffindbar. Genau
@@ -671,10 +665,8 @@ export const translations = {
         de: 'Dieses Thema abbestellen? Deine Chats bleiben erhalten, und du findest es jederzeit unter „Entdecken" wieder.',
         en: 'Unsubscribe from this topic? Your chats are kept, and you can find it again any time under "Discover".',
     },
-    confirmDeleteFile: { de: 'Bist du sicher, dass du diese Datei löschen möchtest? Dies entfernt auch alle daraus extrahierten Informationen.', en: 'Are you sure you want to delete this file? This will also remove all extracted information.' },
+    confirmDeleteFile: { de: 'Bist du sicher, dass du diese Quelle löschen möchtest? Dies entfernt auch alle daraus extrahierten Informationen.', en: 'Are you sure you want to delete this source? This will also remove all extracted information.' },
     enterKBName: { de: 'Name für dein Thema eingeben:', en: 'Enter a name for your topic:' },
-    shareSuccess: { de: 'Knowledge Base geteilt mit', en: 'Knowledge Base shared with' },
-    shareError: { de: 'Teilen der Knowledge Base fehlgeschlagen', en: 'Failed to share Knowledge Base' },
     bulkInvite: { de: 'Sammeleinladung', en: 'Bulk invite' },
     singleShare: { de: 'Einzeln', en: 'Single' },
     bulkInvitePaste: { de: 'Benutzernamen einfügen, getrennt durch Komma, Leerzeichen oder Zeilenumbruch (max. 500).', en: 'Paste usernames, separated by comma, space, or newline (max 500).' },
@@ -707,12 +699,9 @@ export const translations = {
     selectPermission: { de: 'Berechtigung auswählen', en: 'Select permission' },
     viewPermission: { de: 'Lesen', en: 'View' },
     editPermission: { de: 'Bearbeiten', en: 'Edit' },
-    viewPermissionDesc: { de: 'Kann Inhalte ansehen und mit der Knowledge Base chatten', en: 'Can view content and chat with the knowledge base' },
-    editPermissionDesc: { de: 'Kann Dateien hochladen, löschen und die Knowledge Base bearbeiten', en: 'Can upload, delete files and edit the knowledge base' },
     // The third assignable role. Ownership is not assignable here — it moves
     // only through the explicit transfer action (kbaccess.Assignable).
     adminPermission: { de: 'Verwalten', en: 'Administer' },
-    adminPermissionDesc: { de: 'Zusätzlich: Einstellungen, Mitglieder, Agenten und Auswertung der Knowledge Base', en: 'Additionally: settings, members, agents and evaluation of the knowledge base' },
     kbTuning: { de: 'RAG-Einstellungen', en: 'RAG settings' },
     enterRecipientUsername: { de: 'Empfänger-Benutzername eingeben', en: 'Enter recipient username' },
     userNotFound: { de: 'Benutzer nicht gefunden', en: 'User not found' },
@@ -778,19 +767,16 @@ export const translations = {
     // "Favoriten", because that is what it now shows — the public KBs the
     // user chose to keep, not every public KB that exists.
     homeFavorites: { de: 'Favoriten', en: 'Favorites' },
-    homeFavoritesEmpty: { de: 'Noch keine Favoriten — unter „KBs entdecken" findest du alle öffentlichen Wissensdatenbanken.', en: 'No favorites yet — "Discover KBs" below lists every public knowledge base.' },
     homeSharedWithMe: { de: 'Mit mir geteilt', en: 'Shared with me' },
 
     // Global Knowledge Bases
-    globalKBs: { de: 'Globale Knowledge Bases', en: 'Global Knowledge Bases' },
     globalBadge: { de: 'Global', en: 'Global' },
-    confirmDeleteGlobalKb: { de: 'Diese globale Knowledge Base wirklich löschen? Alle Dateien und Chats werden gelöscht.', en: 'Delete this global Knowledge Base? All files and chats will be deleted.' },
-    deleteGlobalKb: { de: 'Globale Knowledge Base löschen', en: 'Delete global Knowledge Base' },
+    confirmDeleteGlobalKb: { de: 'Dieses globale Thema wirklich löschen? Alle Quellen und Chats werden gelöscht.', en: 'Delete this global topic? All sources and chats will be deleted.' },
     removeFromMyView: { de: 'Aus meiner Ansicht entfernen', en: 'Remove from my view' },
     removeFromFavorites: { de: 'Aus Favoriten entfernen', en: 'Remove from favorites' },
     editSettings: { de: 'Einstellungen bearbeiten', en: 'Edit settings' },
-    globalKbSettings: { de: 'Globale KB-Einstellungen', en: 'Global KB Settings' },
-    openKb: { de: 'Knowledge Base öffnen', en: 'Open Knowledge Base' },
+    globalKbSettings: { de: 'Einstellungen des globalen Themas', en: 'Global topic settings' },
+    openKb: { de: 'Thema öffnen', en: 'Open topic' },
     // Entry point for KbSettingsPanel (RAG-Einstellungen / Evals / Workflow).
     kbAdvancedSettings: { de: 'RAG-Settings', en: 'RAG settings' },
     // KB rename (owner of a private KB / system admin on a public KB).
@@ -801,8 +787,6 @@ export const translations = {
     kbNameTooLong: { de: 'Der Name darf höchstens 255 Zeichen lang sein', en: 'The name must not exceed 255 characters' },
 
     // KB Catalog Modal
-    discoverKbs: { de: 'KBs entdecken', en: 'Discover KBs' },
-    catalogTitle: { de: 'Öffentliche Wissensdatenbanken', en: 'Public knowledge bases' },
     /* The header's global search (card KI-837). The placeholder doubles as the
      * field's accessible name, as the catalog field's did — one string, so the
      * two cannot drift. Group headings use the KI-799 vocabulary (Themen,
@@ -861,13 +845,41 @@ export const translations = {
     kbName: { de: 'Name', en: 'Name' },
     headerTextLabel: { de: 'Beschreibung & Tipps', en: 'Description & Tips' },
     headerTextDescription: { de: 'Nur ein Ersatz für die Beschreibung: Solange das Thema keine eigene hat, zeigen seine Karte unter „Entdecken" und die Suchergebnisse diesen Text. Die Suche findet ihn in jedem Fall. Im Chat erscheint er nicht – die Beschreibung legst du in der Startseite des Themas fest.', en: 'Only a stand-in for the description: while the topic has none of its own, its card under "Discover" and the search results show this text. Search matches it either way. It does not appear in the chat — the description is set on the topic\'s start page.' },
-    headerTextPlaceholder: { de: 'z.B. Diese Knowledge Base enthält alle Unternehmensdokumente. Nutze Suchbegriffe wie "Quartalsbericht", "Budget" oder "Richtlinie"...', en: 'e.g. This Knowledge Base contains all company documents. Use search terms like "quarterly report", "budget" or "policy"...' },
+    headerTextPlaceholder: { de: 'z.B. Dieses Thema enthält alle Unternehmensdokumente. Nutze Suchbegriffe wie "Quartalsbericht", "Budget" oder "Richtlinie"...', en: 'e.g. This topic contains all company documents. Use search terms like "quarterly report", "budget" or "policy"...' },
     examplePromptsLabel: { de: 'Beispiel-Prompts', en: 'Example Prompts' },
     examplePromptsDescription: { de: 'Ein Prompt pro Zeile. Diese werden als klickbare Vorschläge im leeren Chat angezeigt.', en: 'One prompt per line. These are shown as clickable suggestions in the empty chat.' },
     examplePromptsPlaceholder: { de: 'Fasse die wichtigsten Punkte zusammen\nWas sind die aktuellen Richtlinien zu...', en: 'Summarize the key points\nWhat are the current policies on...' },
     systemPromptLabel: { de: 'System-Prompt', en: 'System Prompt' },
-    kbBehaviorTitle: { de: 'Verhalten der Wissensdatenbank', en: 'Knowledge base behaviour' },
     kbSettingsTitle: { de: 'Thema-Einstellungen', en: 'Topic settings' },
+    // RAG settings panel (components/kbSettings/KbSettingsPanel.tsx; system admins).
+    ragTabSettings: { de: 'RAG-Einstellungen', en: 'RAG settings' },
+    ragTabEvals: { de: 'Evals', en: 'Evals' },
+    ragTabWorkflow: { de: 'Workflow', en: 'Workflow' },
+    ragForbiddenTitle: { de: 'Keine Berechtigung', en: 'No permission' },
+    ragForbiddenBody: { de: 'Die RAG-Einstellungen sind Systemadmins vorbehalten, und das nur bei eigenen, geteilten oder öffentlichen Themen: Ein fremdes Thema, das niemand mit anderen teilt, bleibt privat.', en: 'RAG settings are reserved for system admins, and only for their own, shared or public topics: someone else\'s topic that nobody shares stays private.' },
+    ragLoading: { de: 'Wird geladen…', en: 'Loading…' },
+    ragLoadError: { de: 'Die RAG-Einstellungen konnten nicht geladen werden.', en: 'Could not load the RAG settings.' },
+    ragSaveError: { de: 'Die RAG-Einstellungen konnten nicht gespeichert werden.', en: 'Could not save the RAG settings.' },
+    ragResetError: { de: 'Die Einstellung konnte nicht zurückgesetzt werden.', en: 'Could not reset the setting.' },
+    ragSearchPlaceholder: { de: 'Einstellungen durchsuchen…', en: 'Search settings…' },
+    ragSearchLabel: { de: 'Einstellungen durchsuchen', en: 'Search settings' },
+    ragExpandAll: { de: 'Alle aufklappen', en: 'Expand all' },
+    ragCollapseAll: { de: 'Alle zuklappen', en: 'Collapse all' },
+    ragOverriddenTitle: { de: 'Für dieses Thema überschrieben', en: 'Overridden for this topic' },
+    ragOverriddenBadge: { de: 'überschrieben', en: 'overridden' },
+    ragReingestBadgeTitle: { de: 'Wirkt erst nach dem Neueinlesen', en: 'Takes effect after re-ingest' },
+    ragReingestBadge: { de: 'Neueinlesen', en: 're-ingest' },
+    ragResetTitle: { de: 'Auf den globalen Standard zurücksetzen', en: 'Reset to global default' },
+    ragReset: { de: 'Zurücksetzen', en: 'Reset' },
+    ragReingestConfirm: { de: 'Diese Änderungen ({labels}) wirken erst, wenn alle Quellen dieses Themas neu eingelesen sind. Jetzt neu einlesen?', en: 'These changes ({labels}) only take effect after re-ingesting all sources in this topic. Schedule the re-ingest now?' },
+    ragReingestRequiredTitle: { de: 'Neueinlesen nötig', en: 'Re-ingest required' },
+    ragReingestQueued: { de: '{count} Quellen zum Neueinlesen eingeplant.', en: 'Queued {count} sources for re-ingest.' },
+    ragReingestNone: { de: 'In diesem Thema gibt es keine Quellen zum Neueinlesen.', en: 'No sources to re-ingest in this topic.' },
+    ragReingestScheduledTitle: { de: 'Neueinlesen eingeplant', en: 'Re-ingest scheduled' },
+    ragModelNameLabel: { de: 'API-Modellname', en: 'API model name' },
+    ragModelNameCopyTitle: { de: 'Modellnamen für die OpenAI-kompatible API kopieren', en: 'Copy the model name for the OpenAI-compatible API' },
+    ragModelNameCopyLabel: { de: 'API-Modellnamen kopieren', en: 'Copy API model name' },
+    ragModelNameCopied: { de: 'Kopiert', en: 'Copied' },
     /* The gear in the topic view's bar, and its marker for settings that
      * differ from the template. */
     topicSettingsButton: { de: 'Einstellungen des Themas', en: 'Topic settings' },
@@ -943,9 +955,9 @@ export const translations = {
     ragSystemPromptUnavailable: { de: 'Die RAG-Anweisungen konnten nicht geladen werden.', en: 'Could not load the RAG instructions.' },
     systemPromptDescription: { de: 'Gib dem Assistenten eine Persona, definiere den Ton oder lege fachspezifische Regeln fest. Die RAG-Anweisungen werden automatisch angewendet.', en: 'Give the assistant a persona, define its tone, or set domain-specific rules. The RAG retrieval instructions are applied automatically.' },
     systemPromptPlaceholder: { de: 'z.B. Du bist ein freundlicher Experte für Personalrecht. Antworte immer in einfacher Sprache und vermeide Fachjargon.', en: 'e.g. You are a friendly expert in employment law. Always answer in plain language and avoid jargon.' },
-    fileManagement: { de: 'Dateiverwaltung', en: 'File Management' },
+    fileManagement: { de: 'Quellen', en: 'Sources' },
     uploadFiles: { de: 'Dateien hochladen', en: 'Upload files' },
-    noFiles: { de: 'Noch keine Dateien hochgeladen.', en: 'No files uploaded yet.' },
+    noFiles: { de: 'Noch keine Quellen vorhanden.', en: 'No sources yet.' },
     'status.pending': { de: 'Wartend', en: 'Pending' },
     'status.processing': { de: 'Wird verarbeitet', en: 'Processing' },
     'status.completed': { de: 'Fertig', en: 'Completed' },
@@ -954,7 +966,7 @@ export const translations = {
     sharedBy: { de: 'von {name}', en: 'by {name}' },
     unknownUser: { de: 'Unbekannt', en: 'Unknown' },
     editorsLabel: { de: 'Editoren', en: 'Editors' },
-    editorsDescription: { de: 'Editoren können Dateien hochladen/löschen, Studio-Inhalte erstellen und Texte bearbeiten, aber die KB nicht löschen.', en: 'Editors can upload/delete files, create studio content, and edit texts, but cannot delete the KB.' },
+    editorsDescription: { de: 'Editoren können Quellen hochladen/löschen, Studio-Inhalte erstellen und Texte bearbeiten, aber das Thema nicht löschen.', en: 'Editors can upload/delete sources, create studio content, and edit texts, but cannot delete the topic.' },
     editorUsernamePlaceholder: { de: 'Benutzername eingeben...', en: 'Enter username...' },
     addEditor: { de: 'Hinzufügen', en: 'Add' },
     removeEditor: { de: 'Editor entfernen', en: 'Remove editor' },
@@ -967,7 +979,6 @@ export const translations = {
 
     // Accessibility - aria-labels
     newChat: { de: 'Neuer Chat', en: 'New Chat' },
-    createNewKb: { de: 'Neue Knowledge Base erstellen', en: 'Create new Knowledge Base' },
     adminSettings: { de: 'Admin-Einstellungen', en: 'Admin settings' },
     closeBanner: { de: 'Banner schließen', en: 'Close banner' },
     closeForm: { de: 'Formular schließen', en: 'Close form' },
@@ -1090,7 +1101,7 @@ export const translations = {
     resizeRightSidebar: { de: 'Rechte Seitenleiste Größe ändern', en: 'Resize right sidebar' },
 
     // KB settings errors
-    embeddingModelChangeConfirm: { de: 'Das Ändern des Embedding-Modells erfordert die Neuberechnung aller Embeddings für diese Knowledge Base. Dies wird im Hintergrund gestartet und der Fortschritt wird angezeigt. Fortfahren?', en: 'Changing the embedding model requires recalculating all embeddings for this Knowledge Base. This will be started in the background and progress will be shown. Continue?' },
+    embeddingModelChangeConfirm: { de: 'Das Ändern des Embedding-Modells erfordert die Neuberechnung aller Embeddings für dieses Thema. Dies wird im Hintergrund gestartet und der Fortschritt wird angezeigt. Fortfahren?', en: 'Changing the embedding model requires recalculating all embeddings for this topic. This will be started in the background and progress will be shown. Continue?' },
     settingsUpdateError: { de: 'Fehler beim Aktualisieren der Einstellungen', en: 'Error updating settings' },
     standard: { de: 'Standard', en: 'Default' },
 
@@ -1099,7 +1110,6 @@ export const translations = {
 
     // Deep Analysis
     deepAnalysis: { de: 'Tiefenanalyse', en: 'Deep Analysis' },
-    deepAnalysisDescription: { de: 'Beschreibe, was du analysieren oder aus deiner Knowledge Base extrahieren möchtest. Das Ergebnis wird zu deinen Notizen hinzugefügt.', en: 'Describe what you want to analyze or extract from your knowledge base. The result will be added to your notes.' },
     deepAnalysisPlaceholder: { de: 'z.B. "Vergleiche die Methodik der Hauptquellen" oder "Was sind die widersprüchlichen Ansichten zu diesem Thema?"', en: 'e.g., "Compare the methodology of the main papers" or "What are the conflicting viewpoints on this topic?"' },
     startAnalysis: { de: 'Analyse starten', en: 'Start Analysis' },
     compareSources: { de: 'Vergleiche Quellen', en: 'Compare Sources' },
@@ -1197,7 +1207,7 @@ export const translations = {
     documentAiExtraction: { de: 'Dokument (KI-Extraktion)', en: 'Document (AI extraction)' },
 
     // Alerts & Errors
-    fileLimitReached: { de: 'Datei-Limit pro Knowledge Base erreicht.', en: 'File limit per Knowledge Base reached.' },
+    fileLimitReached: { de: 'Quellen-Limit pro Thema erreicht.', en: 'Source limit per topic reached.' },
     uploadFailed: { de: 'Upload fehlgeschlagen', en: 'Upload failed' },
     uploadFailedMore: { de: '{count} weitere Dateien konnten ebenfalls nicht hochgeladen werden.', en: '{count} more files could not be uploaded either.' },
     // User-facing error messages (docs/user-error-messages.md). Chosen by
@@ -1235,16 +1245,16 @@ export const translations = {
     uploadStorageNoticeTitle: { de: 'Speicherung hochgeladener Dokumente', en: 'Storage of uploaded documents' },
     uploadStorageNoticeAccept: { de: 'Verstanden', en: 'Understood' },
     uploadStorageNoticeChat: { de: 'Ein Anhang bleibt gespeichert, solange ein Chat ihn enthält. Löschst du den Chat oder wird dein Account gelöscht, wird er mitgelöscht. Nicht gesendete Anhänge werden automatisch gelöscht, frühestens nach 24 Stunden.', en: 'An attachment stays stored as long as a chat contains it. It is deleted when you delete the chat or your account is deleted. Attachments you do not send are deleted automatically, after 24 hours at the earliest.' },
-    uploadStorageNoticeSource: { de: 'Als Quelle hochgeladene Dokumente bleiben gespeichert, bis dein Account gelöscht wird. Entfernst du eine Quelle aus einer Wissensbasis, verschwindet sie nur aus dieser Wissensbasis; das Dokument selbst bleibt gespeichert.', en: 'Documents you upload as sources stay stored until your account is deleted. Removing a source from a knowledge base only removes it from that knowledge base; the document itself stays stored.' },
+    uploadStorageNoticeSource: { de: 'Als Quelle hochgeladene Dokumente bleiben gespeichert, bis dein Account gelöscht wird. Entfernst du eine Quelle aus einem Thema, verschwindet sie nur aus diesem Thema; das Dokument selbst bleibt gespeichert.', en: 'Documents you upload as sources stay stored until your account is deleted. Removing a source from a topic only removes it from that topic; the document itself stays stored.' },
     chatAttachmentsStillUploading: { de: 'Die Anhänge werden noch hochgeladen – bitte kurz warten.', en: 'The attachments are still uploading – please wait a moment.' },
     chatAttachmentsTooLongTogether: { de: 'Die angehängten Dateien sind zusammen zu lang, um im Chat als Kontext mitgelesen zu werden. Entferne eine Datei und sende erneut.', en: 'Together, the attached files are too long to be read as context in the chat. Remove a file and send again.' },
     chatAttachmentRemoveHint: { de: 'Entferne die Datei und sende erneut.', en: 'Remove the file and send again.' },
     chatAttachmentsRemoveFailed: { de: 'Entferne zuerst die Anhänge, die nicht hochgeladen werden konnten.', en: 'Remove the attachments that could not be uploaded first.' },
-    deleteFileError: { de: 'Fehler beim Löschen der Datei', en: 'Error deleting file' },
-    downloadFileError: { de: 'Fehler beim Herunterladen der Datei. Bitte stelle sicher, dass du angemeldet bist.', en: 'Error downloading file. Please make sure you are logged in.' },
+    deleteFileError: { de: 'Fehler beim Löschen der Quelle', en: 'Error deleting source' },
+    downloadFileError: { de: 'Fehler beim Herunterladen der Quelle. Bitte stelle sicher, dass du angemeldet bist.', en: 'Error downloading source. Please make sure you are logged in.' },
     downloadFailed: { de: 'Download fehlgeschlagen', en: 'Download failed' },
     addTextFailed: { de: 'Text hinzufügen fehlgeschlagen', en: 'Failed to add text' },
-    deleteKBError: { de: 'Fehler beim Löschen der Knowledge Base', en: 'Error deleting knowledge base' },
+    deleteKBError: { de: 'Fehler beim Löschen des Themas', en: 'Error deleting topic' },
     deleteChatError: { de: 'Fehler beim Löschen des Chats', en: 'Error deleting chat' },
     removeEditorError: { de: 'Fehler beim Entfernen des Bearbeiters', en: 'Error removing editor' },
     removeShareError: { de: 'Fehler beim Entfernen der Freigabe', en: 'Error removing share' },
@@ -1260,6 +1270,8 @@ export const translations = {
     previewLoadError: { de: 'Fehler beim Laden der Vorschau', en: 'Error loading preview' },
     taskFailed: { de: 'Aufgabe fehlgeschlagen', en: 'Task failed' },
     addSourcesFailed: { de: 'Hinzufügen fehlgeschlagen', en: 'Failed to add sources' },
+    urlInvalid: { de: 'Die Adresse ist ungültig oder nicht erlaubt.', en: 'The address is invalid or not allowed.' },
+    urlFetchFailed: { de: 'Die Seite konnte nicht abgerufen werden. Prüfe die Adresse und versuche es erneut.', en: 'The page could not be fetched. Check the address and try again.' },
     sourceAdded: { de: 'Quelle hinzugefügt', en: 'Source added' },
     sourcesAddedProcessing: { de: 'Quellen hinzugefügt und Verarbeitung gestartet!', en: 'Sources added and processing started!' },
 
@@ -1272,8 +1284,8 @@ export const translations = {
     feedbackCommentToggleAria: { de: 'Kommentar hinzufügen', en: 'Add comment' },
     feedbackTitlePositive: { de: 'Was war an dieser Antwort gut?', en: 'What was good about this answer?' },
     feedbackTitleNegative: { de: 'Was könnte an dieser Antwort besser sein?', en: 'What could be better about this answer?' },
-    filesFetchError: { de: 'Fehler beim Laden der Dateien', en: 'Error loading files' },
-    kbFetchError: { de: 'Fehler beim Laden der Knowledge Bases', en: 'Error loading knowledge bases' },
+    filesFetchError: { de: 'Fehler beim Laden der Quellen', en: 'Error loading sources' },
+    kbFetchError: { de: 'Fehler beim Laden der Themen', en: 'Error loading topics' },
     kbCreateError: { de: 'Fehler beim Erstellen des Themas', en: 'Error creating topic' },
     rssFetchError: { de: 'Fehler beim Laden der RSS-Feeds', en: 'Error loading RSS feeds' },
     editorsFetchError: { de: 'Fehler beim Laden der Bearbeiter', en: 'Error loading editors' },
@@ -1315,8 +1327,8 @@ export const translations = {
     confirmDeleteUser: { de: 'Bist du sicher, dass du den Benutzer @{username} unwiderruflich löschen möchtest? Alle zugehörigen Daten gehen verloren.', en: 'Are you sure you want to permanently delete user @{username}? All associated data will be lost.' },
     confirmDeleteConfig: { de: 'Bist du sicher, dass du diese Konfiguration löschen möchtest?', en: 'Are you sure you want to delete this configuration?' },
     confirmDeleteProvider: { de: 'Bist du sicher, dass du diesen Anbieter löschen möchtest?', en: 'Are you sure you want to delete this provider?' },
-    confirmReembedAll: { de: 'Alle Dateien in allen Knowledge Bases werden neu verarbeitet. Das kann lange dauern und beeinträchtigt vorübergehend die Suchqualität.\n\nBist du sicher?', en: 'This will re-process all files across ALL knowledge bases. This may take a long time and will temporarily affect search quality.\n\nAre you sure you want to continue?' },
-    globalKbDeleteError: { de: 'Fehler beim Löschen der globalen Knowledge Base', en: 'Error deleting global knowledge base' },
+    confirmReembedAll: { de: 'Alle Quellen in allen Themen werden neu verarbeitet. Das kann lange dauern und beeinträchtigt vorübergehend die Suchqualität.\n\nBist du sicher?', en: 'This will re-process all sources across ALL topics. This may take a long time and will temporarily affect search quality.\n\nAre you sure you want to continue?' },
+    globalKbDeleteError: { de: 'Fehler beim Löschen des globalen Themas', en: 'Error deleting global topic' },
 
     // Export errors
     docxExportFailed: { de: 'DOCX-Export fehlgeschlagen', en: 'DOCX export failed' },
@@ -1369,6 +1381,13 @@ export const translations = {
     confluenceSourceUpdated: { de: 'Confluence-Quelle aktualisiert', en: 'Confluence source updated' },
     confluenceSourceDeleted: { de: 'Confluence-Quelle gelöscht', en: 'Confluence source deleted' },
     confluenceSyncTriggered: { de: 'Synchronisierung gestartet', en: 'Sync triggered' },
+    confluenceSourceAddFailed: { de: 'Die Confluence-Quelle konnte nicht hinzugefügt werden.', en: 'Could not add the Confluence source.' },
+    confluenceSourceUpdateFailed: { de: 'Die Confluence-Quelle konnte nicht geändert werden.', en: 'Could not update the Confluence source.' },
+    confluenceSourceDeleteFailed: { de: 'Die Confluence-Quelle konnte nicht entfernt werden.', en: 'Could not remove the Confluence source.' },
+    confluenceSyncFailed: { de: 'Die Synchronisierung der Confluence-Quelle konnte nicht gestartet werden.', en: 'Could not start syncing the Confluence source.' },
+    confluenceSourceSyncError: { de: 'Die Confluence-Quelle konnte nicht synchronisiert werden. Prüfe deine Confluence-Verbindung.', en: 'The Confluence source could not be synced. Check your Confluence connection.' },
+    confluenceSpacesLoadError: { de: 'Die Confluence-Bereiche konnten nicht geladen werden.', en: 'Could not load the Confluence spaces.' },
+    confluencePagesLoadError: { de: 'Die Confluence-Seiten konnten nicht geladen werden.', en: 'Could not load the Confluence pages.' },
     confluence: { de: 'Confluence', en: 'Confluence' },
     connectToConfluence: { de: 'Mit Confluence verbinden', en: 'Connect to Confluence' },
     confluencePatLabel: { de: 'Persönlicher Zugriffsschlüssel', en: 'Personal Access Token' },
@@ -1406,6 +1425,10 @@ export const translations = {
     confluenceProfileSaved: { de: 'Confluence-Token gespeichert.', en: 'Confluence token saved.' },
     confluenceProfileVerified: { de: 'Confluence-Verbindung erfolgreich verifiziert.', en: 'Confluence connection verified successfully.' },
     confluenceProfileVerifyFailed: { de: 'Confluence-Verbindung konnte nicht verifiziert werden.', en: 'Confluence connection verification failed.' },
+    confluenceProfileSaveError: { de: 'Die Confluence-Verbindung konnte nicht gespeichert werden.', en: 'Could not save the Confluence connection.' },
+    confluenceProfileDeleteError: { de: 'Die Confluence-Verbindung konnte nicht entfernt werden.', en: 'Could not remove the Confluence connection.' },
+    confluenceProfileTokenUnreadable: { de: 'Dein gespeichertes Token kann nicht mehr gelesen werden. Gib es erneut ein.', en: 'Your saved token can no longer be read. Enter it again.' },
+    confluenceProfileConnectionFailed: { de: 'Die Verbindung zu Confluence funktioniert nicht. Prüfe dein Token.', en: 'The connection to Confluence is not working. Check your token.' },
     confluenceProfileDeleted: { de: 'Confluence-Verbindung entfernt.', en: 'Confluence connection removed.' },
     confluenceProfileDeleteConfirm: { de: 'Confluence-Verbindung wirklich entfernen?', en: 'Remove Confluence connection?' },
     confluenceProfileStatusActive: { de: 'Verbunden', en: 'Connected' },
@@ -1448,6 +1471,11 @@ export const translations = {
     gitRepoSourceDeleted: { de: 'Git-Quelle gelöscht', en: 'Git source deleted' },
     gitRepoSourceUpdated: { de: 'Git-Quelle aktualisiert', en: 'Git source updated' },
     gitRepoSyncTriggered: { de: 'Synchronisierung gestartet', en: 'Sync triggered' },
+    gitRepoAddFailed: { de: 'Das Git-Repository konnte nicht hinzugefügt werden.', en: 'Could not add the Git repository.' },
+    gitRepoUpdateFailed: { de: 'Die Git-Quelle konnte nicht geändert werden.', en: 'Could not update the Git source.' },
+    gitRepoDeleteFailed: { de: 'Die Git-Quelle konnte nicht entfernt werden.', en: 'Could not remove the Git source.' },
+    gitRepoSyncFailed: { de: 'Die Synchronisierung des Git-Repositorys konnte nicht gestartet werden.', en: 'Could not start syncing the Git repository.' },
+    gitRepoSyncError: { de: 'Das Repository konnte nicht synchronisiert werden. Prüfe die Adresse und das Zugriffstoken.', en: 'The repository could not be synced. Check the address and the access token.' },
     gitFiles: { de: 'Dateien', en: 'files' },
 
     // Profile
@@ -1468,8 +1496,8 @@ export const translations = {
     adminTabAgents: { de: 'Agenten', en: 'Agents' },
     adminTabSettings: { de: 'Einstellungen', en: 'Settings' },
     adminTabHealth: { de: 'System Health', en: 'System Health' },
-    adminTabKbOverview: { de: 'KB-Übersicht', en: 'KB Overview' },
-    adminTabGlobalKbs: { de: 'Globale KBs', en: 'Global KBs' },
+    adminTabKbOverview: { de: 'Themen-Übersicht', en: 'Topic Overview' },
+    adminTabGlobalKbs: { de: 'Globale Themen', en: 'Global Topics' },
     adminTabTemplates: { de: 'Vorlagen', en: 'Templates' },
     // „Vorlagen" › Rollen: the template roles every topic can use (AdminTemplatesTab).
     tplTabRoles: { de: 'Rollen', en: 'Roles' },
@@ -1537,7 +1565,7 @@ export const translations = {
     arRightAdvancedTopicSettings: { de: 'Thema-Einstellungen (erweitert)', en: 'Topic settings (advanced)' },
     arRightAdvancedTopicSettingsHint: { de: 'RAG-Einstellungen, Evals und Workflow eines Themas. Setzt zusätzlich die Themenrolle Admin voraus.', en: 'RAG settings, evals and workflow of a topic. Also requires the admin role in that topic.' },
     arRightManageAnyTopic: { de: 'Jedes Thema löschen oder übertragen', en: 'Delete or transfer any topic' },
-    arRightManageAnyTopicHint: { de: 'Ein beliebiges Thema löschen oder einem anderen Besitzer übertragen (KB-Übersicht).', en: 'Delete any topic or transfer it to another owner (KB overview).' },
+    arRightManageAnyTopicHint: { de: 'Ein beliebiges Thema löschen oder einem anderen Besitzer übertragen (Themen-Übersicht).', en: 'Delete any topic or transfer it to another owner (topic overview).' },
     arRightApiAccess: { de: 'API-Zugriff', en: 'API access' },
     arRightApiAccessHint: { de: 'API-Schlüssel erstellen und verwalten.', en: 'Create and manage API keys.' },
     arRightAiModels: { de: 'KI-Modelle', en: 'AI models' },
@@ -1545,7 +1573,7 @@ export const translations = {
     arRightAuthProviders: { de: 'Login-Anbieter', en: 'Login providers' },
     arRightAuthProvidersHint: { de: 'Die Anmeldung (LDAP, OIDC) konfigurieren. Ein Login-Anbieter bestätigt Benutzernamen, darum nur Superadmins.', en: 'Configure the login (LDAP, OIDC). A login provider vouches for usernames, so superadmins only.' },
     arRightMonitoring: { de: 'Monitoring', en: 'Monitoring' },
-    arRightMonitoringHint: { de: 'KB-Übersicht, System Health und Metriken ansehen.', en: 'View the KB overview, system health and metrics.' },
+    arRightMonitoringHint: { de: 'Themen-Übersicht, System Health und Metriken ansehen.', en: 'View the topic overview, system health and metrics.' },
     arRightSystemSettings: { de: 'Systemeinstellungen', en: 'System settings' },
     arRightSystemSettingsHint: { de: 'Einstellungen, Suchanbieter, Agenten und Neu-Einbettung.', en: 'Settings, search providers, agents and re-embedding.' },
     arRightAuditLogs: { de: 'Audit-Logs', en: 'Audit logs' },
@@ -1578,22 +1606,22 @@ export const translations = {
     arMapOthers: { de: 'die Rolle aus der Mitgliederliste des Themas; in veröffentlichten globalen Themen sonst Leser.', en: 'the role from the topic’s member list; in published global topics otherwise viewer.' },
 
     // KB Overview controls
-    kbSearchPlaceholder: { de: 'KB suchen…', en: 'Search KBs…' },
+    kbSearchPlaceholder: { de: 'Themen suchen…', en: 'Search topics…' },
     columnsToggle: { de: 'Spalten', en: 'Columns' },
     colLastActivity: { de: 'Letzte Aktivität', en: 'Last activity' },
     colActivity: { de: 'Aktivität', en: 'Activity' },
     refresh: { de: 'Aktualisieren', en: 'Refresh' },
     kbAutoRefresh: { de: 'Auto-Aktualisierung (10s)', en: 'Auto-refresh (10s)' },
-    kbOverviewLoadError: { de: 'Fehler beim Laden der KB-Übersicht', en: 'Error loading KB overview' },
-    kbNoKnowledgeBases: { de: 'Keine Knowledge Bases.', en: 'No knowledge bases.' },
+    kbOverviewLoadError: { de: 'Fehler beim Laden der Themen-Übersicht', en: 'Error loading topic overview' },
+    kbNoKnowledgeBases: { de: 'Keine Themen.', en: 'No topics.' },
     colName: { de: 'Name', en: 'Name' },
     colOwner: { de: 'Besitzer', en: 'Owner' },
     colSize: { de: 'Größe', en: 'Size' },
     colFailed: { de: 'Fehler', en: 'Failed' },
     kbActionPublishLive: { de: 'Veröffentlichen', en: 'Publish' },
     kbStagedBadge: { de: 'Nicht live', en: 'Not live' },
-    kbStagedHint: { de: 'Öffentlich, aber noch nicht freigeschaltet: sichtbar nur für KB-Admins und Systemadmins.', en: 'Public, but not live yet: visible only to KB admins and system admins.' },
-    globalKbCardIncompleteNotice: { de: '{n} von {total} globalen KBs zeigen in „Entdecken“ eine unvollständige Karte. Die fehlenden Angaben stehen an der jeweiligen KB: Kategorie im ⋮-Menü, Beschreibung in den Thema-Einstellungen unter Startseite, Dokumente und Stand nach dem ersten erfolgreich verarbeiteten Dokument.', en: '{n} of {total} global KBs show an incomplete card in Discover. The missing fields are listed at each KB: category in the ⋮ menu, description in the topic settings under Start page, documents and date after the first successfully processed document.' },
+    kbStagedHint: { de: 'Öffentlich, aber noch nicht freigeschaltet: sichtbar nur für Thema-Admins und Systemadmins.', en: 'Public, but not live yet: visible only to topic admins and system admins.' },
+    globalKbCardIncompleteNotice: { de: '{n} von {total} globalen Themen zeigen in „Entdecken“ eine unvollständige Karte. Die fehlenden Angaben stehen am jeweiligen Thema: Kategorie im ⋮-Menü, Beschreibung in den Thema-Einstellungen unter Startseite, Dokumente und Stand nach dem ersten erfolgreich verarbeiteten Dokument.', en: '{n} of {total} global topics show an incomplete card in Discover. The missing fields are listed at each topic: category in the ⋮ menu, description in the topic settings under Start page, documents and date after the first successfully processed document.' },
     globalKbCardMissing: { de: 'Fehlt: {fields}', en: 'Missing: {fields}' },
     globalKbMissingCategory: { de: 'Kategorie', en: 'Category' },
     globalKbMissingDescription: { de: 'eigene Beschreibung (es steht der Standardtext)', en: 'own description (the default text shows)' },
@@ -1621,27 +1649,27 @@ export const translations = {
     syncKindLabel_git: { de: 'Git-Repository', en: 'Git repository' },
     // KB Overview — superadmin actions
     colActions: { de: 'Aktionen', en: 'Actions' },
-    kbActionDelete: { de: 'KB löschen', en: 'Delete KB' },
+    kbActionDelete: { de: 'Thema löschen', en: 'Delete topic' },
     kbActionTransfer: { de: 'Besitzer ändern', en: 'Change owner' },
-    kbDeleteTitle: { de: 'Knowledge Base löschen', en: 'Delete knowledge base' },
+    kbDeleteTitle: { de: 'Thema löschen', en: 'Delete topic' },
     kbDeleteWarning: {
-        de: 'Diese Aktion ist endgültig. Alle Dateien, Chunks, Chats und Speicherobjekte dieser KB werden unwiderruflich gelöscht.',
-        en: 'This action is permanent. Every file, chunk, chat, and storage object of this KB is deleted irreversibly.',
+        de: 'Diese Aktion ist endgültig. Alle Quellen, Chunks, Chats und Speicherobjekte dieses Themas werden unwiderruflich gelöscht.',
+        en: 'This action is permanent. Every source, chunk, chat, and storage object of this topic is deleted irreversibly.',
     },
     kbDeleteGlobalNote: {
-        de: 'Dies ist eine globale KB — sie ist für alle Nutzenden sichtbar.',
-        en: 'This is a global KB — it is visible to every user.',
+        de: 'Dies ist ein globales Thema — es ist für alle Nutzenden sichtbar.',
+        en: 'This is a global topic — it is visible to every user.',
     },
-    kbDeleteStats: { de: '{files} Dateien · {size} · {chats} Chats', en: '{files} files · {size} · {chats} chats' },
+    kbDeleteStats: { de: '{files} Quellen · {size} · {chats} Chats', en: '{files} sources · {size} · {chats} chats' },
     kbDeleteConfirmLabel: {
-        de: 'Tippe zur Bestätigung den KB-Namen ein:',
-        en: 'Type the KB name to confirm:',
+        de: 'Tippe zur Bestätigung den Namen des Themas ein:',
+        en: 'Type the topic name to confirm:',
     },
     kbDeleteFailed: { de: 'Löschen fehlgeschlagen', en: 'Delete failed' },
     kbTransferTitle: { de: 'Besitzer ändern', en: 'Change owner' },
     kbTransferIntro: {
-        de: 'Der bisherige Besitzer behält Bearbeitungsrechte auf dieser KB.',
-        en: 'The previous owner keeps edit access to this KB.',
+        de: 'Der bisherige Besitzer behält Bearbeitungsrechte in diesem Thema.',
+        en: 'The previous owner keeps edit access to this topic.',
     },
     kbTransferCurrentOwner: { de: 'Aktueller Besitzer', en: 'Current owner' },
     kbTransferNoOwner: { de: 'Kein Besitzer', en: 'No owner' },
@@ -1653,18 +1681,18 @@ export const translations = {
     // KB Overview — publish (POST /api/admin/kb/{id}/publish). Only offered
     // for private KBs; the reverse direction lives in the global-KB admin tab.
     kbActionPublish: { de: 'Öffentlich machen', en: 'Make public' },
-    kbPublishTitle: { de: 'Knowledge Base öffentlich machen', en: 'Make knowledge base public' },
+    kbPublishTitle: { de: 'Thema öffentlich machen', en: 'Make topic public' },
     kbPublishWarning: {
-        de: 'Sobald sie veröffentlicht ist, kann JEDE angemeldete Person diese Knowledge Base lesen.',
-        en: 'Once it is published, EVERY authenticated user will be able to read this knowledge base.',
+        de: 'Sobald es veröffentlicht ist, kann JEDE angemeldete Person dieses Thema lesen.',
+        en: 'Once it is published, EVERY authenticated user will be able to read this topic.',
     },
     kbPublishStagedNote: {
-        de: 'Sie geht dabei noch nicht live: bis du sie im Tab „Globale KBs" veröffentlichst, sehen sie nur KB-Admins und Systemadmins.',
-        en: 'It does not go live yet: until you publish it in the “Global KBs” tab, only KB admins and system admins can see it.',
+        de: 'Es geht dabei noch nicht live: bis du es im Tab „Globale Themen" veröffentlichst, sehen es nur Thema-Admins und Systemadmins.',
+        en: 'It does not go live yet: until you publish it in the “Global Topics” tab, only topic admins and system admins can see it.',
     },
     kbPublishOwnerNote: {
-        de: 'Öffentliche KBs haben keinen Besitzer — der bisherige Besitzer behält als KB-Admin vollen Zugriff.',
-        en: 'Public KBs have no owner — the previous owner keeps full access as a KB admin.',
+        de: 'Öffentliche Themen haben keinen Besitzer — der bisherige Besitzer behält als Thema-Admin vollen Zugriff.',
+        en: 'Public topics have no owner — the previous owner keeps full access as a topic admin.',
     },
     kbPublishFailed: { de: 'Veröffentlichen fehlgeschlagen', en: 'Publishing failed' },
     queueWaiting: { de: 'Wartend', en: 'Waiting' },
@@ -1674,7 +1702,7 @@ export const translations = {
     unpublished: { de: 'Nicht veröffentlicht', en: 'Unpublished' },
     // Home KB-card information scent (improvement #6)
     kbLastActive: { de: 'Zuletzt aktiv', en: 'Last active' },
-    kbFilesChip: { de: '{n} Dateien', en: '{n} files' },
+    kbFilesChip: { de: '{n} Quellen', en: '{n} sources' },
     kbMessagesChip: { de: '{n} Nachrichten', en: '{n} messages' },
     kbFailedChip: { de: '{n} fehlgeschlagen', en: '{n} failed' },
     kbProcessingChip: { de: '{n} in Bearbeitung', en: '{n} processing' },
@@ -1735,13 +1763,13 @@ export const translations = {
     // Models per job (per-task model overrides moved from Agent tab)
     modelsPerJob: { de: 'Modelle pro Aufgabe', en: 'Models per job' },
     modelsPerJobDesc: {
-        de: 'Optionale Modell-Overrides für einzelne Hintergrund-Jobs. Leer = Standard-Chat-Modell der KB (bzw. der globale Fast-Tier-Default, falls gesetzt).',
-        en: 'Optional model overrides for individual background jobs. Empty = use the KB default chat model (or the global fast-tier default if set).',
+        de: 'Optionale Modell-Overrides für einzelne Hintergrund-Jobs. Leer = Standard-Chat-Modell des Themas (bzw. der globale Fast-Tier-Default, falls gesetzt).',
+        en: 'Optional model overrides for individual background jobs. Empty = use the topic’s default chat model (or the global fast-tier default if set).',
     },
     modelTierFast: { de: 'Globaler Fast-Tier-Default', en: 'Global fast-tier default' },
     modelTierFastHelp: {
-        de: 'Deployment-weiter Default für alle Fast-Tier-Aufgaben (CRAG-Grader, KG-Extraktor, kontextuelle Anreicherung, Self-RAG-Verifier, DAG-Critic, Longmem-Extraktor, KB-Router, RAPTOR-Summariser). Per-Job-Overrides oben haben Vorrang. Leer = jede Aufgabe fällt auf das KB-Chat-Modell zurück.',
-        en: 'Deployment-wide default for every fast-tier task (CRAG grader, KG extractor, contextual enricher, Self-RAG verifier, DAG critic, longmem extractor, KB router, RAPTOR summariser). Per-job overrides above win. Empty = each task falls back to the KB chat model.',
+        de: 'Deployment-weiter Default für alle Fast-Tier-Aufgaben (CRAG-Grader, KG-Extraktor, kontextuelle Anreicherung, Self-RAG-Verifier, DAG-Critic, Longmem-Extraktor, Themen-Router, RAPTOR-Summariser). Per-Job-Overrides oben haben Vorrang. Leer = jede Aufgabe fällt auf das Chat-Modell des Themas zurück.',
+        en: 'Deployment-wide default for every fast-tier task (CRAG grader, KG extractor, contextual enricher, Self-RAG verifier, DAG critic, longmem extractor, topic router, RAPTOR summariser). Per-job overrides above win. Empty = each task falls back to the topic’s chat model.',
     },
 
     // Auth Tab
@@ -1777,6 +1805,9 @@ export const translations = {
     oidcRedirectUriRequired: { de: 'Redirect-URI ist erforderlich', en: 'Redirect URI is required' },
     loginWithSso: { de: 'Mit {institution}-Account anmelden', en: 'Sign in with {institution} account' },
     oidcLoginFailed: { de: 'Anmeldung über Single Sign-On fehlgeschlagen', en: 'Single Sign-On login failed' },
+    oidcLoginExpired: { de: 'Die Anmeldung ist abgelaufen. Bitte melde dich erneut an.', en: 'The sign-in has expired. Please sign in again.' },
+    oidcLoginUnavailable: { de: 'Single Sign-On ist gerade nicht erreichbar. Bitte versuche es später erneut.', en: 'Single Sign-On is currently unavailable. Please try again later.' },
+    oidcLoginNoEmail: { de: 'Für dein Konto ist keine bestätigte E-Mail-Adresse hinterlegt. Wende dich an den Support.', en: 'Your account has no verified e-mail address. Please contact support.' },
 
     // Users Tab
     userManagement: { de: 'Benutzerverwaltung', en: 'User Management' },
@@ -1824,8 +1855,8 @@ export const translations = {
     agentSectionAttachments: { de: 'Anhänge im Chat', en: 'Chat attachments' },
     chatAttachmentsContextShare: { de: 'Anteil am Kontextfenster', en: 'Share of the context window' },
     chatAttachmentsContextShareHelp: {
-        de: 'Wie viel des Kontextfensters des Antwortmodells angehängte Dokumente zusammen füllen dürfen (0,1–0,9). Der Rest bleibt für Systemprompt, Quellen der Wissensdatenbank, Verlauf und Antwort.',
-        en: 'How much of the answer model’s context window attached documents may fill together (0.1–0.9). The rest is left for the system prompt, knowledge-base sources, history and the answer.',
+        de: 'Wie viel des Kontextfensters des Antwortmodells angehängte Dokumente zusammen füllen dürfen (0,1–0,9). Der Rest bleibt für Systemprompt, Quellen des Themas, Verlauf und Antwort.',
+        en: 'How much of the answer model’s context window attached documents may fill together (0.1–0.9). The rest is left for the system prompt, the topic’s sources, history and the answer.',
     },
     chatAttachmentsFallbackContextWindow: { de: 'Kontextfenster ohne Angabe (Tokens)', en: 'Context window when unset (tokens)' },
     chatAttachmentsFallbackContextWindowHelp: {
@@ -1893,8 +1924,8 @@ export const translations = {
     },
     rerankBlendAlphaLookup: { de: 'Reranker-Gewicht (Lookup-Queries)', en: 'Reranker weight (lookup queries)' },
     rerankBlendAlphaLookupHelp: {
-        de: 'Überschreibt das globale Reranker-Gewicht für Lookup-Anfragen (Named-Entity-Suche, Faktenfragen). Leer lassen oder -1 setzen, um das globale Gewicht zu erben. Empfohlen 0.2–0.4 auf KBs mit vielen Templates (Projektprofile, Verträge), wo der Cross-Encoder strukturelle Chunks systematisch abwertet, während BM25 sie über exakte Term-Treffer korrekt findet.',
-        en: 'Overrides the global reranker weight for lookup queries (named-entity, factoid). Leave empty or set -1 to inherit the global weight. Recommended 0.2–0.4 on template-heavy KBs (project profiles, contracts) where the cross-encoder systematically downranks structural chunks while BM25 surfaces them correctly via exact term match.',
+        de: 'Überschreibt das globale Reranker-Gewicht für Lookup-Anfragen (Named-Entity-Suche, Faktenfragen). Leer lassen oder -1 setzen, um das globale Gewicht zu erben. Empfohlen 0.2–0.4 in Themen mit vielen Templates (Projektprofile, Verträge), wo der Cross-Encoder strukturelle Chunks systematisch abwertet, während BM25 sie über exakte Term-Treffer korrekt findet.',
+        en: 'Overrides the global reranker weight for lookup queries (named-entity, factoid). Leave empty or set -1 to inherit the global weight. Recommended 0.2–0.4 in template-heavy topics (project profiles, contracts) where the cross-encoder systematically downranks structural chunks while BM25 surfaces them correctly via exact term match.',
     },
     rerankBlendAlphaEnumeration: { de: 'Reranker-Gewicht (Aufzählungs-Queries)', en: 'Reranker weight (enumeration queries)' },
     rerankBlendAlphaEnumerationHelp: {
@@ -1928,8 +1959,8 @@ export const translations = {
     },
     rrfWeightVector: { de: 'RRF-Gewicht: Dichte Vektorsuche', en: 'RRF weight: dense vector retrieval' },
     rrfWeightVectorHelp: {
-        de: 'Multiplikator für den Beitrag der dichten Vektorsuche (und Multi-Query-Varianten) bei der RRF-Fusion. Standard 1.0 = unverändertes Verhalten. Über 1.0 anheben für KBs, in denen semantische Ähnlichkeit über exakter Token-Treffer dominieren soll. Bereich 0–10.',
-        en: 'Multiplier on the dense vector list (and multi-query variants) in RRF fusion. Default 1.0 = unchanged behavior. Raise above 1.0 for KBs where semantic similarity should dominate over exact-token matches. Range 0–10.',
+        de: 'Multiplikator für den Beitrag der dichten Vektorsuche (und Multi-Query-Varianten) bei der RRF-Fusion. Standard 1.0 = unverändertes Verhalten. Über 1.0 anheben für Themen, in denen semantische Ähnlichkeit über exakter Token-Treffer dominieren soll. Bereich 0–10.',
+        en: 'Multiplier on the dense vector list (and multi-query variants) in RRF fusion. Default 1.0 = unchanged behavior. Raise above 1.0 for topics where semantic similarity should dominate over exact-token matches. Range 0–10.',
     },
     bm25SimpleArmEnabled: { de: 'BM25: zweiter Arm mit "simple"-Konfiguration', en: 'BM25: dual arm with "simple" config' },
     bm25SimpleArmEnabledHelp: {
@@ -1938,8 +1969,8 @@ export const translations = {
     },
     rrfWeightBM25: { de: 'RRF-Gewicht: BM25 Keyword-Suche', en: 'RRF weight: BM25 keyword retrieval' },
     rrfWeightBM25Help: {
-        de: 'Multiplikator für den Beitrag der BM25-Keyword-Liste bei der RRF-Fusion. Standard 1.0 = unverändertes Verhalten. Über 1.0 anheben für deutschsprachige Unternehmens-KBs mit vielen Named-Entity- und Aktenzeichen-Anfragen, wo exakte Token-Treffer entscheidend sind. Bereich 0–10.',
-        en: 'Multiplier on the BM25 keyword list in RRF fusion. Default 1.0 = unchanged behavior. Raise above 1.0 for German enterprise KBs with many named-entity / docket-number queries where exact token match is decisive. Range 0–10.',
+        de: 'Multiplikator für den Beitrag der BM25-Keyword-Liste bei der RRF-Fusion. Standard 1.0 = unverändertes Verhalten. Über 1.0 anheben für deutschsprachige Themen mit Unternehmensdokumenten und vielen Named-Entity- und Aktenzeichen-Anfragen, wo exakte Token-Treffer entscheidend sind. Bereich 0–10.',
+        en: 'Multiplier on the BM25 keyword list in RRF fusion. Default 1.0 = unchanged behavior. Raise above 1.0 for German topics of enterprise documents with many named-entity / docket-number queries where exact token match is decisive. Range 0–10.',
     },
     hnswEfSearch: { de: 'HNSW ef_search', en: 'HNSW ef_search' },
     hnswEfSearchHelp: {
@@ -1963,8 +1994,8 @@ export const translations = {
     },
     rerankInstruction: { de: 'Reranker-Instruktion (Qwen3)', en: 'Reranker instruction (Qwen3)' },
     rerankInstructionHelp: {
-        de: 'Text, der in Qwen3s Reranker-Template für den "<Instruct>:"-Tag eingesetzt wird. Beeinflusst nur den Qwen3-Chat-Template-Pfad (Checkbox oben). Leer lassen = Qwen3-Standard aus der Modellkarte ("Given a web search query, retrieve relevant passages that answer the query"). Eine KB-spezifische Formulierung kann die Scores verbessern, wenn der Standard nicht zum Query-Mix passt.',
-        en: 'Text substituted into Qwen3\'s reranker template for the "<Instruct>:" tag. Only affects the Qwen3 chat-template path (checkbox above). Leave empty = Qwen3\'s default from the model card ("Given a web search query, retrieve relevant passages that answer the query"). A KB-specific phrasing can improve scores when the default doesn\'t match the query mix.',
+        de: 'Text, der in Qwen3s Reranker-Template für den "<Instruct>:"-Tag eingesetzt wird. Beeinflusst nur den Qwen3-Chat-Template-Pfad (Checkbox oben). Leer lassen = Qwen3-Standard aus der Modellkarte ("Given a web search query, retrieve relevant passages that answer the query"). Eine themenspezifische Formulierung kann die Scores verbessern, wenn der Standard nicht zum Query-Mix passt.',
+        en: 'Text substituted into Qwen3\'s reranker template for the "<Instruct>:" tag. Only affects the Qwen3 chat-template path (checkbox above). Leave empty = Qwen3\'s default from the model card ("Given a web search query, retrieve relevant passages that answer the query"). A topic-specific phrasing can improve scores when the default doesn\'t match the query mix.',
     },
     cragEnabled: { de: 'Corrective RAG (Relevanzprüfung)', en: 'Corrective RAG (relevance check)' },
     cragEnabledHelp: {
@@ -1978,28 +2009,28 @@ export const translations = {
     },
     cragGraderModel: { de: 'CRAG: Grader-Modell', en: 'CRAG: grader model' },
     cragGraderModelHelp: {
-        de: 'Optionales kleines/schnelles Modell, das nur für die Relevanzbewertung benutzt wird (z.B. gpt-4o-mini, gemma-3-4b). Leer = Standard-Chat-Modell der Wissensdatenbank. Spart Kosten und Latenz.',
-        en: 'Optional small/fast model used only for the relevance grader (e.g. gpt-4o-mini, gemma-3-4b). Empty = use the KB default chat model. Cuts cost and latency.',
+        de: 'Optionales kleines/schnelles Modell, das nur für die Relevanzbewertung benutzt wird (z.B. gpt-4o-mini, gemma-3-4b). Leer = Standard-Chat-Modell des Themas. Spart Kosten und Latenz.',
+        en: 'Optional small/fast model used only for the relevance grader (e.g. gpt-4o-mini, gemma-3-4b). Empty = use the topic’s default chat model. Cuts cost and latency.',
     },
     contextualEnrichment: { de: 'Kontextuelle Chunk-Anreicherung', en: 'Contextual Chunk Enrichment' },
-    contextualEnrichmentHelp: { de: 'Beim Importieren wird jeder Chunk per LLM mit einer Kontextbeschreibung angereichert, um die Suchgenauigkeit zu verbessern. Erhöht die Verarbeitungszeit und API-Kosten. Gilt nur für neu importierte Dateien.', en: 'During ingestion, each chunk is enriched with an LLM-generated context description to improve search accuracy. Increases processing time and API costs. Only applies to newly ingested files.' },
+    contextualEnrichmentHelp: { de: 'Beim Importieren wird jeder Chunk per LLM mit einer Kontextbeschreibung angereichert, um die Suchgenauigkeit zu verbessern. Erhöht die Verarbeitungszeit und API-Kosten. Gilt nur für neu importierte Quellen.', en: 'During ingestion, each chunk is enriched with an LLM-generated context description to improve search accuracy. Increases processing time and API costs. Only applies to newly ingested sources.' },
     contextualEnrichmentModel: { de: 'Modell für kontextuelle Anreicherung', en: 'Contextual enrichment model' },
-    contextualEnrichmentModelHelp: { de: 'Modell, das während der Ingestion für die Chunk-Kontextgenerierung verwendet wird. Leer = Standard-Chat-Modell der Wissensdatenbank. Ein kleineres/schnelleres Modell hält den Ingestion-Durchsatz hoch.', en: "Model used to generate chunk context during ingestion. Empty = use the KB's default chat model. A smaller/faster model keeps ingestion throughput high." },
+    contextualEnrichmentModelHelp: { de: 'Modell, das während der Ingestion für die Chunk-Kontextgenerierung verwendet wird. Leer = Standard-Chat-Modell des Themas. Ein kleineres/schnelleres Modell hält den Ingestion-Durchsatz hoch.', en: "Model used to generate chunk context during ingestion. Empty = use the topic’s default chat model. A smaller/faster model keeps ingestion throughput high." },
     fileInjectionFlagged: { de: 'Verdächtiger Text', en: 'Suspicious text' },
-    fileInjectionFlaggedHelp: { de: 'Ihr Text enthält Formulierungen, die wie Anweisungen an die KI aussehen (mögliche Prompt-Injection). Nur ein Hinweis: Die Dateien werden normal importiert und durchsucht.', en: 'Their text contains phrases that read like instructions to the AI (possible prompt injection). Advisory only: the files are indexed and searched as usual.' },
-    fileInjectionSummaryOne: { de: '1 Datei mit verdächtigem Text', en: '1 file with suspicious text' },
-    fileInjectionSummaryMany: { de: '{count} Dateien mit verdächtigem Text', en: '{count} files with suspicious text' },
+    fileInjectionFlaggedHelp: { de: 'Ihr Text enthält Formulierungen, die wie Anweisungen an die KI aussehen (mögliche Prompt-Injection). Nur ein Hinweis: Die Quellen werden normal importiert und durchsucht.', en: 'Their text contains phrases that read like instructions to the AI (possible prompt injection). Advisory only: the sources are indexed and searched as usual.' },
+    fileInjectionSummaryOne: { de: '1 Quelle mit verdächtigem Text', en: '1 source with suspicious text' },
+    fileInjectionSummaryMany: { de: '{count} Quellen mit verdächtigem Text', en: '{count} sources with suspicious text' },
     fileInjectionSummaryMore: { de: 'und {count} weitere', en: 'and {count} more' },
     colSuspicious: { de: 'Verdächtig', en: 'Flagged' },
-    colInjectionFlagged: { de: 'Dateien mit verdächtigem Text', en: 'Files with suspicious text' },
+    colInjectionFlagged: { de: 'Quellen mit verdächtigem Text', en: 'Sources with suspicious text' },
     ingestScreeningEnabled: { de: 'Prompt-Injection-Screening beim Import', en: 'Prompt-injection screening on ingest' },
-    ingestScreeningEnabledHelp: { de: 'Prüft den geparsten Text von Dateien aus externen Quellen (RSS, Confluence, Git, Crawl) auf anweisungsartige Formulierungen und markiert Treffer. Rein informativ: der Import, das Chunking und die Suche bleiben unverändert, es wird nur ein Hinweis in der Quellenliste gesetzt. Eigene Uploads werden nie geprüft.', en: 'Screens the parsed text of files from external sources (RSS, Confluence, git, crawl) for instruction-shaped phrases and flags any hit. Advisory only: ingestion, chunking and retrieval are unchanged, a badge in the source list is the entire effect. Your own uploads are never screened.' },
+    ingestScreeningEnabledHelp: { de: 'Prüft den geparsten Text von Quellen aus externen Anbindungen (RSS, Confluence, Git, Crawl) auf anweisungsartige Formulierungen und markiert Treffer. Rein informativ: der Import, das Chunking und die Suche bleiben unverändert, es wird nur ein Hinweis in der Quellenliste gesetzt. Eigene Uploads werden nie geprüft.', en: 'Screens the parsed text of sources from external connections (RSS, Confluence, git, crawl) for instruction-shaped phrases and flags any hit. Advisory only: ingestion, chunking and retrieval are unchanged, a badge in the source list is the entire effect. Your own uploads are never screened.' },
     ingestScreeningWindowRunes: { de: 'Screening-Fenster (Zeichen)', en: 'Screening window (characters)' },
-    ingestScreeningWindowRunesHelp: { de: 'Breite des gleitenden Fensters, in dem nach anweisungsartigen Formulierungen gesucht wird (Schrittweite: halbes Fenster, damit ein Treffer an der Fenstergrenze nicht verloren geht). Standard 600, erlaubt 100–5000. Wirkt nur auf neu importierte Dateien.', en: 'Width of the sliding window the screen matches in (it steps by half a window, so a phrase on a boundary is still seen). Default 600, allowed 100–5000. Only applies to newly ingested files.' },
+    ingestScreeningWindowRunesHelp: { de: 'Breite des gleitenden Fensters, in dem nach anweisungsartigen Formulierungen gesucht wird (Schrittweite: halbes Fenster, damit ein Treffer an der Fenstergrenze nicht verloren geht). Standard 600, erlaubt 100–5000. Wirkt nur auf neu importierte Quellen.', en: 'Width of the sliding window the screen matches in (it steps by half a window, so a phrase on a boundary is still seen). Default 600, allowed 100–5000. Only applies to newly ingested sources.' },
     lateChunkingEnabled: { de: 'Late Chunking (Jina-Stil)', en: 'Late chunking (Jina-style)' },
     lateChunkingEnabledHelp: {
-        de: 'Beim Importieren wird das gesamte Dokument in einem Aufruf an einen Long-Context-Embedder geschickt; pro Chunk wird ein gepoolter Vektor zurückgegeben, der Kontext über Chunk-Grenzen hinweg enthält. Setzt voraus, dass der konfigurierte Embedding-Endpunkt das Feld `late_chunking: true` versteht (Jina-kompatibel). Andere Anbieter ignorieren das Feld und liefern Standard-Embeddings. Kontextuelle Anreicherung bleibt unabhängig nutzbar: der Prefix wird weiterhin in der Datenbank gespeichert und über BM25 / Chat-Prompt verwendet, aber NICHT in den Embedding-Input des Late-Chunking-Pfads gemischt. Gilt nur für neu importierte Dateien.',
-        en: 'During ingestion, the whole document is sent in one call to a long-context embedder; one pooled vector per chunk is returned with full document context baked in. Requires the configured embedding endpoint to understand the `late_chunking: true` flag (Jina-compatible). Other providers silently ignore it and return standard embeddings. Contextual enrichment stays independent: the LLM prefix is still stored on the row and feeds BM25 / chat-time prompts, but is NOT concatenated into the late-chunked embedding input. Only applies to newly ingested files.',
+        de: 'Beim Importieren wird das gesamte Dokument in einem Aufruf an einen Long-Context-Embedder geschickt; pro Chunk wird ein gepoolter Vektor zurückgegeben, der Kontext über Chunk-Grenzen hinweg enthält. Setzt voraus, dass der konfigurierte Embedding-Endpunkt das Feld `late_chunking: true` versteht (Jina-kompatibel). Andere Anbieter ignorieren das Feld und liefern Standard-Embeddings. Kontextuelle Anreicherung bleibt unabhängig nutzbar: der Prefix wird weiterhin in der Datenbank gespeichert und über BM25 / Chat-Prompt verwendet, aber NICHT in den Embedding-Input des Late-Chunking-Pfads gemischt. Gilt nur für neu importierte Quellen.',
+        en: 'During ingestion, the whole document is sent in one call to a long-context embedder; one pooled vector per chunk is returned with full document context baked in. Requires the configured embedding endpoint to understand the `late_chunking: true` flag (Jina-compatible). Other providers silently ignore it and return standard embeddings. Contextual enrichment stays independent: the LLM prefix is still stored on the row and feeds BM25 / chat-time prompts, but is NOT concatenated into the late-chunked embedding input. Only applies to newly ingested sources.',
     },
     lateChunkingMaxInputTokens: { de: 'Late-Chunking Token-Budget pro Aufruf', en: 'Late-chunking per-call token budget' },
     lateChunkingMaxInputTokensHelp: {
@@ -2011,7 +2042,7 @@ export const translations = {
         de: 'Anzahl der Chunks pro Embedding-API-Aufruf während der Ingestion. Der wichtigste Durchsatz-Regler für Massen-Re-Ingests (z. B. nach einem Embedder-Wechsel). Standard 20 — auf das Batch-Limit des Embedding-Anbieters abstimmen.',
         en: "Number of chunks sent per embedding API call during ingestion. The main throughput knob for bulk re-ingests (e.g. after an embedder change). Default 20 — set to match the embedding provider's batch limit.",
     },
-    useKbDefaultModel: { de: 'KB-Standardmodell verwenden', en: "Use KB's default model" },
+    useKbDefaultModel: { de: 'Standardmodell des Themas verwenden', en: "Use the topic’s default model" },
     factcheckInChat: { de: 'Antworten im Chat verifizieren', en: 'Verify answers in chat' },
     factcheckInChatHelp: { de: 'Führt eine Verifizierung jeder Antwort nach dem Streaming durch; das Ergebnis erscheint als Badge neben den Zitaten.', en: 'Runs a verification pass on every answer after streaming completes; the result appears as a badge next to citations.' },
     chatTurnBudgetSeconds: { de: 'Turn-Budget: Wall-Clock (Sekunden)', en: 'Turn budget: wall-clock (seconds)' },
@@ -2029,10 +2060,10 @@ export const translations = {
         de: 'Maximale MCP-Tool-Aufrufe pro Turn (Registry.Dispatch) über alle registrierten Tools — kb_search, keyword_search, chunk_read, document_outline, calculator, sql_query, graph_search, memory_*, code_exec usw. 0 = unbegrenzt (Default). Bereich 0–100.',
         en: 'Max MCP tool calls per turn (Registry.Dispatch) across every registered tool — kb_search, keyword_search, chunk_read, document_outline, calculator, sql_query, graph_search, memory_*, code_exec, etc. 0 = unlimited (default). Range 0–100.',
     },
-    chatKBRouterEnabled: { de: 'Sub-KB-Router (Auto-KB-Auswahl)', en: 'Sub-KB router (auto KB selection)' },
+    chatKBRouterEnabled: { de: 'Themen-Router (automatische Themenwahl)', en: 'Topic router (automatic topic selection)' },
     chatKBRouterEnabledHelp: {
-        de: 'Wenn aktiviert UND der Chat-Request `?route=auto` mitsendet, fragt ein kleiner LLM-Call welche KB die Frage am ehesten beantwortet, und überschreibt die URL-kb_id mit der gewählten. Pflichtvoraussetzung: KBs müssen eine Beschreibung (knowledge_bases.description) haben — leere Beschreibungen senken die Routing-Qualität deutlich. Standard: aus.',
-        en: 'When on AND the chat request carries `?route=auto`, a small LLM call asks which KB most likely answers the query, and overrides the URL kb_id with the chosen one. Hard requirement: KBs need a description (knowledge_bases.description) — empty descriptions degrade routing quality. Default: off.',
+        de: 'Wenn aktiviert UND der Chat-Request `?route=auto` mitsendet, fragt ein kleiner LLM-Call welches Thema die Frage am ehesten beantwortet, und überschreibt die URL-kb_id mit der gewählten. Pflichtvoraussetzung: Themen müssen eine Beschreibung (knowledge_bases.description) haben — leere Beschreibungen senken die Routing-Qualität deutlich. Standard: aus.',
+        en: 'When on AND the chat request carries `?route=auto`, a small LLM call asks which topic most likely answers the query, and overrides the URL kb_id with the chosen one. Hard requirement: topics need a description (knowledge_bases.description) — empty descriptions degrade routing quality. Default: off.',
     },
     chatPlanExecuteDAGIterative: { de: 'Iterativer DAG-Critic', en: 'Iterative DAG critic' },
     chatPlanExecuteDAGIterativeHelp: {
@@ -2041,8 +2072,8 @@ export const translations = {
     },
     chatPlanExecuteDAGIterativeModel: { de: 'Critic Modell-Override', en: 'Critic model override' },
     chatPlanExecuteDAGIterativeModelHelp: {
-        de: 'LLM für den iterativen DAG-Critic. Leer = chat_plan_execute_model fällt durch (selbst leer = KB-Standard). Empfohlen: kleines schnelles Modell — Critic ist Klassifikation, kein Reasoning.',
-        en: 'LLM used for the iterative DAG critic. Empty falls back to chat_plan_execute_model (which falls back to KB default). Recommended: a small fast model — the critic is classification, not reasoning.',
+        de: 'LLM für den iterativen DAG-Critic. Leer = chat_plan_execute_model fällt durch (selbst leer = Standard des Themas). Empfohlen: kleines schnelles Modell — Critic ist Klassifikation, kein Reasoning.',
+        en: 'LLM used for the iterative DAG critic. Empty falls back to chat_plan_execute_model (which falls back to the topic’s default). Recommended: a small fast model — the critic is classification, not reasoning.',
     },
     chatSelfRAGEnabled: { de: 'Self-RAG Verifier', en: 'Self-RAG verifier' },
     chatSelfRAGEnabledHelp: {
@@ -2051,8 +2082,8 @@ export const translations = {
     },
     chatSelfRAGModel: { de: 'Self-RAG Modell-Override', en: 'Self-RAG model override' },
     chatSelfRAGModelHelp: {
-        de: 'LLM für die Self-RAG-Verifikation. Leer = KB-Standard-Chat-Modell. Empfohlen: Gemma/Qwen3 4B-Klasse — Strukturierte-Output-Aufgabe, kein Reasoning.',
-        en: 'LLM used for Self-RAG verification. Empty = KB default chat model. Recommended: Gemma/Qwen3 4B class — structured-output task, not reasoning.',
+        de: 'LLM für die Self-RAG-Verifikation. Leer = Standard-Chat-Modell des Themas. Empfohlen: Gemma/Qwen3 4B-Klasse — Strukturierte-Output-Aufgabe, kein Reasoning.',
+        en: 'LLM used for Self-RAG verification. Empty = the topic’s default chat model. Recommended: Gemma/Qwen3 4B class — structured-output task, not reasoning.',
     },
     agentSectionLongmem: { de: 'Long-Term-Memory', en: 'Long-term memory' },
     chatLongmemEnabled: { de: 'Long-Term-Memory pro Nutzer', en: 'Per-user long-term memory' },
@@ -2077,8 +2108,8 @@ export const translations = {
     },
     chatLongmemExtractionModel: { de: 'Modell-Override für Fakten-Extraktion', en: 'Model override for fact extraction' },
     chatLongmemExtractionModelHelp: {
-        de: 'LLM für die Salient-Fact-Extraktion. Leer = KB-Standard-Chat-Modell. Empfohlen: kleines schnelles Modell — die Aufgabe ist Structured-Output, nicht Reasoning.',
-        en: 'LLM used for salient-fact extraction. Empty = KB default chat model. Recommended: a small fast model — the task is structured output, not reasoning.',
+        de: 'LLM für die Salient-Fact-Extraktion. Leer = Standard-Chat-Modell des Themas. Empfohlen: kleines schnelles Modell — die Aufgabe ist Structured-Output, nicht Reasoning.',
+        en: 'LLM used for salient-fact extraction. Empty = the topic’s default chat model. Recommended: a small fast model — the task is structured output, not reasoning.',
     },
     chatGraphRoutingEnabled: { de: 'Graph-Routing (GraphRAG-Heuristik)', en: 'Graph routing (GraphRAG heuristic)' },
     chatGraphRoutingEnabledHelp: {
@@ -2092,23 +2123,23 @@ export const translations = {
     },
     kgExtractionModel: { de: 'KG-Extraktor: Modell-Override', en: 'KG extractor: model override' },
     kgExtractionModelHelp: {
-        de: 'Modell für die KG-Extraktion. Leer = KB-Standard-Chat-Modell. Empfohlen: ein kleines schnelles Modell — die Aufgabe ist Structured-Output, nicht Reasoning.',
-        en: 'Model used for KG extraction. Empty = KB default chat model. Recommended: a small fast model — the task is structured output, not reasoning.',
+        de: 'Modell für die KG-Extraktion. Leer = Standard-Chat-Modell des Themas. Empfohlen: ein kleines schnelles Modell — die Aufgabe ist Structured-Output, nicht Reasoning.',
+        en: 'Model used for KG extraction. Empty = the topic’s default chat model. Recommended: a small fast model — the task is structured output, not reasoning.',
     },
     raptorEnabled: { de: 'RAPTOR hierarchische Indizierung', en: 'RAPTOR hierarchical indexing' },
     raptorEnabledHelp: {
-        de: 'Wenn aktiviert: pro Datei wird beim Ingest ein Zusammenfassungs-Baum (RAPTOR) aufgebaut — Leaf-Chunks werden via K-Means geclustert, jeder Cluster wird vom Fast-Tier-LLM zusammengefasst, die Zusammenfassung wird als regulärer Chunk (node_kind=\'summary\') eingebettet. Zusammenfassungen und Leaves konkurrieren im unveränderten BM25 + Vector + Reranker-Pool. Kosten: LLM beim Ingest; null zur Anfragezeit. Erfordert Migration 0046. Schließt sich mit parent_child_enabled aus. Standard: aus.',
-        en: 'When on: each ingested file builds a RAPTOR summary tree — leaf chunks cluster via K-means, each cluster is summarised by the fast-tier LLM, the summary is embedded as a regular chunk (node_kind=\'summary\'). Summaries and leaves compete in the unchanged BM25 + vector + reranker pool. Cost: LLM at ingest, zero at query time. Requires migration 0046. Mutually exclusive with parent_child_enabled. Default: off.',
+        de: 'Wenn aktiviert: pro Quelle wird beim Ingest ein Zusammenfassungs-Baum (RAPTOR) aufgebaut — Leaf-Chunks werden via K-Means geclustert, jeder Cluster wird vom Fast-Tier-LLM zusammengefasst, die Zusammenfassung wird als regulärer Chunk (node_kind=\'summary\') eingebettet. Zusammenfassungen und Leaves konkurrieren im unveränderten BM25 + Vector + Reranker-Pool. Kosten: LLM beim Ingest; null zur Anfragezeit. Erfordert Migration 0046. Schließt sich mit parent_child_enabled aus. Standard: aus.',
+        en: 'When on: each ingested source builds a RAPTOR summary tree — leaf chunks cluster via K-means, each cluster is summarised by the fast-tier LLM, the summary is embedded as a regular chunk (node_kind=\'summary\'). Summaries and leaves compete in the unchanged BM25 + vector + reranker pool. Cost: LLM at ingest, zero at query time. Requires migration 0046. Mutually exclusive with parent_child_enabled. Default: off.',
     },
-    raptorMinChunks: { de: 'RAPTOR: Minimale Leaf-Chunks pro Datei', en: 'RAPTOR: minimum leaf chunks per file' },
+    raptorMinChunks: { de: 'RAPTOR: Minimale Leaf-Chunks pro Quelle', en: 'RAPTOR: minimum leaf chunks per source' },
     raptorMinChunksHelp: {
-        de: 'Dateien unter dieser Leaf-Anzahl werden übersprungen — die Cluster-Mathematik degeneriert bei kleinem N. Standard: 25. Bereich: [5, 200].',
-        en: 'Files below this leaf count are skipped — cluster math degenerates at small N. Default: 25. Range: [5, 200].',
+        de: 'Quellen unter dieser Leaf-Anzahl werden übersprungen — die Cluster-Mathematik degeneriert bei kleinem N. Standard: 25. Bereich: [5, 200].',
+        en: 'Sources below this leaf count are skipped — cluster math degenerates at small N. Default: 25. Range: [5, 200].',
     },
     raptorMaxLevels: { de: 'RAPTOR: Maximale Baumtiefe', en: 'RAPTOR: maximum tree levels' },
     raptorMaxLevelsHelp: {
-        de: 'Harte Obergrenze für die Baumtiefe. Die meisten Dateien erreichen vorher die Wurzel; der Cap ist ein Schutz gegen pathologische Konfigurationen. Standard: 4. Bereich: [2, 8].',
-        en: 'Hard cap on tree depth. Most files reach a single root before this; the cap is a circuit breaker against pathological configurations. Default: 4. Range: [2, 8].',
+        de: 'Harte Obergrenze für die Baumtiefe. Die meisten Quellen erreichen vorher die Wurzel; der Cap ist ein Schutz gegen pathologische Konfigurationen. Standard: 4. Bereich: [2, 8].',
+        en: 'Hard cap on tree depth. Most sources reach a single root before this; the cap is a circuit breaker against pathological configurations. Default: 4. Range: [2, 8].',
     },
     raptorBranchingFactor: { de: 'RAPTOR: Verzweigungsfaktor', en: 'RAPTOR: branching factor' },
     raptorBranchingFactorHelp: {
@@ -2117,8 +2148,8 @@ export const translations = {
     },
     raptorSummaryModel: { de: 'RAPTOR: Zusammenfassungs-Modell', en: 'RAPTOR: summary model' },
     raptorSummaryModelHelp: {
-        de: 'Per-Task-Override für das Zusammenfassungs-LLM. Leer → Fast-Tier-Resolver (per-task → model_tier_fast → KB-Chat-Modell). Aufgabe ist Structured-Output (≤4 Sätze, Entitäten/Daten erhalten) — ein kleines schnelles Modell genügt.',
-        en: 'Per-task override for the summary LLM. Empty → fast-tier resolver (per-task → model_tier_fast → KB chat model). Task is constrained-output (≤4 sentences, preserve entities/dates) — a small fast model does well.',
+        de: 'Per-Task-Override für das Zusammenfassungs-LLM. Leer → Fast-Tier-Resolver (per-task → model_tier_fast → Chat-Modell des Themas). Aufgabe ist Structured-Output (≤4 Sätze, Entitäten/Daten erhalten) — ein kleines schnelles Modell genügt.',
+        en: 'Per-task override for the summary LLM. Empty → fast-tier resolver (per-task → model_tier_fast → the topic’s chat model). Task is constrained-output (≤4 sentences, preserve entities/dates) — a small fast model does well.',
     },
     raptorParentChildConflict: {
         de: 'Konflikt mit Parent-Child-Chunking — RAPTOR wird beim Ingest übersprungen, solange parent_child_enabled aktiv ist.',
@@ -2146,8 +2177,8 @@ export const translations = {
     },
     chatCodeExecEnabled: { de: 'code_exec MCP-Tool (gVisor-Sandbox)', en: 'code_exec MCP tool (gVisor sandbox)' },
     chatCodeExecEnabledHelp: {
-        de: 'Wenn aktiviert UND der Planner das Tool wählt, läuft Python-Code in einem gVisor-(runsc)-Container: read-only Filesystem, kein Netzwerk, 256 MB RAM, 1 CPU, 10s Wallclock, 64 KB Stdout/Stderr-Cap. VORAUSSETZUNG: Docker mit `--runtime=runsc` muss auf der Host-Maschine konfiguriert sein, sonst schlagen alle Aufrufe mit "docker: command not found" fehl. Standard: aus. Vor Aktivierung pro KB: `/security-review` über internal/mcp/builtin/code_exec.go laufen lassen.',
-        en: 'When on AND the planner picks this tool, Python runs in a gVisor (runsc) container: read-only filesystem, no network, 256 MB RAM, 1 CPU, 10s wallclock, 64 KB stdout/stderr cap. PREREQUISITE: docker with `--runtime=runsc` must be configured on the host, otherwise every call fails with "docker: command not found". Default: off. Before enabling per KB: run `/security-review` over internal/mcp/builtin/code_exec.go.',
+        de: 'Wenn aktiviert UND der Planner das Tool wählt, läuft Python-Code in einem gVisor-(runsc)-Container: read-only Filesystem, kein Netzwerk, 256 MB RAM, 1 CPU, 10s Wallclock, 64 KB Stdout/Stderr-Cap. VORAUSSETZUNG: Docker mit `--runtime=runsc` muss auf der Host-Maschine konfiguriert sein, sonst schlagen alle Aufrufe mit "docker: command not found" fehl. Standard: aus. Vor Aktivierung pro Thema: `/security-review` über internal/mcp/builtin/code_exec.go laufen lassen.',
+        en: 'When on AND the planner picks this tool, Python runs in a gVisor (runsc) container: read-only filesystem, no network, 256 MB RAM, 1 CPU, 10s wallclock, 64 KB stdout/stderr cap. PREREQUISITE: docker with `--runtime=runsc` must be configured on the host, otherwise every call fails with "docker: command not found". Default: off. Before enabling per topic: run `/security-review` over internal/mcp/builtin/code_exec.go.',
     },
     chatTabularQueryEnabled: { de: 'Strukturierte Tabellen-Abfrage (table_query)', en: 'Structured spreadsheet query (table_query)' },
     chatTabularQueryEnabledHelp: {
@@ -2156,8 +2187,8 @@ export const translations = {
     },
     chatTabularChartsEnabled: { de: 'Diagramme in Antworten', en: 'Charts in answers' },
     chatTabularChartsEnabledHelp: {
-        de: 'Wenn aktiviert UND die KB Tabellendaten hat, erhält der Antwort-Prompt eine Anleitung, Ergebnisse als ```chart-Block (Recharts-JSON) auszugeben, den die Oberfläche rendert. Aggregationen via table_query (SQL GROUP BY); Nicht-SQL-Umformungen via code_exec (Plan-Phase). Modellabhängig — bei ungültigem JSON zeigt die Oberfläche einen Fallback. Standard: aus.',
-        en: 'When on AND the KB has tabular data, the answer prompt gains guidance to emit results as a ```chart block (Recharts JSON) that the UI renders. Aggregations via table_query (SQL GROUP BY); non-SQL reshapes via code_exec (plan-time). Model-dependent — the UI shows a fallback on invalid JSON. Default: off.',
+        de: 'Wenn aktiviert UND das Thema Tabellendaten hat, erhält der Antwort-Prompt eine Anleitung, Ergebnisse als ```chart-Block (Recharts-JSON) auszugeben, den die Oberfläche rendert. Aggregationen via table_query (SQL GROUP BY); Nicht-SQL-Umformungen via code_exec (Plan-Phase). Modellabhängig — bei ungültigem JSON zeigt die Oberfläche einen Fallback. Standard: aus.',
+        en: 'When on AND the topic has tabular data, the answer prompt gains guidance to emit results as a ```chart block (Recharts JSON) that the UI renders. Aggregations via table_query (SQL GROUP BY); non-SQL reshapes via code_exec (plan-time). Model-dependent — the UI shows a fallback on invalid JSON. Default: off.',
     },
     chatTabularRouterEnabled: { de: 'Tabellen-Router', en: 'Tabular router' },
     chatTabularRouterEnabledHelp: {
@@ -2196,33 +2227,33 @@ export const translations = {
     },
     chatCorpusTableEnabled: { de: 'Aktivieren', en: 'Enable' },
     chatCorpusTableEnabledHelp: {
-        de: 'Erkennt automatisch Anfragen wie „vergleiche/liste alle X über diese Dokumente" und beantwortet sie mit einer strukturierten Map-Reduce-Tabelle. ACHTUNG: ein schneller LLM-Aufruf pro einbezogener Datei.',
-        en: 'Auto-detects "compare/list all X across these documents" queries and answers with a structured map-reduce table. CAUTION: one fast-tier LLM call per in-scope file.',
+        de: 'Erkennt automatisch Anfragen wie „vergleiche/liste alle X über diese Dokumente" und beantwortet sie mit einer strukturierten Map-Reduce-Tabelle. ACHTUNG: ein schneller LLM-Aufruf pro einbezogener Quelle.',
+        en: 'Auto-detects "compare/list all X across these documents" queries and answers with a structured map-reduce table. CAUTION: one fast-tier LLM call per in-scope source.',
     },
     chatCorpusTableModel: { de: 'Korpus-Tabelle: Modell-Override', en: 'Corpus table: model override' },
     chatCorpusTableModelHelp: {
-        de: 'Modell für Spaltenplanung + Extraktion pro Datei. Fällt zurück auf model_tier_fast, dann das Chat-Modell der KB.',
-        en: 'Model for column planning + per-file extraction. Falls through to model_tier_fast, then the KB chat model.',
+        de: 'Modell für Spaltenplanung + Extraktion pro Quelle. Fällt zurück auf model_tier_fast, dann das Chat-Modell des Themas.',
+        en: 'Model for column planning + per-source extraction. Falls through to model_tier_fast, then the topic’s chat model.',
     },
-    chatCorpusTableMaxFiles: { de: 'Korpus-Tabelle: max. Dateien', en: 'Corpus table: max files' },
+    chatCorpusTableMaxFiles: { de: 'Korpus-Tabelle: max. Quellen', en: 'Corpus table: max sources' },
     chatCorpusTableMaxFilesHelp: {
-        de: 'Obergrenze der pro Anfrage verarbeiteten Dateien (Standard 50). Darüber hinausgehende Dateien werden verworfen und die Tabelle als gekürzt markiert.',
-        en: 'Hard cap on files processed per query (default 50). Excess files are dropped and the table is flagged truncated.',
+        de: 'Obergrenze der pro Anfrage verarbeiteten Quellen (Standard 50). Darüber hinausgehende Quellen werden verworfen und die Tabelle als gekürzt markiert.',
+        en: 'Hard cap on sources processed per query (default 50). Excess sources are dropped and the table is flagged truncated.',
     },
     chatCorpusTableConcurrency: { de: 'Korpus-Tabelle: Parallelität', en: 'Corpus table: concurrency' },
     chatCorpusTableConcurrencyHelp: {
-        de: 'Maximale parallele Extraktionsaufrufe pro Datei (Standard 6).',
-        en: 'Max parallel per-file extraction calls (default 6).',
+        de: 'Maximale parallele Extraktionsaufrufe pro Quelle (Standard 6).',
+        en: 'Max parallel per-source extraction calls (default 6).',
     },
     chatCorpusTableRouterLlmEnabled: { de: 'Korpus-Tabelle: LLM-Router-Bestätigung', en: 'Corpus table: LLM router confirm' },
     chatCorpusTableRouterLlmEnabledHelp: {
         de: 'Nach dem Keyword-Router eine schnelle Ja/Nein-LLM-Bestätigung einholen, bevor die teure Map-Reduce-Verarbeitung läuft (Standard an). Ausschalten, um die Keyword-Trefferrate zu prüfen.',
         en: 'After the keyword router fires, confirm with a fast-tier yes/no LLM call before running the expensive map-reduce (default on). Turn off to audit the keyword firing rate.',
     },
-    chatKBRouterMinConfidence: { de: 'KB-Router: Mindest-Konfidenz', en: 'KB router: min confidence' },
+    chatKBRouterMinConfidence: { de: 'Themen-Router: Mindest-Konfidenz', en: 'Topic router: min confidence' },
     chatKBRouterMinConfidenceHelp: {
-        de: 'Top-1-Konfidenz-Schwelle, ab der der Router die KB übernimmt. Drunter: outcome=fallback_all, kb_id der URL bleibt erhalten. Bereich 0.0–1.0; Default 0.6. Niedriger = mehr Auto-Routing, mehr Fehlpicks; höher = sicherer aber mehr Fallbacks auf die manuell gewählte KB.',
-        en: 'Top-1 confidence threshold above which the router accepts its pick. Below: outcome=fallback_all, the URL kb_id stays. Range 0.0–1.0; default 0.6. Lower = more auto-routing + more mispicks; higher = safer but more fallbacks to the manually chosen KB.',
+        de: 'Top-1-Konfidenz-Schwelle, ab der der Router das Thema übernimmt. Drunter: outcome=fallback_all, kb_id der URL bleibt erhalten. Bereich 0.0–1.0; Default 0.6. Niedriger = mehr Auto-Routing, mehr Fehlpicks; höher = sicherer aber mehr Fallbacks auf das manuell gewählte Thema.',
+        en: 'Top-1 confidence threshold above which the router accepts its pick. Below: outcome=fallback_all, the URL kb_id stays. Range 0.0–1.0; default 0.6. Lower = more auto-routing + more mispicks; higher = safer but more fallbacks to the manually chosen topic.',
     },
     chatFactualityGateEnabled: { de: 'Faktualitäts-Gate (Antwort revidieren)', en: 'Factuality gate (refine answer)' },
     chatFactualityGateEnabledHelp: {
@@ -2266,13 +2297,13 @@ export const translations = {
     },
     queryCacheTtlHours: { de: 'Query-Cache: TTL (Stunden)', en: 'Query cache: TTL (hours)' },
     queryCacheTtlHoursHelp: {
-        de: 'Lebensdauer eines Cache-Eintrags in Stunden. Bereich 1–720 (1 Stunde bis 30 Tage); Standard 24. Niedrigere Werte erhöhen die Frische bei Inhaltsänderungen, kosten aber Hit-Rate. Bei aktivem Re-Ingestion-Workflow auf 1–6 Stunden senken; bei statischen KBs bis 168 (1 Woche) erhöhen.',
-        en: 'Lifetime of a cache entry in hours. Range 1–720 (1 hour to 30 days); default 24. Lower values keep results fresh against content changes but cost hit rate. Drop to 1–6 hours when re-ingestion is active; raise to 168 (1 week) on static KBs.',
+        de: 'Lebensdauer eines Cache-Eintrags in Stunden. Bereich 1–720 (1 Stunde bis 30 Tage); Standard 24. Niedrigere Werte erhöhen die Frische bei Inhaltsänderungen, kosten aber Hit-Rate. Bei aktivem Re-Ingestion-Workflow auf 1–6 Stunden senken; bei statischen Themen bis 168 (1 Woche) erhöhen.',
+        en: 'Lifetime of a cache entry in hours. Range 1–720 (1 hour to 30 days); default 24. Lower values keep results fresh against content changes but cost hit rate. Drop to 1–6 hours when re-ingestion is active; raise to 168 (1 week) on static topics.',
     },
     ragasSamplingEnabled: { de: 'RAGAS-Sampling (kontinuierliche Qualitätsmessung)', en: 'RAGAS sampling (continuous quality measurement)' },
     ragasSamplingEnabledHelp: {
-        de: 'Wenn aktiviert: für einen konfigurierbaren Anteil der abgeschlossenen Chat-Antworten (s. Rate unten) wird ein Hintergrund-Asynq-Task auf QueueBatch eingereiht, der den bestehenden eval.Judge gegen die Antwort laufen lässt (Faithfulness, Answer-Relevance, Context-Precision). Ergebnisse landen als Prometheus-Histogramme `rag_ragas_*_score` plus Outcome-Counter `rag_ragas_sample_total{outcome}`. Standard: aus. Kosten: drei zusätzliche LLM-Aufrufe pro gesamplete Antwort (mit der KB-konfigurierten Chat-Modell-Auswahl, Temperature=0.0 für Reproduzierbarkeit). Drop-in für Drift-Erkennung im Produktionsverkehr — den Goldenset-Eval ersetzt es nicht.',
-        en: 'When on: for a configurable fraction of completed chat responses (see rate below), a background Asynq task on QueueBatch runs the existing eval.Judge against the response (faithfulness, answer relevance, context precision). Results land as Prometheus histograms `rag_ragas_*_score` plus the outcome counter `rag_ragas_sample_total{outcome}`. Default: off. Cost: three additional LLM calls per sampled response (using the per-KB-configured chat model at temperature=0.0 for reproducibility). Drop-in for production-traffic drift detection — does not replace the golden-set eval.',
+        de: 'Wenn aktiviert: für einen konfigurierbaren Anteil der abgeschlossenen Chat-Antworten (s. Rate unten) wird ein Hintergrund-Asynq-Task auf QueueBatch eingereiht, der den bestehenden eval.Judge gegen die Antwort laufen lässt (Faithfulness, Answer-Relevance, Context-Precision). Ergebnisse landen als Prometheus-Histogramme `rag_ragas_*_score` plus Outcome-Counter `rag_ragas_sample_total{outcome}`. Standard: aus. Kosten: drei zusätzliche LLM-Aufrufe pro gesamplete Antwort (mit dem im Thema konfigurierten Chat-Modell, Temperature=0.0 für Reproduzierbarkeit). Drop-in für Drift-Erkennung im Produktionsverkehr — den Goldenset-Eval ersetzt es nicht.',
+        en: 'When on: for a configurable fraction of completed chat responses (see rate below), a background Asynq task on QueueBatch runs the existing eval.Judge against the response (faithfulness, answer relevance, context precision). Results land as Prometheus histograms `rag_ragas_*_score` plus the outcome counter `rag_ragas_sample_total{outcome}`. Default: off. Cost: three additional LLM calls per sampled response (using the chat model configured per topic at temperature=0.0 for reproducibility). Drop-in for production-traffic drift detection — does not replace the golden-set eval.',
     },
     ragasSamplingRate: { de: 'RAGAS-Sampling-Rate', en: 'RAGAS sampling rate' },
     ragasSamplingRateHelp: {
@@ -2281,8 +2312,8 @@ export const translations = {
     },
     ragasSamplesRetentionDays: { de: 'RAGAS-Stichproben: Aufbewahrung (Tage)', en: 'RAGAS samples: retention (days)' },
     ragasSamplesRetentionDaysHelp: {
-        de: 'Wie viele Tage ein einzelnes RAGAS-Stichprobenergebnis in ragas_samples aufbewahrt wird, bevor die nächtliche Bereinigung es löscht. Bereich 1–3650; Standard 90. Global (nicht pro Wissensbasis) — betrifft die Rohdaten hinter der 24-Std.-Spalte in der Admin-KB-Übersicht und die RAGAS-Prometheus-Metriken, nicht die Metriken selbst.',
-        en: 'How many days a single RAGAS sample result stays in ragas_samples before the nightly cleanup deletes it. Range 1–3650; default 90. Global (not per-KB) — affects the raw rows behind the 24h column in the admin KB overview and the RAGAS Prometheus metrics, not the metrics themselves.',
+        de: 'Wie viele Tage ein einzelnes RAGAS-Stichprobenergebnis in ragas_samples aufbewahrt wird, bevor die nächtliche Bereinigung es löscht. Bereich 1–3650; Standard 90. Global (nicht pro Thema) — betrifft die Rohdaten hinter der 24-Std.-Spalte in der Themen-Übersicht und die RAGAS-Prometheus-Metriken, nicht die Metriken selbst.',
+        en: 'How many days a single RAGAS sample result stays in ragas_samples before the nightly cleanup deletes it. Range 1–3650; default 90. Global (not per topic) — affects the raw rows behind the 24h column in the topic overview and the RAGAS Prometheus metrics, not the metrics themselves.',
     },
     chatCitationSpansEnabled: { de: 'Zitat-Fundstellen (wortgenaue Belegstelle)', en: 'Citation spans (verbatim quote match)' },
     chatCitationSpansEnabledHelp: {
@@ -2301,13 +2332,13 @@ export const translations = {
     },
     chatConflictSurfacingEnabled: { de: 'Widersprüchliche Quellen erkennen', en: 'Surface conflicting sources' },
     chatConflictSurfacingEnabledHelp: {
-        de: 'Wenn aktiviert: nachdem die Quellen für eine Antwort feststehen, vergleicht ein Fast-Tier-Modell sie in EINEM Aufruf darauf, ob zwei Quellen sich widersprechen oder ob eine eine andere ersetzt (neuere Fassung). Gefundene Widersprüche werden dem Antwortprompt als Vorgabe mitgegeben („nenne den Widerspruch, stelle die neuere Fassung dar“), auf der Nachricht gespeichert und im Chat als Hinweis angezeigt. Läuft nur, wenn mindestens zwei verschiedene Dateien im Kontext stehen; welche Quelle neuer ist, wird ausschließlich aus published_at/created_at abgeleitet. Bei Fehler oder Timeout wird die Antwort unverändert erzeugt. Standard: aus.',
-        en: 'When on: once the sources for an answer are fixed, a fast-tier model compares them in ONE call for pairs that contradict each other or supersede one another (newer version). Findings are injected into the answer prompt as a requirement ("state the disagreement, present the newer version"), stored on the message and shown in the chat as a badge. Only runs when at least two distinct files are in context; which source is newer is derived from published_at/created_at alone. On error or timeout the answer is produced unchanged. Default: off.',
+        de: 'Wenn aktiviert: nachdem die Quellen für eine Antwort feststehen, vergleicht ein Fast-Tier-Modell sie in EINEM Aufruf darauf, ob zwei Quellen sich widersprechen oder ob eine eine andere ersetzt (neuere Fassung). Gefundene Widersprüche werden dem Antwortprompt als Vorgabe mitgegeben („nenne den Widerspruch, stelle die neuere Fassung dar“), auf der Nachricht gespeichert und im Chat als Hinweis angezeigt. Läuft nur, wenn mindestens zwei verschiedene Quellen im Kontext stehen; welche Quelle neuer ist, wird ausschließlich aus published_at/created_at abgeleitet. Bei Fehler oder Timeout wird die Antwort unverändert erzeugt. Standard: aus.',
+        en: 'When on: once the sources for an answer are fixed, a fast-tier model compares them in ONE call for pairs that contradict each other or supersede one another (newer version). Findings are injected into the answer prompt as a requirement ("state the disagreement, present the newer version"), stored on the message and shown in the chat as a badge. Only runs when at least two distinct sources are in context; which source is newer is derived from published_at/created_at alone. On error or timeout the answer is produced unchanged. Default: off.',
     },
     chatConflictModel: { de: 'Widersprüche: Modell', en: 'Conflicts: model' },
     chatConflictModelHelp: {
-        de: 'Fast-Tier-Modell für den Vergleichsaufruf. Leer lassen, um model_tier_fast zu verwenden (und ersatzweise das Chat-Modell der Wissensdatenbank).',
-        en: 'Fast-tier model for the comparison call. Leave empty to use model_tier_fast (falling back to the knowledge base\'s chat model).',
+        de: 'Fast-Tier-Modell für den Vergleichsaufruf. Leer lassen, um model_tier_fast zu verwenden (und ersatzweise das Chat-Modell des Themas).',
+        en: 'Fast-tier model for the comparison call. Leave empty to use model_tier_fast (falling back to the topic\'s chat model).',
     },
     chatConflictMaxChunks: { de: 'Widersprüche: max. Quellen', en: 'Conflicts: max sources' },
     chatConflictMaxChunksHelp: {
@@ -2371,13 +2402,13 @@ export const translations = {
     },
     parentChildEnabled: { de: 'Parent-Child-Chunking (Small-to-Big)', en: 'Parent-child chunking (small-to-big)' },
     parentChildEnabledHelp: {
-        de: 'Wenn aktiviert: Neue Ingestionen splitten Dokumente zweifach — Parent-Chunks (Standard 512 Tokens) für den LLM-Kontext, Child-Chunks (Standard 128 Tokens) für die Suche. Bei einem Treffer wird der Parent-Inhalt dem LLM präsentiert, nicht der gefundene Child. Bestehende Chunks bleiben unverändert (parent_chunk_id IS NULL → Legacy-Flat-Pfad). Standard: aus. Aktivierung erfordert Re-Ingestion betroffener KBs (über die Admin-Oberfläche oder den re-embedding Asynq-Task). Erwartete Verbesserung: präzisere Retrieval-Treffer auf Named-Entity-Lookups bei gleichzeitig reicherem Kontext für die Antwort. Kosten: ~25% mehr Embedding-Aufrufe (mehr Children pro Dokument), ~75% weniger Enrichment-LLM-Aufrufe (Prefix lebt am Parent, nicht pro Child).',
-        en: 'When on: new ingestions split documents twice — parent chunks (default 512 tokens) for the LLM context, child chunks (default 128 tokens) for retrieval. When a child matches, the parent content is presented to the LLM, not the matched child. Existing chunks pass through unchanged (parent_chunk_id IS NULL → legacy flat path). Default: off. Activating requires re-ingestion of affected KBs (via the admin UI or the re-embedding asynq task). Expected gain: tighter retrieval cosine similarity on named-entity lookups while still giving the LLM richer context for the answer. Cost: ~25% more embedding calls (more children per document), ~75% fewer enrichment LLM calls (prefix lives on the parent, not per child).',
+        de: 'Wenn aktiviert: Neue Ingestionen splitten Dokumente zweifach — Parent-Chunks (Standard 512 Tokens) für den LLM-Kontext, Child-Chunks (Standard 128 Tokens) für die Suche. Bei einem Treffer wird der Parent-Inhalt dem LLM präsentiert, nicht der gefundene Child. Bestehende Chunks bleiben unverändert (parent_chunk_id IS NULL → Legacy-Flat-Pfad). Standard: aus. Aktivierung erfordert Re-Ingestion betroffener Themen (über die Admin-Oberfläche oder den re-embedding Asynq-Task). Erwartete Verbesserung: präzisere Retrieval-Treffer auf Named-Entity-Lookups bei gleichzeitig reicherem Kontext für die Antwort. Kosten: ~25% mehr Embedding-Aufrufe (mehr Children pro Dokument), ~75% weniger Enrichment-LLM-Aufrufe (Prefix lebt am Parent, nicht pro Child).',
+        en: 'When on: new ingestions split documents twice — parent chunks (default 512 tokens) for the LLM context, child chunks (default 128 tokens) for retrieval. When a child matches, the parent content is presented to the LLM, not the matched child. Existing chunks pass through unchanged (parent_chunk_id IS NULL → legacy flat path). Default: off. Activating requires re-ingestion of affected topics (via the admin UI or the re-embedding asynq task). Expected gain: tighter retrieval cosine similarity on named-entity lookups while still giving the LLM richer context for the answer. Cost: ~25% more embedding calls (more children per document), ~75% fewer enrichment LLM calls (prefix lives on the parent, not per child).',
     },
     parentChunkSize: { de: 'Parent-Chunk-Größe (Tokens)', en: 'Parent chunk size (tokens)' },
     parentChunkSizeHelp: {
-        de: 'Token-Budget pro Parent-Chunk. Bereich 128–4096; Standard 512. Größere Parents geben dem LLM mehr Kontext pro Treffer, kosten aber mehr Tokens im finalen Prompt. 512 ist ein guter Kompromiss für die meisten KBs; auf KBs mit langen Abschnitten (Verträge, Whitepapers) auf 768 oder 1024 anheben.',
-        en: 'Token budget per parent chunk. Range 128–4096; default 512. Larger parents give the LLM more context per hit but cost more prompt tokens. 512 is a good balance for most KBs; raise to 768 or 1024 on KBs with long sections (contracts, whitepapers).',
+        de: 'Token-Budget pro Parent-Chunk. Bereich 128–4096; Standard 512. Größere Parents geben dem LLM mehr Kontext pro Treffer, kosten aber mehr Tokens im finalen Prompt. 512 ist ein guter Kompromiss für die meisten Themen; in Themen mit langen Abschnitten (Verträge, Whitepapers) auf 768 oder 1024 anheben.',
+        en: 'Token budget per parent chunk. Range 128–4096; default 512. Larger parents give the LLM more context per hit but cost more prompt tokens. 512 is a good balance for most topics; raise to 768 or 1024 in topics with long sections (contracts, whitepapers).',
     },
     childChunkSize: { de: 'Child-Chunk-Größe (Tokens)', en: 'Child chunk size (tokens)' },
     childChunkSizeHelp: {
@@ -2408,18 +2439,18 @@ export const translations = {
     },
     doclingForceOcr: { de: 'OCR erzwingen (Textebene verwerfen)', en: 'Force OCR (discard text layer)' },
     doclingForceOcrHelp: {
-        de: 'Standard: aus. Jede Seite wird per OCR gelesen und die PDF-Textebene ersetzt. Für KBs, die überwiegend aus Scans bestehen oder deren PDFs eine kaputte Textebene haben (Zeichensalat, fehlende Leerzeichen). Verlangsamt jede Konvertierung deutlich.',
-        en: 'Default: off. Every page is OCRed and the PDF text layer replaced. For KBs that are mostly scans or whose PDFs carry a broken text layer (garbage characters, missing spaces). Slows every conversion noticeably.',
+        de: 'Standard: aus. Jede Seite wird per OCR gelesen und die PDF-Textebene ersetzt. Für Themen, deren Quellen überwiegend Scans sind oder deren PDFs eine kaputte Textebene haben (Zeichensalat, fehlende Leerzeichen). Verlangsamt jede Konvertierung deutlich.',
+        en: 'Default: off. Every page is OCRed and the PDF text layer replaced. For topics whose sources are mostly scans or whose PDFs carry a broken text layer (garbage characters, missing spaces). Slows every conversion noticeably.',
     },
     doclingFormulaEnrichmentEnabled: { de: 'Formeln als LaTeX erkennen', en: 'Transcribe formulas to LaTeX' },
     doclingFormulaEnrichmentEnabledHelp: {
-        de: 'Standard: aus. Docling liest jede Formel mit dem Modell CodeFormulaV2 als LaTeX ein; ohne diese Option landet nur der rohe PDF-Text der Formel im Chunk. Das Modell ist nicht im Docling-Image enthalten — der Sidecar braucht den Download-Schritt aus docs/observability/docling.md, sonst schlägt jede Konvertierung fehl, wird ohne Formeln wiederholt und der Worker loggt beim Start einen Fehler. Kostet auf CPU einige Sekunden pro Formel. Bestehende Dateien: KB neu ingestieren.',
-        en: 'Default: off. Docling reads every formula as LaTeX with the CodeFormulaV2 model; without it only the formula\'s raw PDF text reaches the chunk. The model is not in the Docling image — the sidecar needs the download step from docs/observability/docling.md, otherwise every conversion fails, is retried without formulas, and the worker logs an error at startup. Costs a few seconds per formula on CPU. Existing files: re-ingest the KB.',
+        de: 'Standard: aus. Docling liest jede Formel mit dem Modell CodeFormulaV2 als LaTeX ein; ohne diese Option landet nur der rohe PDF-Text der Formel im Chunk. Das Modell ist nicht im Docling-Image enthalten — der Sidecar braucht den Download-Schritt aus docs/observability/docling.md, sonst schlägt jede Konvertierung fehl, wird ohne Formeln wiederholt und der Worker loggt beim Start einen Fehler. Kostet auf CPU einige Sekunden pro Formel. Bestehende Quellen: Thema neu ingestieren.',
+        en: 'Default: off. Docling reads every formula as LaTeX with the CodeFormulaV2 model; without it only the formula\'s raw PDF text reaches the chunk. The model is not in the Docling image — the sidecar needs the download step from docs/observability/docling.md, otherwise every conversion fails, is retried without formulas, and the worker logs an error at startup. Costs a few seconds per formula on CPU. Existing sources: re-ingest the topic.',
     },
     doclingPictureDescriptionEnabled: { de: 'Abbildungen per Vision-Modell beschreiben', en: 'Describe figures with the vision model' },
     doclingPictureDescriptionEnabledHelp: {
-        de: 'Standard: aus. Docling schickt jede ausreichend große Abbildung an das Bildbeschreibungs-Modell (siehe unten); Beschreibung, gedruckte Bildunterschrift und der Text in der Abbildung landen im Chunk der jeweiligen Seite. Der Sidecar braucht DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true — der Worker prüft das beim Start und loggt sonst einen Fehler. Bestehende Dateien: KB neu ingestieren.',
-        en: 'Default: off. Docling sends every sufficiently large figure to the image-description model (below); the description, the printed caption and the text inside the figure land in that page\'s chunk. The sidecar needs DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true — the worker probes for it at startup and logs an error otherwise. Existing files: re-ingest the KB.',
+        de: 'Standard: aus. Docling schickt jede ausreichend große Abbildung an das Bildbeschreibungs-Modell (siehe unten); Beschreibung, gedruckte Bildunterschrift und der Text in der Abbildung landen im Chunk der jeweiligen Seite. Der Sidecar braucht DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true — der Worker prüft das beim Start und loggt sonst einen Fehler. Bestehende Quellen: Thema neu ingestieren.',
+        en: 'Default: off. Docling sends every sufficiently large figure to the image-description model (below); the description, the printed caption and the text inside the figure land in that page\'s chunk. The sidecar needs DOCLING_SERVE_ENABLE_REMOTE_SERVICES=true — the worker probes for it at startup and logs an error otherwise. Existing sources: re-ingest the topic.',
     },
     doclingPictureAreaThreshold: { de: 'Mindestfläche einer Abbildung (Anteil der Seite)', en: 'Minimum figure area (fraction of page)' },
     doclingPictureAreaThresholdHelp: {
@@ -2448,8 +2479,8 @@ export const translations = {
     },
     kbStaleDays: { de: 'Schwellenwert für veraltete Inhalte (Tage)', en: 'Stale-content threshold (days)' },
     kbStaleDaysHelp: {
-        de: 'Alter in Tagen, ab dem eine Datei in der KB-Übersicht als veraltet zählt (Ältester Inhalt / Veraltet-Anteil). Global, nicht pro KB. Standard: 180.',
-        en: 'Age in days above which a file counts as stale in the KB-overview dashboard (oldest content / stale share). Global, not per-KB. Default: 180.',
+        de: 'Alter in Tagen, ab dem eine Quelle in der Themen-Übersicht als veraltet zählt (Ältester Inhalt / Veraltet-Anteil). Global, nicht pro Thema. Standard: 180.',
+        en: 'Age in days above which a source counts as stale in the topic overview (oldest content / stale share). Global, not per topic. Default: 180.',
     },
     viewTrace: { de: 'Trace anzeigen', en: 'View trace' },
     exportAnswer: { de: 'Antwort exportieren', en: 'Export answer' },
@@ -2460,6 +2491,7 @@ export const translations = {
     answerCopied: { de: 'Antwort kopiert', en: 'Answer copied' },
     messageCopied: { de: 'Nachricht kopiert', en: 'Message copied' },
     exportFailed: { de: 'Export fehlgeschlagen', en: 'Export failed' },
+    dataExplorerQueryFailed: { de: 'Die Daten konnten nicht abgefragt werden.', en: 'The data could not be queried.' },
     contextWindowSize: { de: 'Kontextfenster-Größe', en: 'Context Window Size' },
     contextWindowSizeHelp: { de: 'Anzahl der benachbarten Chunks, die zusätzlich geladen werden (Standard: 1 = ±1 Chunk). Setzen Sie 0 zum Deaktivieren.', en: 'Number of neighboring chunks loaded additionally (default: 1 = ±1 chunk). Set 0 to disable.' },
     saveSettings: { de: 'Einstellungen speichern', en: 'Save Settings' },
@@ -2542,24 +2574,21 @@ export const translations = {
     // examplePromptsLabel already defined in Global Knowledge Bases section
 
     // Global KBs Tab
-    globalKnowledgeBases: { de: 'Globale Knowledge Bases', en: 'Global Knowledge Bases' },
-    noGlobalKbs: { de: 'Noch keine globalen Knowledge Bases erstellt.', en: 'No global knowledge bases created yet.' },
+    noGlobalKbs: { de: 'Noch keine globalen Themen erstellt.', en: 'No global topics created yet.' },
     // create already defined in API Keys section
     edit: { de: 'Bearbeiten', en: 'Edit' },
     // loading already defined in API Keys section
 
     // Public KBs admin tab (visibility, auto-subscribe, unpublish, categories)
-    publicKnowledgeBases: { de: 'Öffentliche Wissensdatenbanken', en: 'Public knowledge bases' },
     unpublishKb: { de: 'Zurücknehmen', en: 'Make private' },
-    unpublishTitle: { de: 'Wissensdatenbank zurücknehmen', en: 'Make knowledge base private' },
+    unpublishTitle: { de: 'Thema zurücknehmen', en: 'Make topic private' },
     unpublishOwnerLabel: { de: 'Neuer Eigentümer', en: 'New owner' },
-    unpublishNoCandidates: { de: 'Es gibt keine KB-Admins — Sie werden Eigentümer.', en: 'There are no KB admins — you will become the owner.' },
+    unpublishNoCandidates: { de: 'Es gibt keine Thema-Admins — Sie werden Eigentümer.', en: 'There are no topic admins — you will become the owner.' },
     unpublishSubscriberWarning: { de: '{count} Abonnenten verlieren den Zugriff.', en: '{count} subscribers will lose access.' },
     unpublishImpactLoadError: { de: 'Fehler beim Laden der Auswirkungen', en: 'Error loading the impact' },
-    unpublishError: { de: 'Fehler beim Zurücknehmen der Wissensdatenbank', en: 'Error making the knowledge base private' },
+    unpublishError: { de: 'Fehler beim Zurücknehmen des Themas', en: 'Error making the topic private' },
     autoSubscribeBadge: { de: 'In allen Übersichten', en: "In everyone's overview" },
     autoSubscribe: { de: 'In allen Übersichten anzeigen', en: "Show in everyone's overview" },
-    autoSubscribeHint: { de: 'Ohne diese Option erscheint die KB nur im Katalog.', en: 'Without this, the KB appears only in the catalog.' },
     autoSubscribeError: { de: 'Fehler beim Aktualisieren der Einstellung', en: 'Error updating the setting' },
     categories: { de: 'Kategorien', en: 'Categories' },
     noCategories: { de: 'Noch keine Kategorien erstellt.', en: 'No categories created yet.' },
@@ -2571,14 +2600,13 @@ export const translations = {
     categoryDeleteError: { de: 'Fehler beim Löschen der Kategorie', en: 'Error deleting the category' },
     categoriesAssignError: { de: 'Fehler beim Zuordnen der Kategorien', en: 'Error assigning categories' },
     categoriesLoadError: { de: 'Kategorien konnten nicht geladen werden — Zuordnung deaktiviert, um nichts zu überschreiben.', en: 'Could not load categories — assignment disabled to avoid overwriting them.' },
-    categoriesAssignHint: { de: 'Anklicken zum Zuordnen, erneut anklicken zum Entfernen. Kategorien steuern die Filter unter „KBs entdecken".', en: 'Click to assign, click again to remove. Categories drive the filters under "Discover KBs".' },
     categoryAssigned: { de: 'Zugeordnet: {name}', en: 'Assigned: {name}' },
     categoryNotAssigned: { de: 'Nicht zugeordnet: {name}', en: 'Not assigned: {name}' },
     categoriesNoneAssigned: { de: 'Keine Kategorie zugeordnet', en: 'No category assigned' },
 
     // Re-embed
-    reembedAllTitle: { de: 'Alle Dateien neu einbetten', en: 'Re-embed All Files' },
-    reembedAllDesc: { de: 'Re-Embedding-Jobs für alle Dateien in allen Knowledge Bases einreihen. Verwenden Sie dies nach der Migration der Vektordatenbank.', en: 'Queue re-embedding jobs for every file across all knowledge bases. Use after migrating the vector database.' },
+    reembedAllTitle: { de: 'Alle Quellen neu einbetten', en: 'Re-embed All Sources' },
+    reembedAllDesc: { de: 'Re-Embedding-Jobs für alle Quellen in allen Themen einreihen. Verwenden Sie dies nach der Migration der Vektordatenbank.', en: 'Queue re-embedding jobs for every source across all topics. Use after migrating the vector database.' },
     reembedAllButton: { de: 'Alle neu einbetten', en: 'Re-embed All' },
     reembedQueuing: { de: 'Jobs werden eingereiht...', en: 'Queuing jobs...' },
     reembedQueued: { de: '{count} Job(s) erfolgreich eingereiht.', en: '{count} job(s) queued successfully.' },
@@ -2592,7 +2620,7 @@ export const translations = {
     evalKickOffFailed: { de: 'Starten der Evaluation fehlgeschlagen.', en: 'Failed to start eval run.' },
     evalLabel: { de: 'Label', en: 'Label' },
     evalLabelPlaceholder: { de: 'z. B. Baseline, vor CRAG-Änderung', en: 'e.g. baseline, before CRAG tweak' },
-    evalKbId: { de: 'KB-ID', en: 'KB ID' },
+    evalKbId: { de: 'Themen-ID', en: 'Topic ID' },
     evalKbIdPlaceholder: { de: 'UUID, leer = Standard aus Site-Config', en: 'UUID, empty = use default from site config' },
     evalGoldenPath: { de: 'Pfad zum Golden-Set', en: 'Golden set path' },
     evalTopK: { de: 'Top-k', en: 'Top-k' },
@@ -2608,7 +2636,7 @@ export const translations = {
     evalStatusFailed: { de: 'fehlgeschlagen', en: 'failed' },
     evalStarted: { de: 'Gestartet', en: 'Started' },
     evalDuration: { de: 'Dauer', en: 'Duration' },
-    evalKbName: { de: 'KB', en: 'KB' },
+    evalKbName: { de: 'Thema', en: 'Topic' },
     evalTeam: { de: 'Team', en: 'Team' },
     evalRecallPerRoute: { de: 'Recall je Route', en: 'Recall per route' },
     evalActions: { de: 'Aktionen', en: 'Actions' },
@@ -2705,8 +2733,8 @@ export const translations = {
     bm25ScoringModeTsRank: { de: 'ts_rank (Standard)', en: 'ts_rank (default)' },
     bm25ScoringModeBM25: { de: 'bm25 (echtes BM25)', en: 'bm25 (real BM25)' },
     bm25ScoringModeHelp: {
-        de: 'ts_rank = bisheriges Postgres-Ranking (nur Termfrequenz, kein IDF). bm25 = echtes BM25 (IDF + Längennormalisierung aus den bm25_*_stats-Tabellen, die der Worker alle 15 Minuten nachführt). Fällt pro Anfrage auf ts_rank zurück, solange eine KB noch keine Statistik hat. Nach dem Umschalten query_cache_schema_version anheben, damit gecachte Treffer aus dem alten Modus nicht weiterserviert werden.',
-        en: 'ts_rank = the existing Postgres ranking (term frequency only, no IDF). bm25 = real BM25 (IDF + document-length normalisation from the bm25_*_stats tables the worker refreshes every 15 minutes). Falls back to ts_rank per query while a KB has no stats yet. Bump query_cache_schema_version after flipping this so cached hits from the old mode stop being served.',
+        de: 'ts_rank = bisheriges Postgres-Ranking (nur Termfrequenz, kein IDF). bm25 = echtes BM25 (IDF + Längennormalisierung aus den bm25_*_stats-Tabellen, die der Worker alle 15 Minuten nachführt). Fällt pro Anfrage auf ts_rank zurück, solange ein Thema noch keine Statistik hat. Nach dem Umschalten query_cache_schema_version anheben, damit gecachte Treffer aus dem alten Modus nicht weiterserviert werden.',
+        en: 'ts_rank = the existing Postgres ranking (term frequency only, no IDF). bm25 = real BM25 (IDF + document-length normalisation from the bm25_*_stats tables the worker refreshes every 15 minutes). Falls back to ts_rank per query while a topic has no stats yet. Bump query_cache_schema_version after flipping this so cached hits from the old mode stop being served.',
     },
     bm25K1: { de: 'BM25 k1', en: 'BM25 k1' },
     bm25K1Help: {
@@ -2748,8 +2776,8 @@ export const translations = {
     },
     queryDecomposeModel: { de: 'Decomposition: Modell-Override', en: 'Decomposition: model override' },
     queryDecomposeModelHelp: {
-        de: 'LLM für die Sub-Frage-Decomposition. Leer = Fast-Tier-Resolver (per-task → model_tier_fast → KB-Chat-Modell). Aufgabe ist Structured-Output (2-4 Strings), keine Reasoning — ein kleines schnelles Modell genügt.',
-        en: 'LLM used for sub-question decomposition. Empty = fast-tier resolver (per-task → model_tier_fast → KB chat model). The task is structured output (2-4 strings), not reasoning — a small fast model does well.',
+        de: 'LLM für die Sub-Frage-Decomposition. Leer = Fast-Tier-Resolver (per-task → model_tier_fast → Chat-Modell des Themas). Aufgabe ist Structured-Output (2-4 Strings), keine Reasoning — ein kleines schnelles Modell genügt.',
+        en: 'LLM used for sub-question decomposition. Empty = fast-tier resolver (per-task → model_tier_fast → the topic’s chat model). The task is structured output (2-4 strings), not reasoning — a small fast model does well.',
     },
 
     // ---------------------------------------------------------------
@@ -2767,8 +2795,8 @@ export const translations = {
     },
     chatLongmemConflictModel: { de: 'Konflikt-Klassifikator: Modell-Override', en: 'Conflict classifier: model override' },
     chatLongmemConflictModelHelp: {
-        de: 'LLM für den Konflikt-Klassifikator. Leer = Fast-Tier-Resolver (per-task → model_tier_fast → KB-Chat-Modell). Aufgabe ist Structured-Output (ein JSON-Verdict), kein Reasoning.',
-        en: 'LLM used for the conflict classifier. Empty = fast-tier resolver (per-task → model_tier_fast → KB chat model). The task is structured output (one JSON verdict), not reasoning.',
+        de: 'LLM für den Konflikt-Klassifikator. Leer = Fast-Tier-Resolver (per-task → model_tier_fast → Chat-Modell des Themas). Aufgabe ist Structured-Output (ein JSON-Verdict), kein Reasoning.',
+        en: 'LLM used for the conflict classifier. Empty = fast-tier resolver (per-task → model_tier_fast → the topic’s chat model). The task is structured output (one JSON verdict), not reasoning.',
     },
     chatLongmemConflictCandidates: { de: 'Konflikt-Kandidatenpool-Größe', en: 'Conflict candidate pool size' },
     chatLongmemConflictCandidatesHelp: {
@@ -2886,8 +2914,8 @@ export const translations = {
     },
     chatContextCompressionModel: { de: 'Kompression: Modell-Override', en: 'Compression: model override' },
     chatContextCompressionModelHelp: {
-        de: 'LLM für den Evidentialitäts-Klassifikator. Leer = Fast-Tier-Resolver (per-task → model_tier_fast → KB-Chat-Modell). Aufgabe ist Structured-Output (ein JSON-Objekt mit N Floats), kein Reasoning — ein kleines schnelles Modell reicht.',
-        en: 'LLM used for the evidentiality classifier. Empty = fast-tier resolver (per-task → model_tier_fast → KB chat model). The task is constrained output (one JSON object with N floats), not reasoning — a small fast model is sufficient.',
+        de: 'LLM für den Evidentialitäts-Klassifikator. Leer = Fast-Tier-Resolver (per-task → model_tier_fast → Chat-Modell des Themas). Aufgabe ist Structured-Output (ein JSON-Objekt mit N Floats), kein Reasoning — ein kleines schnelles Modell reicht.',
+        en: 'LLM used for the evidentiality classifier. Empty = fast-tier resolver (per-task → model_tier_fast → the topic’s chat model). The task is constrained output (one JSON object with N floats), not reasoning — a small fast model is sufficient.',
     },
 
     // ---------------------------------------------------------------
@@ -2896,8 +2924,8 @@ export const translations = {
     agentSectionCompare: { de: 'Dokumentenvergleich (im Chat)', en: 'In-chat document comparison' },
     chatCompareEnabled: { de: 'Dokumentenvergleich aktivieren', en: 'Enable document comparison' },
     chatCompareEnabledHelp: {
-        de: 'Master-Schalter. Wenn aktiviert, lässt sich ein Dokument über die API abschnittsweise gegen den KB-Korpus vergleichen. Die Web-App bietet dafür keinen Einstieg. Standard: aus.',
-        en: 'Master gate. When on, a document can be compared section by section against the KB corpus through the API. The web app has no entry point for it. Default: off.',
+        de: 'Master-Schalter. Wenn aktiviert, lässt sich ein Dokument über die API abschnittsweise gegen die Quellen des Themas vergleichen. Die Web-App bietet dafür keinen Einstieg. Standard: aus.',
+        en: 'Master gate. When on, a document can be compared section by section against the topic’s sources through the API. The web app has no entry point for it. Default: off.',
     },
     chatCompareModel: { de: 'Vergleich: Modell-Override', en: 'Comparison: model override' },
     chatCompareModelHelp: {
@@ -2971,8 +2999,8 @@ export const translations = {
     },
     chatDateToolsEnabled: { de: 'Datums-Tool aktivieren ("Kürzlich hinzugefügt")', en: 'Enable date tool (recent documents)' },
     chatDateToolsEnabledHelp: {
-        de: 'Aktiviert das MCP-Tool recent_documents, mit dem die Antwort-LLM gezielt nach kürzlich hinzugefügten Dokumenten fragen kann (z. B. "was wurde heute hinzugefügt"). Zeitfenster basieren auf dem Ingest-Datum der Datei, nicht auf ihrem Inhaltsdatum. Erfordert zusätzlich, dass Antwort-Tools (chat_answer_tools_enabled) aktiviert sind. Standard: aus.',
-        en: 'Enables the recent_documents MCP tool, letting the answer LLM specifically ask for recently added documents (e.g. "what was added today"). Windows are based on a file\'s ingest date, not its content date. Also requires answer-time tools (chat_answer_tools_enabled) to be enabled. Default: off.',
+        de: 'Aktiviert das MCP-Tool recent_documents, mit dem die Antwort-LLM gezielt nach kürzlich hinzugefügten Dokumenten fragen kann (z. B. "was wurde heute hinzugefügt"). Zeitfenster basieren auf dem Ingest-Datum der Quelle, nicht auf ihrem Inhaltsdatum. Erfordert zusätzlich, dass Antwort-Tools (chat_answer_tools_enabled) aktiviert sind. Standard: aus.',
+        en: 'Enables the recent_documents MCP tool, letting the answer LLM specifically ask for recently added documents (e.g. "what was added today"). Windows are based on a source\'s ingest date, not its content date. Also requires answer-time tools (chat_answer_tools_enabled) to be enabled. Default: off.',
     },
     chatDateToolsMaxResults: { de: 'Datums-Tool: max. Ergebnisse', en: 'Date tool: max results' },
     chatDateToolsMaxResultsHelp: {
@@ -2981,8 +3009,8 @@ export const translations = {
     },
     chatRecencyListingEnabled: { de: 'Neuheits-Listing aktivieren ("Was ist neu?")', en: 'Enable recency listing ("What\'s new?")' },
     chatRecencyListingEnabledHelp: {
-        de: 'Kill-Switch. Fragen wie "Welche neuen Meldungen gibt es?" werden deterministisch beantwortet: Die Suche wird auf kürzlich hinzugefügte Dokumente eingegrenzt und die vollständige Dateiliste des Zeitfensters wird der Antwort-LLM mitgegeben — semantische Suche allein liefert für solche Fragen nur eine zufällige Teilmenge. Standard: an.',
-        en: 'Kill switch. Questions like "Which new advisories are there?" are answered deterministically: retrieval is scoped to recently added documents and the complete file listing for the window is provided to the answer LLM — semantic search alone returns an arbitrary subset for such questions. Default: on.',
+        de: 'Kill-Switch. Fragen wie "Welche neuen Meldungen gibt es?" werden deterministisch beantwortet: Die Suche wird auf kürzlich hinzugefügte Dokumente eingegrenzt und die vollständige Quellenliste des Zeitfensters wird der Antwort-LLM mitgegeben — semantische Suche allein liefert für solche Fragen nur eine zufällige Teilmenge. Standard: an.',
+        en: 'Kill switch. Questions like "Which new advisories are there?" are answered deterministically: retrieval is scoped to recently added documents and the complete source listing for the window is provided to the answer LLM — semantic search alone returns an arbitrary subset for such questions. Default: on.',
     },
     chatRecencyListingNameMatchEnabled: { de: 'Neuheits-Listing: Namens-Kennzeichnung berücksichtigen', en: 'Recency listing: match name labels' },
     chatRecencyListingNameMatchEnabledHelp: {
@@ -2996,8 +3024,8 @@ export const translations = {
     },
     chatRecencyListingMaxResults: { de: 'Neuheits-Listing: max. Einträge', en: 'Recency listing: max entries' },
     chatRecencyListingMaxResultsHelp: {
-        de: 'Obergrenze für die eingefügte Dateiliste. Wird sie erreicht, weist die Antwort darauf hin, dass die Liste unvollständig ist. Bereich [1, 500]; Default 50.',
-        en: 'Upper bound on the injected file listing. When hit, the answer discloses that the list is incomplete. Range [1, 500]; default 50.',
+        de: 'Obergrenze für die eingefügte Quellenliste. Wird sie erreicht, weist die Antwort darauf hin, dass die Liste unvollständig ist. Bereich [1, 500]; Default 50.',
+        en: 'Upper bound on the injected source listing. When hit, the answer discloses that the list is incomplete. Range [1, 500]; default 50.',
     },
 
     // ---------------------------------------------------------------
@@ -3088,4 +3116,9 @@ export const translations = {
 
     // Agent step timeline above an answer (translations.agentSteps.ts)
     ...agentStepsTranslations,
+
+    // Topic settings workflow view (translations.workflow.ts)
+    ...workflowTranslations,
+    // Admin console strings that were hardcoded in the components (translations.admin.ts)
+    ...adminTranslations,
 };

@@ -1,5 +1,6 @@
 import type { ChangeEvent } from 'react';
 import type { ValueOrigin, WorkflowConfigField } from '../../../types';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { ORIGIN_LABEL, UNKNOWN_ORIGIN_LABEL, DEFAULT_VALUE_LABEL } from './constants';
 import './NodeFieldInput.css';
 
@@ -52,7 +53,7 @@ interface Props {
   onChange: (key: string, value: string) => void;
   /**
    * Called INSTEAD of onChange when this control refuses to emit an edit, with
-   * a ready-to-display German reason. Today the only refusal is the empty
+   * a ready-to-display, translated reason. Today the only refusal is the empty
    * string on a string-typed field.
    *
    * The refusal itself is unconditional — omitting this callback makes it
@@ -79,10 +80,12 @@ interface Props {
  * an explicit, separate action.
  */
 export function NodeFieldInput({ field, value, origin, editable, onChange, onRefuse }: Props) {
+  const { t } = useTheme();
   const isUnset = value === undefined;
+  const defaultValueLabel = t(DEFAULT_VALUE_LABEL);
 
   const originBadge = origin && (
-    <span className="wf-field__origin">{ORIGIN_LABEL[origin] ?? UNKNOWN_ORIGIN_LABEL}</span>
+    <span className="wf-field__origin">{t(ORIGIN_LABEL[origin] ?? UNKNOWN_ORIGIN_LABEL)}</span>
   );
 
   if (!editable) {
@@ -91,7 +94,7 @@ export function NodeFieldInput({ field, value, origin, editable, onChange, onRef
         <span className="wf-field__row" title={field.help}>
           <span className="wf-field__label">{field.label}</span>
           <span className={isUnset ? 'wf-field__value wf-field__value--default' : 'wf-field__value'}>
-            {isUnset ? DEFAULT_VALUE_LABEL : value}
+            {isUnset ? defaultValueLabel : value}
           </span>
         </span>
         {originBadge}
@@ -108,7 +111,7 @@ export function NodeFieldInput({ field, value, origin, editable, onChange, onRef
     if (field.type === 'string' && next.trim() === '') {
       onRefuse?.(
         field.key,
-        `${field.label}: Leerer Wert wird nicht übernommen — zum Löschen "Zurücksetzen" verwenden.`,
+        t('wfEmptyValueRefused').replace('{label}', field.label),
       );
       return;
     }
@@ -121,19 +124,19 @@ export function NodeFieldInput({ field, value, origin, editable, onChange, onRef
     const unknown = !isUnset && selected === undefined;
     control = (
       <select value={selected ?? (unknown ? UNKNOWN_BOOL : '')} onChange={handleChange}>
-        {isUnset && <option value="" disabled>{DEFAULT_VALUE_LABEL}</option>}
+        {isUnset && <option value="" disabled>{defaultValueLabel}</option>}
         {/* A stored value this control cannot interpret is shown verbatim and
             disabled, so it reads as "something unexpected is set here" rather
             than silently picking one of the two real options for the admin. */}
         {unknown && <option value={UNKNOWN_BOOL} disabled>{value}</option>}
-        <option value="true">Ein</option>
-        <option value="false">Aus</option>
+        <option value="true">{t('wfBoolOn')}</option>
+        <option value="false">{t('wfBoolOff')}</option>
       </select>
     );
   } else if (field.type === 'enum') {
     control = (
       <select value={value ?? ''} onChange={handleChange}>
-        {isUnset && <option value="" disabled>{DEFAULT_VALUE_LABEL}</option>}
+        {isUnset && <option value="" disabled>{defaultValueLabel}</option>}
         {(field.enum ?? []).map((v) => (
           <option key={v} value={v}>{v}</option>
         ))}
@@ -147,7 +150,7 @@ export function NodeFieldInput({ field, value, origin, editable, onChange, onRef
         max={field.max}
         step={field.type === 'float' ? 0.05 : 1}
         value={value ?? ''}
-        placeholder={isUnset ? DEFAULT_VALUE_LABEL : undefined}
+        placeholder={isUnset ? defaultValueLabel : undefined}
         onChange={handleChange}
       />
     );

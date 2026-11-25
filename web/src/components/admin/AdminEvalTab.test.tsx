@@ -170,7 +170,7 @@ describe('AdminEvalTab — label/control pairing', () => {
         // nothing at all; the pre-migration source is the record of that.
         await renderTab();
 
-        // Three fields end up named "KB ID": the generate row and the upload
+        // Three fields end up named evalKbId ("Topic ID"): the generate row and the upload
         // row (both previously placeholder-only, now aria-labelled) plus the
         // kick-off form's row, whose visible label always read that. DOM order
         // is generate, upload, kick-off — which is what the index lookups in the
@@ -505,7 +505,7 @@ describe('AdminEvalTab — KB-scoped mode', () => {
         // the path KbSettingsPanel renders.
         await renderTab({ kbId: 'kb-1111' });
 
-        // All three "KB ID" fields are behind `{!kbId && …}` guards, so none of
+        // All three evalKbId fields are behind `{!kbId && …}` guards, so none of
         // them renders here.
         expect(screen.queryAllByRole('textbox', { name: tMock('evalKbId') })).toHaveLength(0);
     });

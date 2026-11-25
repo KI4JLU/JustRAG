@@ -676,7 +676,7 @@ func applyAgentBinding(pn *ProjectedNode, b AgentBinding) {
 	case BindingUnknown:
 		pn.Activation = ActivationConditional
 		pn.Reason = "binding_unknown"
-		pn.Condition = "Konnte nicht geladen werden: ob für diese Wissensbasis ein " +
+		pn.Condition = "Konnte nicht geladen werden: ob für dieses Thema ein " +
 			"Standard-Agent oder ein Standard-Team hinterlegt ist, ist gerade " +
 			"unbekannt. Lade die Seite neu; bleibt es dabei, stimmt etwas mit der " +
 			"Agenten-Verwaltung nicht. Der übrige Ablauf ist hier so dargestellt, " +
@@ -690,7 +690,7 @@ func applyAgentBinding(pn *ProjectedNode, b AgentBinding) {
 	default:
 		pn.Activation = ActivationInactive
 		pn.Reason = "no_binding"
-		pn.Condition = "Für diese Wissensbasis ist kein Standard-Agent und kein " +
+		pn.Condition = "Für dieses Thema ist kein Standard-Agent und kein " +
 			"Standard-Team hinterlegt. Neue Chats starten mit dem normalen Ablauf."
 	}
 }

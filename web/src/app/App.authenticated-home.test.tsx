@@ -37,7 +37,7 @@ import { setSettingsDialogOpen, setSettingsDialogTab } from '../hooks/settingsDi
  * does not implement.
  *
  * ORACLES, all independent of the code under test: translations.ts for the
- * expected heading (`myKBs`), WAI-ARIA's mapping of `h1` to `role="heading"`
+ * expected heading (`myTopics`), WAI-ARIA's mapping of `h1` to `role="heading"`
  * with `level: 1`, and ErrorBoundary's own fallback copy ("Something went
  * wrong") as the negative check — a missing provider throws, App's outermost
  * boundary catches it, and that string is the observable signature.
@@ -134,7 +134,7 @@ afterEach(() => {
  * tree look correct: a missing provider throws synchronously during the
  * render and the heading never appears at all.
  *
- * ORACLE: translations.ts (`myKBs`) and WAI-ARIA's `h1` -> heading mapping.
+ * ORACLE: translations.ts (`myTopics`) and WAI-ARIA's `h1` -> heading mapping.
  */
 function findOverviewHeading() {
   return screen.findByRole(

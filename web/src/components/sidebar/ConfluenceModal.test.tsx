@@ -108,3 +108,22 @@ describe('ConfluenceModal failsafe', () => {
     await screen.findByText('Engineering');
   });
 });
+
+// Oracle: docs/user-error-messages.md B16 — a refused page load shows the
+// feature's own message, never the backend's `error` text.
+describe('ConfluenceModal page tree errors', () => {
+  it('shows confluencePagesLoadError for an uncoded 404, not the raw text', async () => {
+    const { AxiosError } = await import('axios');
+    const err = new AxiosError('Request failed');
+    err.response = { data: { error: 'space ENG not found upstream' }, status: 404, statusText: '', headers: {}, config: { headers: {} } as never };
+    const user = userEvent.setup();
+    const fetchSpaces = vi.fn().mockResolvedValue([{ key: 'ENG', name: 'Engineering' }]);
+    const fetchSpacePages = vi.fn().mockRejectedValue(err);
+    render(<ConfluenceModal {...baseProps} fetchSpaces={fetchSpaces} fetchSpacePages={fetchSpacePages} />);
+    await screen.findByText('Engineering');
+    await user.click(screen.getByText('wizardNext'));
+    await user.click(screen.getByText('specificPageTree'));
+    await screen.findByText('confluencePagesLoadError');
+    expect(screen.queryByText(/space ENG not found upstream/)).not.toBeInTheDocument();
+  });
+});

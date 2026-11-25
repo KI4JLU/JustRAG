@@ -94,7 +94,7 @@ var nodes = []NodeSpec{
 	},
 	{
 		ID: NodeKBRouter, Label: "KB-Router", Group: "Analyse",
-		Help:     "Wählt bei ?route=auto die passende Wissensbasis.",
+		Help:     "Wählt bei ?route=auto das passende Thema.",
 		Keys:     []string{"chat_kb_router_enabled", "chat_kb_router_min_confidence"},
 		LLMCalls: 1, LatencyMs: 300,
 	},

@@ -11,6 +11,7 @@ import type {
   NodeActivation, WorkflowGraph, WorkflowLane, WorkflowNodeData,
 } from '../../../types';
 import { useReducedMotion } from '../../../hooks/useReducedMotion';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { fetchWorkflow, saveKbSettings, resetKbSetting } from './api';
 import { layoutWorkflow, MIN_ZOOM, type WorkflowRFNode } from './layout';
 import WorkflowNode from './WorkflowNode';
@@ -18,23 +19,25 @@ import { NodeInspector } from './NodeInspector';
 import { PresetPicker } from './PresetPicker';
 import './WorkflowCanvas.css';
 
+// Labels in these maps are translation KEYS (i18n/translations.workflow.ts),
+// resolved with t() at render.
 const LANES: { id: WorkflowLane; label: string }[] = [
-  { id: 'lookup', label: 'Nachschlagen' },
-  { id: 'enumeration', label: 'Aufzählung' },
-  { id: 'complex_reasoning', label: 'Komplexe Frage' },
+  { id: 'lookup', label: 'wfLaneLookup' },
+  { id: 'enumeration', label: 'wfLaneEnumeration' },
+  { id: 'complex_reasoning', label: 'wfLaneComplex' },
 ];
 
 /**
- * ACTIVATION_LABEL is the single German wording for the three activation
+ * ACTIVATION_LABEL is the single wording for the three activation
  * states, used by the legend AND by the orchestrator chips. It matches the node
  * badge for the conditional state ("Bedingt" / "bedingt"), which is the state
  * operators actually stumble over — the legend used to say "bedingt" while the
  * node badge said "Übersprungen", so one state read as two different things.
  */
 const ACTIVATION_LABEL: Record<NodeActivation, string> = {
-  active: 'läuft',
-  conditional: 'bedingt',
-  inactive: 'inaktiv',
+  active: 'wfActivationActive',
+  conditional: 'wfActivationConditional',
+  inactive: 'wfActivationInactive',
 };
 
 /**
@@ -49,13 +52,13 @@ const ACTIVATION_LABEL: Record<NodeActivation, string> = {
  * backend orchestrator should look untranslated, not disappear.
  */
 const ORCHESTRATOR_LABEL: Record<string, string> = {
-  comparison: 'Dokumentenvergleich',
-  corpus_table: 'Korpus-Vergleichstabelle',
-  drift: 'DRIFT',
-  supervisor: 'Supervisor',
-  plan_execute: 'Plan-and-Execute',
-  agentic: 'Agentische Suche',
-  standard: 'Zwei-Schritt-Recherche',
+  comparison: 'wfOrchComparison',
+  corpus_table: 'wfOrchCorpusTable',
+  drift: 'wfOrchDrift',
+  supervisor: 'wfOrchSupervisor',
+  plan_execute: 'wfOrchPlanExecute',
+  agentic: 'wfOrchAgentic',
+  standard: 'wfOrchStandard',
 };
 
 const nodeTypes = { workflow: WorkflowNode };
@@ -118,6 +121,7 @@ export function WorkflowCanvas({ kbId }: { kbId: string }) {
 }
 
 function WorkflowCanvasInner({ kbId }: { kbId: string }) {
+  const { t } = useTheme();
   const [lane, setLane] = useState<WorkflowLane>('complex_reasoning');
   const [graph, setGraph] = useState<WorkflowGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -246,9 +250,9 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
     try {
       await refetchGraph();
     } catch {
-      setOpError('Vorlage angewendet — die Ansicht konnte nicht aktualisiert werden. Bitte Ansicht neu laden.');
+      setOpError(t('wfPresetAppliedRefetchFailed'));
     }
-  }, [refetchGraph]);
+  }, [refetchGraph, t]);
 
   const draftCount = Object.keys(draft).length;
 
@@ -309,11 +313,11 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
       // Deliberately NOT the fetch error's own text: the operation the admin
       // triggered succeeded, and the only honest thing to report is that the
       // diagram they are looking at may no longer match it.
-      setOpError('Gespeichert — die Ansicht konnte nicht aktualisiert werden. Bitte Ansicht neu laden.');
+      setOpError(t('wfSavedRefetchFailed'));
     } finally {
       setSaving(false);
     }
-  }, [kbId, draft, refetchGraph]);
+  }, [kbId, draft, refetchGraph, t]);
 
   const onResetKey = useCallback(async (key: string) => {
     setOpError(null);
@@ -342,9 +346,9 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
     try {
       await refetchGraph();
     } catch {
-      setOpError('Zurückgesetzt — die Ansicht konnte nicht aktualisiert werden. Bitte Ansicht neu laden.');
+      setOpError(t('wfResetRefetchFailed'));
     }
-  }, [kbId, refetchGraph]);
+  }, [kbId, refetchGraph, t]);
 
   // Warns only on an actual browser navigation away (reload, close, back to
   // another origin) — that loss is unrecoverable from inside the app. It does
@@ -363,11 +367,20 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
     return () => window.removeEventListener('beforeunload', handler);
   }, [draftCount]);
 
+  // The memo keys on the resolved template STRING, not on `t`: a new `t`
+  // identity must not recompute `laid`, whose every change pushes fresh
+  // nodes into React Flow.
+  const loopTemplate = t('wfLoopLabel');
   const laid = useMemo(
     () => (graph
-      ? layoutWorkflow(graph, { reducedMotion })
+      ? layoutWorkflow(graph, {
+        reducedMotion,
+        loopLabel: (label, maxIterations) => loopTemplate
+          .replace('{label}', label)
+          .replace('{count}', String(maxIterations)),
+      })
       : { nodes: [] as WorkflowRFNode[], edges: [] as Edge[] }),
-    [graph, reducedMotion],
+    [graph, reducedMotion, loopTemplate],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(laid.nodes);
@@ -585,14 +598,14 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
                         setEmptyStringNote(null);
                         setOpError(null);
                       }}>
-                {l.label}
+                {t(l.label)}
               </button>
             ))}
           </div>
           <div className="wf-canvas__legend">
-            <span><span className="wf-canvas__swatch" style={{ borderColor: 'var(--accent-primary)' }} />{ACTIVATION_LABEL.active}</span>
-            <span><span className="wf-canvas__swatch wf-canvas__swatch--conditional" />{ACTIVATION_LABEL.conditional}</span>
-            <span><span className="wf-canvas__swatch" style={{ opacity: 0.5 }} />{ACTIVATION_LABEL.inactive}</span>
+            <span><span className="wf-canvas__swatch" style={{ borderColor: 'var(--accent-primary)' }} />{t(ACTIVATION_LABEL.active)}</span>
+            <span><span className="wf-canvas__swatch wf-canvas__swatch--conditional" />{t(ACTIVATION_LABEL.conditional)}</span>
+            <span><span className="wf-canvas__swatch" style={{ opacity: 0.5 }} />{t(ACTIVATION_LABEL.inactive)}</span>
           </div>
           {/* Lane-derived readouts, suppressed while a lane fetch is failing:
               `graph` then still holds the PREVIOUS lane's projection, and
@@ -601,17 +614,17 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
               The lane pills and the legend are lane-independent and stay. */}
           {!error && graph && graph.orchestrators.length > 0 && (
             <div className="wf-canvas__orchestrators">
-              <span className="wf-canvas__orchestrators-label" id="wf-orchestrators-label">Orchestrator:</span>
+              <span className="wf-canvas__orchestrators-label" id="wf-orchestrators-label">{t('wfOrchestrators')}</span>
               <ul className="wf-canvas__orchestrator-list" aria-labelledby="wf-orchestrators-label">
                 {graph.orchestrators.map((o) => (
                   <li key={o.orchestrator} className="wf-canvas__orchestrator" data-activation={o.activation}>
                     <span className="wf-canvas__orchestrator-name">
-                      {ORCHESTRATOR_LABEL[o.orchestrator] ?? o.orchestrator}
+                      {ORCHESTRATOR_LABEL[o.orchestrator] ? t(ORCHESTRATOR_LABEL[o.orchestrator]) : o.orchestrator}
                     </span>
                     {/* The state is carried as TEXT, not only as hue+opacity:
                         three chips differing only in colour tell a screen reader
                         nothing and fail for anyone who can't separate the hues. */}
-                    <span className="wf-canvas__orchestrator-state">{ACTIVATION_LABEL[o.activation]}</span>
+                    <span className="wf-canvas__orchestrator-state">{t(ACTIVATION_LABEL[o.activation])}</span>
                     {o.condition && (
                       <span className="wf-canvas__orchestrator-condition">{o.condition}</span>
                     )}
@@ -622,7 +635,9 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
           )}
           {!error && graph && (
             <span className="wf-canvas__meta">
-              geschätzt {graph.estLlmCalls} LLM-Aufrufe · ~{(graph.estLatencyMs / 1000).toFixed(1)}s
+              {t('wfCostEstimate')
+                .replace('{calls}', String(graph.estLlmCalls))
+                .replace('{seconds}', (graph.estLatencyMs / 1000).toFixed(1))}
             </span>
           )}
         </div>
@@ -630,7 +645,7 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
         {error ? (
           <div className="p-4">
             <Alert tone="error" live="assertive">
-              <AlertDescription>Der Workflow konnte nicht geladen werden ({error}).</AlertDescription>
+              <AlertDescription>{t('wfLoadFailed').replace('{error}', error)}</AlertDescription>
             </Alert>
           </div>
         ) : (
@@ -656,7 +671,7 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
                 onChange={onFieldChange}
                 onRefuse={onFieldRefused}
                 onReset={onResetKey}
-                readOnlyReason={saving ? 'Wird gerade gespeichert.' : undefined}
+                readOnlyReason={saving ? t('wfSavingReadOnly') : undefined}
               />
             </div>
           </>
@@ -677,7 +692,7 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
             {draftCount > 0 && (
               <div className="wf-canvas__savebar-row">
                 <span className="wf-canvas__savebar-count">
-                  {`${draftCount} ${draftCount === 1 ? 'Einstellung' : 'Einstellungen'} geändert`}
+                  {t(draftCount === 1 ? 'wfChangedOne' : 'wfChangedMany').replace('{count}', String(draftCount))}
                 </span>
                 <div className="wf-canvas__savebar-actions">
                   <button
@@ -686,7 +701,7 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
                     onClick={onDiscardDraft}
                     disabled={saving}
                   >
-                    <Undo2 size={14} aria-hidden="true" /> Verwerfen
+                    <Undo2 size={14} aria-hidden="true" /> {t('wfDiscard')}
                   </button>
                   <button
                     type="button"
@@ -694,7 +709,7 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
                     onClick={onSaveDraft}
                     disabled={saving}
                   >
-                    <Save size={14} aria-hidden="true" /> {saving ? 'Speichert…' : 'Speichern'}
+                    <Save size={14} aria-hidden="true" /> {saving ? t('wfSavingProgress') : t('save')}
                   </button>
                 </div>
               </div>
@@ -706,7 +721,7 @@ function WorkflowCanvasInner({ kbId }: { kbId: string }) {
               // confirm dialog on every tab click would be worse than that
               // loss; this line is the mitigation that fits within scope.
               <p className="wf-canvas__savebar-warn">
-                Nicht gespeicherte Änderungen gehen beim Tab-Wechsel verloren.
+                {t('wfUnsavedTabWarning')}
               </p>
             )}
           </div>

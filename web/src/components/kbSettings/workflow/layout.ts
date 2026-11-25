@@ -36,7 +36,15 @@ export interface LayoutOptions {
    * stops, which is precisely what `prefers-reduced-motion` exists to suppress.
    */
   reducedMotion?: boolean;
+  /**
+   * Builds a loop edge's label from the API label and its iteration bound.
+   * The canvas passes a translated one; the default keeps the bound readable
+   * in either language.
+   */
+  loopLabel?: (label: string, maxIterations: number) => string;
 }
+
+const defaultLoopLabel = (label: string, maxIterations: number) => `${label} (max. ${maxIterations}×)`;
 
 /**
  * layoutWorkflow turns a projection into positioned React Flow nodes/edges.
@@ -60,7 +68,7 @@ export interface LayoutOptions {
  */
 export function layoutWorkflow(
   graph: WorkflowGraph,
-  { reducedMotion = false }: LayoutOptions = {},
+  { reducedMotion = false, loopLabel = defaultLoopLabel }: LayoutOptions = {},
 ): { nodes: WorkflowRFNode[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setGraph({ rankdir: 'TB', nodesep: 28, ranksep: RANK_SEP });
@@ -97,7 +105,7 @@ export function layoutWorkflow(
       id: `${e.from}->${e.to}${e.loop ? ':loop' : ''}`,
       source: e.from,
       target: e.to,
-      label: e.loop ? `${e.label} (max. ${e.maxIterations}×)` : e.label,
+      label: e.loop ? loopLabel(e.label, e.maxIterations) : e.label,
       animated: e.loop && !reducedMotion && !dimmed,
       // The class lands on React Flow's `.react-flow__edge` group, so the label
       // dims with the path instead of floating at full strength above it.

@@ -2,7 +2,7 @@ import React, { memo, useState, useEffect, useCallback } from 'react';
 import { Plus, Loader2, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import { SourceModal } from './SourceModal';
 import { SyncScheduleSelect } from './SyncScheduleSelect';
 import type { ConfluenceConnectionInfo, ConfluenceSpace, ConfluencePage, ConfluencePageWithPath, SyncSchedule } from '../../types';
@@ -107,7 +107,7 @@ const ConfluenceModalComp: React.FC<ConfluenceModalProps> = ({
             setSpacesLoading(true);
             fetchSpaces()
                 .then(s => { setSpaces(s); if (s.length > 0) setSelectedSpace(s[0].key); })
-                .catch(err => setSpacesError(getApiErrorMessage(err, t('error'))))
+                .catch(err => setSpacesError(userErrorMessage(err, t, { fallbackKey: 'confluenceSpacesLoadError' })))
                 .finally(() => { setSpacesAttempted(true); setSpacesLoading(false); });
         }
     }, [step, spacesAttempted, spacesLoading, fetchSpaces, t]);
@@ -118,7 +118,7 @@ const ConfluenceModalComp: React.FC<ConfluenceModalProps> = ({
             setPagesLoading(true);
             fetchSpacePages(selectedSpace)
                 .then(pages => setRootPages(pages.map(p => ({ ...p, children: [], expanded: false, childrenLoaded: false }))))
-                .catch(err => setRootPagesError(getApiErrorMessage(err, t('error'))))
+                .catch(err => setRootPagesError(userErrorMessage(err, t, { fallbackKey: 'confluencePagesLoadError' })))
                 .finally(() => { setRootPagesAttempted(true); setPagesLoading(false); });
         }
     }, [step, scopeMode, rootPagesAttempted, pagesLoading, selectedSpace, fetchSpacePages, t]);

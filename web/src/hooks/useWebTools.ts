@@ -6,9 +6,8 @@ import { API_BASE_URL, authFetch } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
 import { parseSseStream } from '../utils/sseParser';
-import { getApiErrorMessage } from '../utils/apiError';
 import { previewKindOf } from '../utils/previewKind';
-import { userErrorMessage } from '../utils/userErrors';
+import { httpErrorFrom, userErrorMessage } from '../utils/userErrors';
 import type { MediaKind } from '../components/preview/MediaPreviewModal';
 import type { PdfFocus } from '../utils/passageMarks';
 
@@ -86,10 +85,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
         signal: abortController.signal,
       });
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(err.error || `HTTP ${response.status}`);
-      }
+      if (!response.ok) throw await httpErrorFrom(response);
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No response body');
@@ -123,7 +119,8 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
               fetchFiles(currentKb.id);
               break;
             case 'error':
-              setWebResearchStatus((event.message as string) || 'Error');
+              // The frame's message is the backend's own text: never shown.
+              setWebResearchStatus(t('webResearchFailed'));
               break;
           }
         },
@@ -135,9 +132,9 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
         setWebResearchStatus(t('researchCancelled'));
       } else {
         console.error('Web research failed:', err);
-        const msg = err instanceof Error ? err.message : 'Error';
+        const msg = userErrorMessage(err, t, { fallbackKey: 'webResearchFailed' });
         setWebResearchStatus(msg);
-        toast.error(msg || t('taskFailed'));
+        toast.error(msg);
       }
     } finally {
       setWebResearchRunning(false);
@@ -228,7 +225,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
       }
     } catch (err: unknown) {
       console.error(`${tab} failed:`, err);
-      toast.error(getApiErrorMessage(err, t('taskFailed')));
+      toast.error(userErrorMessage(err, t, { fallbackKey: 'taskFailed' }));
     } finally {
       setToolLoading(false);
     }
@@ -282,7 +279,7 @@ export function useWebTools({ currentKb, fetchFiles, files = [] }: UseWebToolsPa
       setSourcesAddedCount(c => c + 1);
     } catch (err: unknown) {
       console.error('Add sources failed:', err);
-      toast.error(getApiErrorMessage(err, t('addSourcesFailed')));
+      toast.error(userErrorMessage(err, t, { fallbackKey: 'addSourcesFailed' }));
     } finally {
       setToolLoading(false);
     }

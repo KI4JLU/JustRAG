@@ -64,14 +64,37 @@ export function errorInfoFromBody(status: number | undefined, body: unknown): Er
 }
 
 /**
+ * A refused fetch() request, thrown by callers that use fetch instead of
+ * axios. It carries the ErrorInfo of the response, never the body's text, so
+ * userErrorMessage maps it like an axios error. Build it with httpErrorFrom.
+ */
+export class HttpError extends Error {
+  readonly info: ErrorInfo;
+
+  constructor(info: ErrorInfo) {
+    super(`HTTP ${info.status ?? 'error'}${info.code ? ` (${info.code})` : ''}`);
+    this.name = 'HttpError';
+    this.info = info;
+  }
+}
+
+/** The HttpError of a response that is not ok; reads its JSON body if any. */
+export async function httpErrorFrom(res: Response): Promise<HttpError> {
+  const body: unknown = await res.json().catch(() => null);
+  return new HttpError(errorInfoFromBody(res.status, body));
+}
+
+/**
  * The ErrorInfo of a thrown error. An axios error without a response and a
- * fetch TypeError are network failures (no status); any other error happened
- * in the client and gets status 0, which maps to the caller's fallback.
+ * fetch TypeError are network failures (no status); an HttpError carries its
+ * own; any other error happened in the client and gets status 0, which maps
+ * to the caller's fallback.
  */
 export function errorInfo(err: unknown): ErrorInfo {
   if (axios.isAxiosError(err)) {
     return err.response ? errorInfoFromBody(err.response.status, err.response.data) : {};
   }
+  if (err instanceof HttpError) return err.info;
   if (err instanceof TypeError) return {};
   return { status: 0 };
 }

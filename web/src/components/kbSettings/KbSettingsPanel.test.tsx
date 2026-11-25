@@ -90,9 +90,9 @@ describe('KbSettingsPanel', () => {
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     render(<KbSettingsPanel kbId="kb1" />);
     expect(screen.getByTestId('kb-model-value').textContent).toBe('kb-kb1');
-    fireEvent.click(screen.getByLabelText('Copy API model name'));
+    fireEvent.click(screen.getByLabelText(translations.ragModelNameCopyLabel.de));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('kb-kb1'));
-    await waitFor(() => screen.getByText('Copied'));
+    await waitFor(() => screen.getByText(translations.ragModelNameCopied.de));
   });
 
   it('renders effective values and marks overridden fields', async () => {
@@ -111,7 +111,7 @@ describe('KbSettingsPanel', () => {
     render(<KbSettingsPanel kbId="kb1" />);
     await waitFor(() => screen.getByText('Corrective RAG'));
     fireEvent.click(screen.getByTestId('field-crag_enabled') as HTMLInputElement);
-    fireEvent.click(screen.getByText('Save'));
+    fireEvent.click(screen.getByText(translations.save.de));
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         `${API_BASE_URL}/api/kb/kb1/settings`,
@@ -126,7 +126,7 @@ describe('KbSettingsPanel', () => {
     render(<KbSettingsPanel kbId="kb1" />);
     await waitFor(() => screen.getByText('RAPTOR indexing'));
     fireEvent.click(screen.getByTestId('field-raptor_enabled') as HTMLInputElement);
-    fireEvent.click(screen.getByText('Save'));
+    fireEvent.click(screen.getByText(translations.save.de));
     await waitFor(() => expect(showConfirm).toHaveBeenCalled());
     // Settings PUT must have been called.
     expect(global.fetch).toHaveBeenCalledWith(
@@ -146,7 +146,7 @@ describe('KbSettingsPanel', () => {
     render(<KbSettingsPanel kbId="kb1" />);
     await waitFor(() => screen.getByText('RAPTOR indexing'));
     fireEvent.click(screen.getByTestId('field-raptor_enabled') as HTMLInputElement);
-    fireEvent.click(screen.getByText('Save'));
+    fireEvent.click(screen.getByText(translations.save.de));
     await waitFor(() => expect(showConfirm).toHaveBeenCalled());
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -163,7 +163,7 @@ describe('KbSettingsPanel', () => {
     const tab = await screen.findByRole('button', { name: /workflow/i });
     await userEvent.click(tab);
 
-    expect(await screen.findByRole('button', { name: 'Komplexe Frage' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: translations.wfLaneComplex.de })).toBeInTheDocument();
   });
 
   // Every endpoint this panel calls sits on kbAdvancedChain, which wants a
@@ -184,7 +184,7 @@ describe('KbSettingsPanel', () => {
       render(<KbSettingsPanel kbId="kb-1" />);
 
       const alert = await screen.findByRole('alert');
-      expect(alert).toHaveTextContent('Keine Berechtigung');
+      expect(alert).toHaveTextContent(translations.ragForbiddenTitle.de);
       // Names the rule (developer rulings 2026-11-05: system admins, shared or
       // public topics), so the reader knows why rather than only that
       // something went wrong.
@@ -196,8 +196,8 @@ describe('KbSettingsPanel', () => {
       render(<KbSettingsPanel kbId="kb-1" />);
 
       await screen.findByRole('alert');
-      expect(screen.queryByRole('button', { name: /RAG Settings/ })).not.toBeInTheDocument();
-      expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: translations.ragTabSettings.de })).not.toBeInTheDocument();
+      expect(screen.queryByText(translations.ragLoading.de)).not.toBeInTheDocument();
     });
 
     it('does not mistake an ordinary failure for a permission problem', async () => {
@@ -208,8 +208,9 @@ describe('KbSettingsPanel', () => {
       render(<KbSettingsPanel kbId="kb-1" />);
 
       const alert = await screen.findByRole('alert');
-      expect(alert).not.toHaveTextContent('Keine Berechtigung');
-      expect(alert).toHaveTextContent(/500/);
+      expect(alert).not.toHaveTextContent(translations.ragForbiddenTitle.de);
+      // A 5xx maps to the shared S15 message, never the raw status or body.
+      expect(alert).toHaveTextContent(translations.errorUnexpected.de);
     });
   });
 });

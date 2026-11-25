@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { reasonLabel } from './reasonLabel';
+import { translations } from '../../../i18n/translations';
 
 // Mirrors the Reason enum documented on ProjectedNode in
 // go-backend/internal/pipeline/project.go:57-59, verbatim and in order:
@@ -23,18 +24,21 @@ const BACKEND_REASONS = [
 ] as const;
 
 describe('reasonLabel', () => {
-  it('maps every known reason to short German', () => {
+  it('maps every known reason to a translated badge', () => {
     for (const reason of BACKEND_REASONS) {
-      expect(reasonLabel('inactive', reason), reason).not.toBeNull();
+      const key = reasonLabel('inactive', reason);
+      expect(key, reason).not.toBeNull();
+      // A badge is a translation key; one without an entry would render raw.
+      expect(translations, reason).toHaveProperty(key!);
     }
   });
 
   it('uses the specific wording per inactive reason', () => {
-    expect(reasonLabel('inactive', 'flag_off')).toBe('Deaktiviert');
-    expect(reasonLabel('inactive', 'lane_skipped')).toBe('Übersprungen');
-    expect(reasonLabel('inactive', 'orchestrator_bypass')).toBe('Übersprungen');
-    expect(reasonLabel('inactive', 'superseded_by:self_rag')).toBe('Ersetzt');
-    expect(reasonLabel('inactive', 'requires:citation_validation')).toBe('Voraussetzung fehlt');
+    expect(reasonLabel('inactive', 'flag_off')).toBe('wfReasonFlagOff');
+    expect(reasonLabel('inactive', 'lane_skipped')).toBe('wfReasonSkipped');
+    expect(reasonLabel('inactive', 'orchestrator_bypass')).toBe('wfReasonSkipped');
+    expect(reasonLabel('inactive', 'superseded_by:self_rag')).toBe('wfReasonSuperseded');
+    expect(reasonLabel('inactive', 'requires:citation_validation')).toBe('wfReasonRequires');
   });
 
   it('badges a conditional node "Bedingt", never "Übersprungen"', () => {
@@ -42,9 +46,9 @@ describe('reasonLabel', () => {
     // orchestrator-bypassed stage is conditional and NOT inactive — it still
     // runs on the non-streaming, MCP and eval paths, and on orchestrator
     // failure. "Übersprungen" asserts the opposite.
-    expect(reasonLabel('conditional', 'orchestrator_bypass')).toBe('Bedingt');
-    expect(reasonLabel('conditional', undefined)).toBe('Bedingt');
-    expect(reasonLabel('conditional', 'lane_skipped')).toBe('Bedingt');
+    expect(reasonLabel('conditional', 'orchestrator_bypass')).toBe('wfReasonConditional');
+    expect(reasonLabel('conditional', undefined)).toBe('wfReasonConditional');
+    expect(reasonLabel('conditional', 'lane_skipped')).toBe('wfReasonConditional');
   });
 
   it('badges nothing for a plainly active node', () => {
