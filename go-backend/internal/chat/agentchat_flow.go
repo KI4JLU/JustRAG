@@ -30,7 +30,7 @@ const (
 
 // agentNoEvidenceText is kb_search's result when retrieval abstains: the
 // model must not see rendered chunks whose [n] markers Sources() lacks.
-const agentNoEvidenceText = "Keine relevanten Treffer in der Wissensbasis."
+const agentNoEvidenceText = "Keine relevanten Treffer in den Quellen des Themas."
 
 // agentToolBudgetExhaustedText is the result of an answer-time tool call
 // past the turn's cap.
@@ -64,6 +64,10 @@ type AgentFlowDeps struct {
 	// MaxToolCalls caps the answer agent's tool calls per turn
 	// (chat_answer_tools_max_rounds); 0 = no cap.
 	MaxToolCalls int
+	// Language is the request's forwardedProps.language; it selects the
+	// dead-end texts and action labels (German unless "en"). ActDispatch
+	// must be built for the same language (ActDispatchers).
+	Language string
 }
 
 // ActionAvailability is AgentFlowDeps.Available.
@@ -147,7 +151,7 @@ func deadEndEdges(retrieve workflow.Node, deps AgentFlowDeps) ([]workflow.Edge, 
 	// One allowlist-filtered map for both nodes, so suggest offers exactly
 	// what act can run.
 	dispatch := allowlistedDispatch(deps.ActDispatch, deps.Allowed)
-	offer := actionOffer{allowed: deps.Allowed, dispatch: dispatch, available: deps.Available}
+	offer := actionOffer{allowed: deps.Allowed, dispatch: dispatch, available: deps.Available, texts: agentTextsFor(deps.Language)}
 	suggest := agentSuggestNode(offer)
 	act := agentActNode(offer)
 	// Repeats suggest's text as the turn's final output.
