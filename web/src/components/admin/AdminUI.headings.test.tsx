@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import { AdminHarness } from '../../test/AdminHarness';
@@ -123,9 +123,10 @@ describe('AdminUI — no top-level heading inside the console', () => {
         renderAdmin();
         await userEvent.click(screen.getByRole('button', { name: 'adminTabHealth' }));
 
-        // „System Health" is the dashboard's own title; the dialog's section
-        // heading says adminTabHealth.
-        expect(await screen.findByRole('heading', { level: 2, name: /System Health/ })).toBeInTheDocument();
+        // Two level-2 headings read adminTabHealth: the dialog's section
+        // heading and the dashboard's own title (the same key since the
+        // title was localized).
+        await waitFor(() => expect(screen.getAllByRole('heading', { level: 2, name: 'adminTabHealth' })).toHaveLength(2));
 
         expect(screen.queryAllByRole('heading', { level: 1 })).toHaveLength(0);
     });

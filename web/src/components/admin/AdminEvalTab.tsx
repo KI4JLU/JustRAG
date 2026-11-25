@@ -14,7 +14,7 @@ import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useModalContext } from '../../contexts/ModalContext';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import { CheckboxFieldRow, FieldRow, SelectFieldRow } from '../form/SettingsFieldRow';
 import { SyncScheduleSelect } from '../sidebar/SyncScheduleSelect';
 import type { SyncSchedule } from '../../types';
@@ -150,7 +150,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             );
             setGoldenSets(response.data.golden_sets || []);
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalGoldenSetsFetchFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalGoldenSetsFetchFailed' }));
         }
     }, [basePath, t, toast]);
 
@@ -189,7 +189,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             toast.success(t('evalGenQueued'));
             fetchGenJobs();
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalGenFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalGenFailed' }));
         }
     };
 
@@ -203,7 +203,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             a.href = url; a.download = `${name}.jsonl`; a.click();
             URL.revokeObjectURL(url);
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalGoldenSetsFetchFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalGoldenSetsFetchFailed' }));
         }
     };
 
@@ -229,7 +229,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             setRuns(response.data.runs);
             setTotal(response.data.total);
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalFetchFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalFetchFailed' }));
         } finally {
             setListLoading(false);
         }
@@ -297,7 +297,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             // Auto-select the newly-uploaded set
             setSelectedGoldenSetId(response.data.id);
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalGoldenSetUploadFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalGoldenSetUploadFailed' }));
         } finally {
             setUploadLoading(false);
         }
@@ -308,7 +308,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             await axios.patch(`${API_BASE_URL}${basePath}/golden-sets/${id}`, { schedule });
             fetchGoldenSets();
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalScheduleUpdateFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalScheduleUpdateFailed' }));
         }
     };
 
@@ -320,7 +320,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             if (selectedGoldenSetId === id) setSelectedGoldenSetId('');
             fetchGoldenSets();
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalGoldenSetDeleteFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalGoldenSetDeleteFailed' }));
         }
     };
 
@@ -345,7 +345,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             setLabel('');
             fetchRuns();
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalKickOffFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalKickOffFailed' }));
         } finally {
             setKickOffLoading(false);
         }
@@ -362,7 +362,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             toast.success(t('evalDeleted'));
             fetchRuns();
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalDeleteFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalDeleteFailed' }));
         }
     };
 
@@ -390,7 +390,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
                 toast.success(t('evalCopied'));
             }
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalExportFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalExportFailed' }));
         }
     };
 
@@ -407,7 +407,7 @@ export default function AdminEvalTab({ basePath = '/api/admin/eval', kbId }: Adm
             );
             setCompareMarkdown(response.data);
         } catch (err) {
-            toast.error(getApiErrorMessage(err, t('evalCompareFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'evalCompareFailed' }));
         } finally {
             setCompareLoading(false);
         }

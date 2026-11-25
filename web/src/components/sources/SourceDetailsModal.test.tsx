@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi } from 'vitest';
 import type { ConfluenceSource, FileEntry, GitRepoSource, RssFeed } from '../../types';
 import { SourceDetailsModal } from './SourceDetailsModal';
+import type { SourceDetailsTarget } from './sourceDetails';
 
 vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => ({ t: (k: string) => k }) }));
 
@@ -104,10 +105,17 @@ describe('SourceDetailsModal facts and entries', () => {
     expect(screen.getByText('eintrag.md')).toBeInTheDocument();
   });
 
-  it('shows a source\'s error message', () => {
-    render(<SourceDetailsModal target={{ kind: 'git', source: makeGitRepoSource({ status: 'error', errorMessage: 'authentication failed' }) }} onClose={vi.fn()} />);
+  // Oracle: docs/user-error-messages.md A20–A22 — the kind's own message,
+  // never the stored errorMessage (the remote system's text).
+  it.each([
+    ['rss' as const, makeRssFeed({ status: 'error', errorMessage: 'dial tcp: i/o timeout' }), 'rssFeedSyncError'],
+    ['confluence' as const, makeConfluenceSource({ status: 'error', errorMessage: 'dial tcp: i/o timeout' }), 'confluenceSourceSyncError'],
+    ['git' as const, makeGitRepoSource({ status: 'error', errorMessage: 'dial tcp: i/o timeout' }), 'gitRepoSyncError'],
+  ])('shows a %s source\'s error as its own message, not the stored text', (kind, source, key) => {
+    render(<SourceDetailsModal target={{ kind, source } as SourceDetailsTarget} onClose={vi.fn()} />);
     expect(screen.getByText('feedError')).toBeInTheDocument();
-    expect(screen.getByText('authentication failed')).toBeInTheDocument();
+    expect(screen.getByText(key)).toBeInTheDocument();
+    expect(screen.queryByText(/dial tcp/)).not.toBeInTheDocument();
   });
 
   it('lists the entries it is given, with delete only when a handler is passed', async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Alert, AlertDescription, Button, SegmentedControl } from '@ki4jlu/design-system';
 import { API_BASE_URL, authFetch } from '../../api';
+import { useTheme } from '../../contexts/ThemeContext';
 
 // Distribution row mirroring adminagentmetrics.DecisionDistribution.
 interface DecisionDistribution {
@@ -41,13 +42,14 @@ const WINDOWS: { value: '1h' | '24h' | '7d'; label: string }[] = [
 // collapse — operators want to see "no data yet" rather than a missing
 // section.
 function DistributionBars({ title, dist }: { title: string; dist: DecisionDistribution }) {
+    const { t } = useTheme();
     const entries = Object.entries(dist.by_label).sort((a, b) => b[1] - a[1]);
     const total = dist.total || 0;
     return (
         <div style={{ marginBottom: '1.25rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.4rem' }}>
                 <strong>{title}</strong>
-                <span style={{ opacity: 0.7, fontSize: '0.85rem' }}>{total} runs</span>
+                <span style={{ opacity: 0.7, fontSize: '0.85rem' }}>{t('admMetricsRuns').replace('{n}', String(total))}</span>
             </div>
             {total === 0 ? (
                 <div style={{ opacity: 0.5, fontSize: '0.85rem' }}>—</div>
@@ -90,15 +92,16 @@ function DistributionBars({ title, dist }: { title: string; dist: DecisionDistri
 // know the panel is wired but waiting for traffic — distinguishable
 // from a frontend bug that hides the section silently.
 function ToolMixCard({ mix }: { mix: ToolMixEntry[] }) {
+    const { t } = useTheme();
     const totalCalls = mix.reduce((acc, m) => acc + m.calls, 0);
     return (
         <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem' }}>
-                <strong>Tool-Mix</strong>
-                <span style={{ opacity: 0.7, fontSize: '0.85rem' }}>{totalCalls} dispatches</span>
+                <strong>{t('admMetricsToolMix')}</strong>
+                <span style={{ opacity: 0.7, fontSize: '0.85rem' }}>{t('admMetricsDispatches').replace('{n}', String(totalCalls))}</span>
             </div>
             {mix.length === 0 ? (
-                <div style={{ opacity: 0.5, fontSize: '0.85rem' }}>No tool dispatches yet — the tool-aware planner is off, or the window is empty.</div>
+                <div style={{ opacity: 0.5, fontSize: '0.85rem' }}>{t('admMetricsNoDispatches')}</div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                     {mix.map(m => {
@@ -121,8 +124,8 @@ function ToolMixCard({ mix }: { mix: ToolMixEntry[] }) {
                                         background: m.error_rate > 0.1 ? 'var(--warning-color, #d97706)' : 'var(--accent-primary, #4f8df9)',
                                     }} />
                                 </div>
-                                <span style={{ minWidth: '11rem', textAlign: 'right', opacity: 0.85 }} title={`Median ${Math.round(m.median_duration_ms)}ms · ${errPct}% errors`}>
-                                    {m.calls} ({pct.toFixed(0)}%) · {Math.round(m.median_duration_ms)}ms · err {errPct}%
+                                <span style={{ minWidth: '11rem', textAlign: 'right', opacity: 0.85 }} title={t('admMetricsToolTitle').replace('{ms}', String(Math.round(m.median_duration_ms))).replace('{err}', errPct)}>
+                                    {m.calls} ({pct.toFixed(0)}%) · {Math.round(m.median_duration_ms)}ms · {t('admMetricsToolErr').replace('{err}', errPct)}
                                 </span>
                             </div>
                         );
@@ -134,6 +137,7 @@ function ToolMixCard({ mix }: { mix: ToolMixEntry[] }) {
 }
 
 export default function AdminAgentMetricsCard({ kbId }: { kbId?: string }) {
+    const { t } = useTheme();
     const [window, setWindow] = useState<'1h' | '24h' | '7d'>('24h');
     // Fetch state is keyed by window/kbId/refresh-token; loading and error are
     // derived during render so the effect never calls setState synchronously.
@@ -165,33 +169,33 @@ export default function AdminAgentMetricsCard({ kbId }: { kbId?: string }) {
     return (
         <div className="result-card" style={{ padding: '1.5rem', marginTop: '1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h4 style={{ margin: 0 }}>Agent decisions (live)</h4>
+                <h4 style={{ margin: 0 }}>{t('admMetricsTitle')}</h4>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <SegmentedControl
-                        aria-label="Window"
+                        aria-label={t('admMetricsWindow')}
                         options={WINDOWS}
                         value={window}
                         onValueChange={next => setWindow(next as '1h' | '24h' | '7d')}
                     />
                     <Button type="button" variant="outline" size="sm" onClick={reload} disabled={loading}>
-                        {loading ? '…' : 'Refresh'}
+                        {loading ? '…' : t('refresh')}
                     </Button>
                 </div>
             </div>
             {error && (
                 <Alert tone="error" live="assertive" className="mb-4">
-                    <AlertDescription>Error: {error}</AlertDescription>
+                    <AlertDescription>{t('admErrorPrefix').replace('{error}', error)}</AlertDescription>
                 </Alert>
             )}
             {data && (
                 <>
-                    <DistributionBars title="Agentic chat" dist={data.agentic_chat} />
+                    <DistributionBars title={t('admMetricsAgenticChat')} dist={data.agentic_chat} />
                     <DistributionBars title="Plan-Execute" dist={data.plan_execute} />
                     <DistributionBars title="CRAG" dist={data.crag} />
                     <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.85rem', opacity: 0.85, marginTop: '1rem' }}>
-                        <span>Median hops: <strong>{data.median_hops.toFixed(1)}</strong></span>
-                        <span>Median rounds: <strong>{data.median_rounds.toFixed(1)}</strong></span>
-                        <span>P95 latency: <strong>{Math.round(data.p95_latency_ms)} ms</strong></span>
+                        <span>{t('admMetricsMedianHops')}: <strong>{data.median_hops.toFixed(1)}</strong></span>
+                        <span>{t('admMetricsMedianRounds')}: <strong>{data.median_rounds.toFixed(1)}</strong></span>
+                        <span>{t('admMetricsP95Latency')}: <strong>{Math.round(data.p95_latency_ms)} ms</strong></span>
                     </div>
                     <ToolMixCard mix={data.tool_mix ?? []} />
                 </>

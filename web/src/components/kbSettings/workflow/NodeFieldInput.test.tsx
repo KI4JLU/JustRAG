@@ -3,6 +3,16 @@ import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NodeFieldInput } from './NodeFieldInput';
 import type { WorkflowConfigField } from '../../../types';
+import { de } from './testI18n';
+
+// Components read their labels through useTheme(); this renders them in
+// German with one stable `t` (a fresh `t` per render would recompute the
+// canvas layout on every render).
+vi.mock('../../../contexts/ThemeContext', async () => {
+  const { translations: tr } = await import('../../../i18n/translations');
+  const t = (key: string) => tr[key as keyof typeof tr]?.de ?? key;
+  return { useTheme: () => ({ t }) };
+});
 
 function boolField(over: Partial<WorkflowConfigField> = {}): WorkflowConfigField {
   return {
@@ -74,13 +84,13 @@ describe('NodeFieldInput', () => {
   it('shows the origin badge using the German word already used in the inspector', () => {
     const field = intField();
     const { rerender } = render(<NodeFieldInput field={field} value="3" origin="kb" editable onChange={vi.fn()} />);
-    expect(screen.getByText('diese KB')).toBeInTheDocument();
+    expect(screen.getByText(de('wfOriginKb'))).toBeInTheDocument();
 
     rerender(<NodeFieldInput field={field} value="3" origin="global" editable onChange={vi.fn()} />);
-    expect(screen.getByText('global')).toBeInTheDocument();
+    expect(screen.getByText(de('wfOriginGlobal'))).toBeInTheDocument();
 
     rerender(<NodeFieldInput field={field} value="3" origin="default" editable onChange={vi.fn()} />);
-    expect(screen.getByText('Standard')).toBeInTheDocument();
+    expect(screen.getByText(de('wfOriginDefault'))).toBeInTheDocument();
   });
 
   it('shows the Standardwert affordance for an unset value instead of an empty box', () => {
@@ -89,14 +99,14 @@ describe('NodeFieldInput', () => {
 
     const control = screen.getByRole('spinbutton', { name: field.label });
     expect((control as HTMLInputElement).value).toBe('');
-    expect(control).toHaveAttribute('placeholder', 'Standardwert');
+    expect(control).toHaveAttribute('placeholder', de('wfDefaultValue'));
   });
 
   it('shows the Standardwert affordance for a non-editable field with no value anywhere', () => {
     const field = intField();
     render(<NodeFieldInput field={field} value={undefined} origin="default" editable={false} onChange={vi.fn()} />);
 
-    expect(screen.getByText('Standardwert')).toBeInTheDocument();
+    expect(screen.getByText(de('wfDefaultValue'))).toBeInTheDocument();
   });
 
   // siteconfig.Validate's FieldBool arm accepts "true"/"false"/"1"/"0". The

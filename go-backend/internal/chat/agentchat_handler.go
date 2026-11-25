@@ -143,7 +143,7 @@ func (h *AgentChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	hooks := &agentChatHooks{store: h.d.Store, usage: h.d.Usage}
 	retriever := h.newRetriever(ctx, kbID, reader, searcher, props.language, hooks)
 	hooks.retriever = retriever
-	run, err := h.runner(ctx, kbID, reader, retriever, props.reasoning)
+	run, err := h.runner(ctx, kbID, reader, retriever, props)
 	if err != nil {
 		logctx.From(ctx).Error("agentchat: build turn", "error", err)
 		writeAgentChatError(w, http.StatusInternalServerError, "internal_error")
@@ -290,12 +290,12 @@ func (h *AgentChatHandler) scope(access *kbaccess.KBAccessResult) agui.ScopeFunc
 
 // runner builds the turn's flow (model, tools, dead-end actions) and its
 // runner. Everything is per request: the retriever holds the turn's sources.
-func (h *AgentChatHandler) runner(ctx context.Context, kbID string, reader SiteConfigReader, retriever *AgentRetriever, effort string) (*runner.Runner, error) {
-	model, err := h.model(ctx, kbID, effort)
+func (h *AgentChatHandler) runner(ctx context.Context, kbID string, reader SiteConfigReader, retriever *AgentRetriever, props agentChatProps) (*runner.Runner, error) {
+	model, err := h.model(ctx, kbID, props.reasoning)
 	if err != nil {
 		return nil, err
 	}
-	act := ActDispatchers(h.d.Registry, h.d.Importer, h.d.Library)
+	act := ActDispatchers(h.d.Registry, h.d.Importer, h.d.Library, props.language)
 	// Offer exactly what can execute.
 	allowed := make([]string, 0, len(act))
 	for name := range act {
@@ -316,6 +316,7 @@ func (h *AgentChatHandler) runner(ctx context.Context, kbID string, reader SiteC
 		ActDispatch:  act,
 		Available:    h.actionAvailable,
 		MaxToolCalls: maxToolCalls,
+		Language:     props.language,
 	})
 	if err != nil {
 		return nil, err

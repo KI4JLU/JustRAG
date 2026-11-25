@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 import { API_BASE_URL } from '../../api';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import {
     Alert, AlertDescription, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Label,
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner,
@@ -69,7 +69,7 @@ export function AdminUnpublishDialog({
                 setLoadError(null);
                 if (data.candidates.length === 0) setSelectedOwnerId(currentUserId);
             } catch (err: unknown) {
-                if (!cancelled) setLoadError(getApiErrorMessage(err, t('unpublishImpactLoadError')));
+                if (!cancelled) setLoadError(userErrorMessage(err, t, { fallbackKey: 'unpublishImpactLoadError' }));
             } finally {
                 if (!cancelled) setLoading(false);
             }

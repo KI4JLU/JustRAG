@@ -392,7 +392,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="-1"
                         max="1"
                         step="0.05"
-                        placeholder="-1 (inherit)"
+                        placeholder={t('admPlaceholderInheritMinusOne')}
                         value={siteConfigs.rerank_blend_alpha_lookup ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, rerank_blend_alpha_lookup: e.target.value }))}
                     />
@@ -404,7 +404,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="-1"
                         max="1"
                         step="0.05"
-                        placeholder="-1 (inherit)"
+                        placeholder={t('admPlaceholderInheritMinusOne')}
                         value={siteConfigs.rerank_blend_alpha_enumeration ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, rerank_blend_alpha_enumeration: e.target.value }))}
                     />
@@ -416,7 +416,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="-1"
                         max="1"
                         step="0.05"
-                        placeholder="-1 (inherit)"
+                        placeholder={t('admPlaceholderInheritMinusOne')}
                         value={siteConfigs.rerank_blend_alpha_complex_reasoning ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, rerank_blend_alpha_complex_reasoning: e.target.value }))}
                     />
@@ -428,7 +428,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="-1"
                         max="1"
                         step="0.05"
-                        placeholder="-1 (inherit)"
+                        placeholder={t('admPlaceholderInheritMinusOne')}
                         value={siteConfigs.rerank_blend_alpha_entity ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, rerank_blend_alpha_entity: e.target.value }))}
                     />
@@ -479,7 +479,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="0"
                         max="50"
                         step="1"
-                        placeholder="0 (inherit default_top_k)"
+                        placeholder={t('admPlaceholderInheritTopK')}
                         value={siteConfigs.top_n_lookup ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, top_n_lookup: e.target.value }))}
                     />
@@ -491,7 +491,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="0"
                         max="50"
                         step="1"
-                        placeholder="0 (inherit default_top_k)"
+                        placeholder={t('admPlaceholderInheritTopK')}
                         value={siteConfigs.top_n_enumeration ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, top_n_enumeration: e.target.value }))}
                     />
@@ -503,7 +503,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="0"
                         max="50"
                         step="1"
-                        placeholder="0 (inherit default_top_k)"
+                        placeholder={t('admPlaceholderInheritTopK')}
                         value={siteConfigs.top_n_complex_reasoning ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, top_n_complex_reasoning: e.target.value }))}
                     />
@@ -545,7 +545,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         label={t('chatContextCompressionModel')}
                         help={t('chatContextCompressionModelHelp')}
                         type="text"
-                        placeholder="(fast-tier default)"
+                        placeholder={t('admPlaceholderFastTier')}
                         value={siteConfigs.chat_context_compression_model ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, chat_context_compression_model: e.target.value }))}
                         disabled={!(siteConfigs.chat_context_compression_enabled === 'true' || siteConfigs.chat_context_compression_enabled === '1')}
@@ -578,7 +578,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         label={t('queryDecomposeModel')}
                         help={t('queryDecomposeModelHelp')}
                         type="text"
-                        placeholder="(fast-tier default)"
+                        placeholder={t('admPlaceholderFastTier')}
                         value={siteConfigs.query_decompose_model ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, query_decompose_model: e.target.value }))}
                     />
@@ -665,7 +665,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="0"
                         max="1"
                         step="0.01"
-                        placeholder="(inherit)"
+                        placeholder={t('admPlaceholderInherit')}
                         value={siteConfigs.query_cache_similarity_threshold_lookup ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, query_cache_similarity_threshold_lookup: e.target.value }))}
                         disabled={!isQueryCacheEnabled}
@@ -678,7 +678,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="0"
                         max="1"
                         step="0.01"
-                        placeholder="(inherit)"
+                        placeholder={t('admPlaceholderInherit')}
                         value={siteConfigs.query_cache_similarity_threshold_enumeration ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, query_cache_similarity_threshold_enumeration: e.target.value }))}
                         disabled={!isQueryCacheEnabled}
@@ -691,7 +691,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         min="0"
                         max="1"
                         step="0.01"
-                        placeholder="(inherit)"
+                        placeholder={t('admPlaceholderInherit')}
                         value={siteConfigs.query_cache_similarity_threshold_complex_reasoning ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, query_cache_similarity_threshold_complex_reasoning: e.target.value }))}
                         disabled={!isQueryCacheEnabled}
@@ -1182,7 +1182,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         label={t('chatCorpusTableModel')}
                         help={t('chatCorpusTableModelHelp')}
                         type="text"
-                        placeholder="(fast-tier default)"
+                        placeholder={t('admPlaceholderFastTier')}
                         value={siteConfigs.chat_corpus_table_model ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, chat_corpus_table_model: e.target.value }))}
                         disabled={!isCorpusTableEnabled}
@@ -1233,7 +1233,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         label={t('chatCompareModel')}
                         help={t('chatCompareModelHelp')}
                         type="text"
-                        placeholder="(fast-tier default)"
+                        placeholder={t('admPlaceholderFastTier')}
                         value={siteConfigs.chat_compare_model ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, chat_compare_model: e.target.value }))}
                         disabled={!(siteConfigs.chat_compare_enabled === 'true' || siteConfigs.chat_compare_enabled === '1')}
@@ -1312,7 +1312,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         label={t('agentTeamRouterModel')}
                         help={t('agentTeamRouterModelHelp')}
                         type="text"
-                        placeholder="(fast-tier default)"
+                        placeholder={t('admPlaceholderFastTier')}
                         value={siteConfigs.agent_team_router_model ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, agent_team_router_model: e.target.value }))}
                     />
@@ -1376,7 +1376,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         label={t('chatLongmemConflictModel')}
                         help={t('chatLongmemConflictModelHelp')}
                         type="text"
-                        placeholder="(fast-tier default)"
+                        placeholder={t('admPlaceholderFastTier')}
                         value={siteConfigs.chat_longmem_conflict_model ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, chat_longmem_conflict_model: e.target.value }))}
                         disabled={!(siteConfigs.chat_longmem_conflict_resolution === 'true' || siteConfigs.chat_longmem_conflict_resolution === '1')}
@@ -1653,7 +1653,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                         label={t('describeImageModel')}
                         help={t('describeImageModelHelp')}
                         type="text"
-                        placeholder="(fast-tier default)"
+                        placeholder={t('admPlaceholderFastTier')}
                         value={siteConfigs.describe_image_model ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, describe_image_model: e.target.value }))}
                         disabled={!isDescribeImageEnabled}
@@ -1842,7 +1842,7 @@ export default function AdminAgentTab({ siteConfigs, setSiteConfigs, onSubmit, f
                     <FieldRow
                         label={t('hyPEModel')}
                         type="text"
-                        placeholder="(fast-tier default)"
+                        placeholder={t('admPlaceholderFastTier')}
                         value={siteConfigs.hype_model ?? ''}
                         onChange={e => setSiteConfigs(prev => ({ ...prev, hype_model: e.target.value }))}
                         disabled={siteConfigs.hype_enabled !== 'true'}

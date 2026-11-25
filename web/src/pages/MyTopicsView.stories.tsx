@@ -535,7 +535,7 @@ export const Empty: Story = {
     await expect(canvas.getByRole('heading', { name: 'Noch keine eigenen Themen' })).toBeInTheDocument();
     await expect(canvas.getAllByRole('button', { name: 'Neues Thema' })).toHaveLength(2);
     await expect(
-      canvas.queryByRole('button', { name: /^Knowledge Base öffnen:/ }),
+      canvas.queryByRole('button', { name: /^Thema öffnen:/ }),
     ).toBeNull();
 
     /* ORACLE: WAI-ARIA accessible names. The surviving controls of the deleted
@@ -643,7 +643,7 @@ export const OwnedOnly: Story = {
     // own open control.
     for (const name of ['Mikrobiologie Notizen', 'Pruefungsprotokolle', 'Seminar Datenethik']) {
       await expect(
-        canvas.getByRole('button', { name: `Knowledge Base öffnen: ${name}` }),
+        canvas.getByRole('button', { name: `Thema öffnen: ${name}` }),
       ).toBeInTheDocument();
     }
 

@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, within } from 'storybook/test';
 import AdminEvalTab from './AdminEvalTab';
 import { ModalProvider } from '../../contexts/ModalContext';
+import { translations } from '../../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * The evaluation-runner tab: golden sets, corpus generation, the kick-off
@@ -197,7 +198,7 @@ export const Populated: Story = {
         // ORACLE: the two kb_id fields exist in admin scope. This is the
         // control case for the KbScoped story below, which asserts they are
         // gone — a pair of assertions is what makes that branch meaningful.
-        await expect(canvas.getAllByLabelText('KB-ID')).toHaveLength(3);
+        await expect(canvas.getAllByLabelText(translations.evalKbId.de)).toHaveLength(3);
     },
 };
 
@@ -389,6 +390,6 @@ export const KbScoped: Story = {
          * none at all. `Populated` asserts the same query finds three, which is
          * what makes this a real branch check rather than a query that never
          * matched. */
-        await expect(canvas.queryAllByLabelText('KB-ID')).toHaveLength(0);
+        await expect(canvas.queryAllByLabelText(translations.evalKbId.de)).toHaveLength(0);
     },
 };

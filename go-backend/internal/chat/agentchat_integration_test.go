@@ -549,7 +549,7 @@ func TestDeadEndPausesAndResumeAddsLibraryFile(t *testing.T) {
 		t.Fatalf("library call = %+v", call)
 	}
 	msgs := f.messages(t, thread)
-	if len(msgs) != 2 || msgs[1].role != "ai" || msgs[1].content != libraryAddedText {
+	if len(msgs) != 2 || msgs[1].role != "ai" || msgs[1].content != agentTextsDE.libraryAdded {
 		t.Fatalf("messages = %+v", msgs)
 	}
 	if msgs[1].parent == nil || *msgs[1].parent != msgs[0].id {

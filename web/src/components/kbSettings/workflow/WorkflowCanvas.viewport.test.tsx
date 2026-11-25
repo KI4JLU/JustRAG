@@ -45,6 +45,16 @@ vi.mock('./api', async (importOriginal) => {
   };
 });
 import { fetchWorkflow, saveKbSettings, fetchPresets } from './api';
+import { de } from './testI18n';
+
+// Components read their labels through useTheme(); this renders them in
+// German with one stable `t` (a fresh `t` per render would recompute the
+// canvas layout on every render).
+vi.mock('../../../contexts/ThemeContext', async () => {
+  const { translations: tr } = await import('../../../i18n/translations');
+  const t = (key: string) => tr[key as keyof typeof tr]?.de ?? key;
+  return { useTheme: () => ({ t }) };
+});
 
 const graph = (lane: WorkflowGraph['lane'], over: Partial<WorkflowGraph> = {}): WorkflowGraph => ({
   lane,
@@ -91,7 +101,7 @@ describe('WorkflowCanvas viewport', () => {
     fitView.mockClear();
 
     fireEvent.click(node);
-    await screen.findByLabelText('Details zu CRAG-Bewertung');
+    await screen.findByLabelText(de('wfInspectorLabel', { label: 'CRAG-Bewertung' }));
 
     expect(fitView).not.toHaveBeenCalled();
   });
@@ -106,7 +116,7 @@ describe('WorkflowCanvas viewport', () => {
     const rfNode = node.closest('.react-flow__node') as HTMLElement;
     rfNode.focus();
     fireEvent.keyDown(rfNode, { key: 'Enter' });
-    await screen.findByLabelText('Details zu CRAG-Bewertung');
+    await screen.findByLabelText(de('wfInspectorLabel', { label: 'CRAG-Bewertung' }));
 
     expect(fitView).not.toHaveBeenCalled();
   });
@@ -119,7 +129,7 @@ describe('WorkflowCanvas viewport', () => {
     fitView.mockClear();
 
     vi.mocked(fetchWorkflow).mockResolvedValue(graph('lookup'));
-    await userEvent.click(screen.getByRole('button', { name: 'Nachschlagen' }));
+    await userEvent.click(screen.getByRole('button', { name: de('wfLaneLookup') }));
 
     await waitFor(() => expect(fitView).toHaveBeenCalled());
   });
@@ -149,9 +159,9 @@ describe('WorkflowCanvas viewport', () => {
     fitView.mockClear();
 
     fireEvent.click(node);
-    await screen.findByLabelText('Details zu CRAG-Bewertung');
+    await screen.findByLabelText(de('wfInspectorLabel', { label: 'CRAG-Bewertung' }));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-    await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+    await userEvent.click(screen.getByRole('button', { name: de('save') }));
 
     await waitFor(() => expect(fetchWorkflow).toHaveBeenCalledTimes(2));
     expect(fitView).not.toHaveBeenCalled();

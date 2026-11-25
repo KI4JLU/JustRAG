@@ -1,6 +1,7 @@
 import { Handle, Position } from '@xyflow/react';
 import { Sparkles } from 'lucide-react';
 import type { WorkflowNodeData } from '../../../types';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { reasonLabel } from './reasonLabel';
 import './WorkflowNode.css';
 
@@ -11,7 +12,9 @@ interface Props {
 }
 
 export default function WorkflowNode({ data: { data: n } }: Props) {
-  const badge = reasonLabel(n.activation, n.reason);
+  const { t } = useTheme();
+  const badgeKey = reasonLabel(n.activation, n.reason);
+  const badge = badgeKey ? t(badgeKey) : null;
   const showCost = n.activation !== 'inactive' && n.llmCalls > 0;
 
   return (
