@@ -43,15 +43,15 @@ var analysisPresetsEN = []Preset{
 }
 
 var comparisonPresetsDE = []Preset{
-	{Label: "Abweichungen zusammenfassen", Prompt: "Fasse zusammen, worin das hochgeladene Dokument von der Wissensbank abweicht, sortiert nach Schwere."},
+	{Label: "Abweichungen zusammenfassen", Prompt: "Fasse zusammen, worin das hochgeladene Dokument von den Quellen des Themas abweicht, sortiert nach Schwere."},
 	{Label: "Nur harte Widersprüche", Prompt: "Nenne ausschließlich harte inhaltliche Widersprüche und lasse formale Abweichungen weg."},
-	{Label: "Was fehlt?", Prompt: "Nenne die Punkte, die in der Wissensbank stehen, im hochgeladenen Dokument aber fehlen."},
+	{Label: "Was fehlt?", Prompt: "Nenne die Punkte, die in den Quellen des Themas stehen, im hochgeladenen Dokument aber fehlen."},
 }
 
 var comparisonPresetsEN = []Preset{
-	{Label: "Summarise deviations", Prompt: "Summarise where the uploaded document deviates from the knowledge base, ordered by severity."},
+	{Label: "Summarise deviations", Prompt: "Summarise where the uploaded document deviates from the sources of the topic, ordered by severity."},
 	{Label: "Hard contradictions only", Prompt: "List only substantive contradictions; leave out formal deviations."},
-	{Label: "What is missing?", Prompt: "List the points present in the knowledge base but absent from the uploaded document."},
+	{Label: "What is missing?", Prompt: "List the points present in the sources of the topic but absent from the uploaded document."},
 }
 
 // DefaultAnalysisPresets liefert die eingebauten Presets für „Neue Analyse“.

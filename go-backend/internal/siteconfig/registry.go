@@ -183,7 +183,7 @@ var kbConfigRegistry = []KBConfigField{
 	// package siteconfig_test so it can import internal/pipeline without
 	// tripping that cycle) pins this list against pipeline.Presets() so the
 	// two cannot drift apart.
-	{Key: "workflow_preset", Type: FieldEnum, Group: "Vorlage", Label: "Vorlage (Basis)", Help: "Vermerkt, mit welcher Werkzeug-Vorlage diese Wissensbank zuletzt eingerichtet wurde — reine Anzeige-Information für „Basis: … · N Abweichungen“ in der Werkstatt-Ansicht. Das Setzen oder Ändern dieses Werts allein verändert nicht, wie Antworten erzeugt werden; wirksam sind ausschließlich die einzelnen Einstellungen, die eine Vorlage beim Anwenden tatsächlich setzt. Leerer Wert bedeutet: frei zusammengestellt, ohne Vorlagen-Basis.", Enum: []string{"", "standard", "high_precision", "fast", "research", "news"}},
+	{Key: "workflow_preset", Type: FieldEnum, Group: "Vorlage", Label: "Vorlage (Basis)", Help: "Vermerkt, mit welcher Werkzeug-Vorlage dieses Thema zuletzt eingerichtet wurde — reine Anzeige-Information für „Basis: … · N Abweichungen“ in der Werkstatt-Ansicht. Das Setzen oder Ändern dieses Werts allein verändert nicht, wie Antworten erzeugt werden; wirksam sind ausschließlich die einzelnen Einstellungen, die eine Vorlage beim Anwenden tatsächlich setzt. Leerer Wert bedeutet: frei zusammengestellt, ohne Vorlagen-Basis.", Enum: []string{"", "standard", "high_precision", "fast", "research", "news"}},
 }
 
 // byKey indexes the registry for O(1) lookup.

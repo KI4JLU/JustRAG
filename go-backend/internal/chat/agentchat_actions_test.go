@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -90,11 +91,18 @@ type deadEndHarness struct {
 
 func newDeadEndHarness(t *testing.T, deps AgentFlowDeps, sc adkbridge.Scope) *deadEndHarness {
 	t.Helper()
+	return newDeadEndHarnessOn(t, deps, sc, session.InMemoryService())
+}
+
+// newDeadEndHarnessOn runs on svc: two harnesses on one service share the
+// session, as the per-request flows of a turn and its resume do.
+func newDeadEndHarnessOn(t *testing.T, deps AgentFlowDeps, sc adkbridge.Scope, svc session.Service) *deadEndHarness {
+	t.Helper()
 	a, err := NewAgentFlow(deps)
 	if err != nil {
 		t.Fatalf("NewAgentFlow: %v", err)
 	}
-	r, err := runner.New(runner.Config{AppName: "agentchat", Agent: a, SessionService: session.InMemoryService(), AutoCreateSession: true})
+	r, err := runner.New(runner.Config{AppName: "agentchat", Agent: a, SessionService: svc, AutoCreateSession: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +194,7 @@ func TestDeadEndActionsOrder(t *testing.T) {
 		}
 		return out
 	}
-	acts := DeadEndActions("Budget 2027?", adkbridge.RouteNoEvidence)
+	acts := DeadEndActions("Budget 2027?", adkbridge.RouteNoEvidence, "de")
 	if got := ids(acts); !slices.Equal(got, []string{"web", "library", "upload", "confluence"}) {
 		t.Fatalf("no_evidence actions = %v", got)
 	}
@@ -195,7 +203,7 @@ func TestDeadEndActionsOrder(t *testing.T) {
 		acts[3].Tool != "confluence_import" || acts[3].FrontendTool != "choose_confluence_space" {
 		t.Fatalf("actions = %+v", acts)
 	}
-	if got := ids(DeadEndActions("q", adkbridge.RouteNoFiles)); !slices.Equal(got, []string{"library", "upload", "confluence"}) {
+	if got := ids(DeadEndActions("q", adkbridge.RouteNoFiles, "de")); !slices.Equal(got, []string{"library", "upload", "confluence"}) {
 		t.Fatalf("no_files actions = %v", got)
 	}
 }
@@ -220,7 +228,7 @@ func TestEmptyKBOffersNoFilesActions(t *testing.T) {
 	if pauseOf(evs) != nil {
 		t.Fatal("view: paused with no executable action")
 	}
-	if got := lastOutput(evs); got != deadEndNoFilesText {
+	if got := lastOutput(evs); got != agentTextsDE.deadEndNoFiles {
 		t.Fatalf("view: output = %q", got)
 	}
 }
@@ -265,7 +273,7 @@ func TestNoAllowedActionsEndsWithoutPause(t *testing.T) {
 	deps := deadEndDeps(fc, nil)
 	deps.Allowed = nil
 	evs := newDeadEndHarness(t, deps, editScope).ask("Budget?")
-	if pauseOf(evs) != nil || lastOutput(evs) != deadEndNoEvidenceText || len(fc.requests()) != 0 {
+	if pauseOf(evs) != nil || lastOutput(evs) != agentTextsDE.deadEndNoEvidence || len(fc.requests()) != 0 {
 		t.Fatalf("pause=%v output=%q model calls=%d", pauseOf(evs), lastOutput(evs), len(fc.requests()))
 	}
 }
@@ -273,7 +281,7 @@ func TestNoAllowedActionsEndsWithoutPause(t *testing.T) {
 func TestForgedActionIsRefused(t *testing.T) {
 	var web, imp int
 	lib := &fakeLibrary{}
-	dispatch := actDispatchers(nil, lib)
+	dispatch := actDispatchers(nil, lib, "de")
 	dispatch["web_search"] = countingDispatch(&web, "x")
 	dispatch["confluence_import"] = countingDispatch(&imp, "x")
 	h := newDeadEndHarness(t, deadEndDeps(&agentFakeClient{}, dispatch), viewScope)
@@ -281,7 +289,7 @@ func TestForgedActionIsRefused(t *testing.T) {
 	req := pauseOf(h.ask("Budget?"))
 	evs := h.resume(req, map[string]any{"actionId": "confluence", "args": map[string]any{"spaceKey": "HR"}})
 
-	if got := lastOutput(evs); got != actRefusedText {
+	if got := lastOutput(evs); got != agentTextsDE.actRefused {
 		t.Fatalf("output = %q", got)
 	}
 	if web+imp+len(lib.calls) != 0 {
@@ -320,7 +328,7 @@ func TestWebActionFeedsAnswer(t *testing.T) {
 
 func TestUploadActionAddsFile(t *testing.T) {
 	lib := &fakeLibrary{}
-	h := newDeadEndHarness(t, deadEndDeps(&agentFakeClient{}, actDispatchers(nil, lib)), editScope)
+	h := newDeadEndHarness(t, deadEndDeps(&agentFakeClient{}, actDispatchers(nil, lib, "de")), editScope)
 
 	req := pauseOf(h.ask("Budget?"))
 	evs := h.resume(req, map[string]any{"actionId": "upload", "args": map[string]any{"userFileIds": []any{"f1"}, "kb_id": "other"}})
@@ -332,10 +340,10 @@ func TestUploadActionAddsFile(t *testing.T) {
 	if c.userID != "u1" || c.kbID != "kb1" || !c.isGlobal || !slices.Equal(c.ids, []string{"f1"}) {
 		t.Fatalf("library call = %+v", c)
 	}
-	if got := lastOutput(evs); got != libraryAddedText {
+	if got := lastOutput(evs); got != agentTextsDE.libraryAdded {
 		t.Fatalf("output = %q", got)
 	}
-	if text, _ := translate(t, evs); text != libraryAddedText {
+	if text, _ := translate(t, evs); text != agentTextsDE.libraryAdded {
 		t.Fatalf("client text = %q", text)
 	}
 }
@@ -343,7 +351,7 @@ func TestUploadActionAddsFile(t *testing.T) {
 func TestCancelledChoiceDoesNothing(t *testing.T) {
 	var web int
 	lib := &fakeLibrary{}
-	dispatch := actDispatchers(nil, lib)
+	dispatch := actDispatchers(nil, lib, "de")
 	dispatch["web_search"] = countingDispatch(&web, "x")
 	fc := &agentFakeClient{}
 	h := newDeadEndHarness(t, deadEndDeps(fc, dispatch), editScope)
@@ -351,7 +359,7 @@ func TestCancelledChoiceDoesNothing(t *testing.T) {
 	req := pauseOf(h.ask("Budget?"))
 	evs := h.resume(req, map[string]any{"cancelled": true})
 
-	if got := lastOutput(evs); got != actCancelledText {
+	if got := lastOutput(evs); got != agentTextsDE.actCancelled {
 		t.Fatalf("output = %q", got)
 	}
 	if web+len(lib.calls)+len(fc.requests()) != 0 {
@@ -394,10 +402,10 @@ func TestActDecodesResumePayloadShapes(t *testing.T) {
 // The real resume path: a raw-JSON payload through the runner still runs.
 func TestRawJSONResumeExecutesChoice(t *testing.T) {
 	lib := &fakeLibrary{}
-	h := newDeadEndHarness(t, deadEndDeps(&agentFakeClient{}, actDispatchers(nil, lib)), editScope)
+	h := newDeadEndHarness(t, deadEndDeps(&agentFakeClient{}, actDispatchers(nil, lib, "de")), editScope)
 	req := pauseOf(h.ask("Budget?"))
 	evs := h.resume(req, json.RawMessage(`{"actionId":"library","args":{"userFileIds":["f9"]}}`))
-	if len(lib.calls) != 1 || !slices.Equal(lib.calls[0].ids, []string{"f9"}) || lastOutput(evs) != libraryAddedText {
+	if len(lib.calls) != 1 || !slices.Equal(lib.calls[0].ids, []string{"f9"}) || lastOutput(evs) != agentTextsDE.libraryAdded {
 		t.Fatalf("calls=%+v output=%q", lib.calls, lastOutput(evs))
 	}
 }
@@ -408,15 +416,15 @@ func TestConfluenceActionOutcomes(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"started", nil, confluenceStartedText},
-		{"notQueued", confluence.ErrSyncNotQueued, confluenceNotStartedText},
-		{"noConnection", confluence.ErrNoConnection, confluenceNoConnectionText},
-		{"failed", errors.New("db down"), actFailedText},
+		{"started", nil, agentTextsDE.confluenceStarted},
+		{"notQueued", confluence.ErrSyncNotQueued, agentTextsDE.confluenceNotStarted},
+		{"noConnection", confluence.ErrNoConnection, agentTextsDE.confluenceNoConnection},
+		{"failed", errors.New("db down"), agentTextsDE.actFailed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			imp := &fakeImporter{id: "src1", err: tc.err}
-			h := newDeadEndHarness(t, deadEndDeps(&agentFakeClient{}, actDispatchers(imp, nil)), editScope)
+			h := newDeadEndHarness(t, deadEndDeps(&agentFakeClient{}, actDispatchers(imp, nil, "de")), editScope)
 			req := pauseOf(h.ask("Budget?"))
 			evs := h.resume(req, map[string]any{"actionId": "confluence", "args": map[string]any{"spaceKey": "HR", "rootPageId": "42"}})
 			if len(imp.calls) != 1 || imp.calls[0] != "HR|42" || imp.user != "u1" {
@@ -434,16 +442,16 @@ func TestLibraryOutcomeTexts(t *testing.T) {
 		res  []files.AddResult
 		want string
 	}{
-		{[]files.AddResult{{Status: files.AddStatusDuplicate}}, libraryDuplicateText},
-		{[]files.AddResult{{Status: files.AddStatusError, Error: "kb_full"}}, libraryNotAddedText},
-		{[]files.AddResult{{Status: files.AddStatusError}, {Status: files.AddStatusAdded}}, fmt.Sprintf(libraryPartialFormat, 1, 2)},
-		{[]files.AddResult{{Status: files.AddStatusDuplicate}, {Status: files.AddStatusAdded}}, libraryAddedText},
+		{[]files.AddResult{{Status: files.AddStatusDuplicate}}, agentTextsDE.libraryDuplicate},
+		{[]files.AddResult{{Status: files.AddStatusError, Error: "kb_full"}}, agentTextsDE.libraryNotAdded},
+		{[]files.AddResult{{Status: files.AddStatusError}, {Status: files.AddStatusAdded}}, fmt.Sprintf(agentTextsDE.libraryPartialFormat, 1, 2)},
+		{[]files.AddResult{{Status: files.AddStatusDuplicate}, {Status: files.AddStatusAdded}}, agentTextsDE.libraryAdded},
 		// Final review item 6: nothing added, a duplicate AND a failure —
 		// the failure must not be hidden behind the duplicate text.
-		{[]files.AddResult{{Status: files.AddStatusDuplicate}, {Status: files.AddStatusError}}, fmt.Sprintf(libraryDuplicateFailedFormat, 1, 2)},
+		{[]files.AddResult{{Status: files.AddStatusDuplicate}, {Status: files.AddStatusError}}, fmt.Sprintf(agentTextsDE.libraryDuplicateFailedFormat, 1, 2)},
 	} {
 		lib := &fakeLibrary{res: tc.res}
-		res, err := actDispatchers(nil, lib)["library_add_to_kb"](adkbridge.WithScope(context.Background(), editScope),
+		res, err := actDispatchers(nil, lib, "de")["library_add_to_kb"](adkbridge.WithScope(context.Background(), editScope),
 			"kb1", "library_add_to_kb", json.RawMessage(`{"userFileIds":["f1"],"kb_id":"kb1"}`))
 		if err != nil || res.Text != tc.want {
 			t.Fatalf("res=%q err=%v, want %q", res.Text, err, tc.want)
@@ -451,20 +459,20 @@ func TestLibraryOutcomeTexts(t *testing.T) {
 	}
 	// No ids: nothing is called.
 	lib := &fakeLibrary{}
-	res, err := actDispatchers(nil, lib)["library_add_to_kb"](adkbridge.WithScope(context.Background(), editScope),
+	res, err := actDispatchers(nil, lib, "de")["library_add_to_kb"](adkbridge.WithScope(context.Background(), editScope),
 		"kb1", "library_add_to_kb", json.RawMessage(`{"kb_id":"kb1"}`))
-	if err != nil || res.Text != libraryNothingChosenText || len(lib.calls) != 0 {
+	if err != nil || res.Text != agentTextsDE.libraryNothingChosen || len(lib.calls) != 0 {
 		t.Fatalf("res=%q err=%v calls=%d", res.Text, err, len(lib.calls))
 	}
 }
 
 func TestActDispatchersSkipsMissingDeps(t *testing.T) {
-	if got := ActDispatchers(nil, nil, nil); len(got) != 0 {
+	if got := ActDispatchers(nil, nil, nil, "de"); len(got) != 0 {
 		t.Fatalf("dispatchers without deps = %v", got)
 	}
 	reg := mcp.NewRegistry()
 	reg.RegisterBuiltin(mcp.Tool{Name: "web_search"})
-	got := ActDispatchers(reg, nil, &fakeLibrary{})
+	got := ActDispatchers(reg, nil, &fakeLibrary{}, "de")
 	if got["web_search"] == nil || got["library_add_to_kb"] == nil || got["confluence_import"] != nil {
 		t.Fatalf("dispatchers = %v", got)
 	}
@@ -523,25 +531,25 @@ func allDispatchers() map[string]adkbridge.DispatchFunc {
 // never offered (suggest and act agree).
 func TestActionsWithoutDispatcherAreNotOffered(t *testing.T) {
 	lib := &fakeLibrary{}
-	deps := deadEndDeps(&agentFakeClient{}, actDispatchers(nil, lib))
+	deps := deadEndDeps(&agentFakeClient{}, actDispatchers(nil, lib, "de"))
 	if got := offeredIDs(t, pauseOf(newDeadEndHarness(t, deps, editScope).ask("Budget?"))); !slices.Equal(got, []string{"library", "upload"}) {
 		t.Fatalf("offered = %v", got)
 	}
 	// web is allowlisted but has no dispatcher: a forged choice is refused.
 	h := newDeadEndHarness(t, deps, editScope)
-	if got := lastOutput(h.resume(pauseOf(h.ask("Budget?")), map[string]any{"actionId": "web"})); got != actRefusedText {
+	if got := lastOutput(h.resume(pauseOf(h.ask("Budget?")), map[string]any{"actionId": "web"})); got != agentTextsDE.actRefused {
 		t.Fatalf("web without dispatcher: output = %q", got)
 	}
 	// Nothing executable left: no pause, plain text.
 	deps = deadEndDeps(&agentFakeClient{}, map[string]adkbridge.DispatchFunc{"code_exec": allDispatchers()["web_search"]})
 	evs := newDeadEndHarness(t, deps, editScope).ask("Budget?")
-	if pauseOf(evs) != nil || lastOutput(evs) != deadEndNoEvidenceText {
+	if pauseOf(evs) != nil || lastOutput(evs) != agentTextsDE.deadEndNoEvidence {
 		t.Fatalf("pause=%v output=%q", pauseOf(evs), lastOutput(evs))
 	}
 }
 
 func TestActDispatchersWebNeedsRegisteredTool(t *testing.T) {
-	if got := ActDispatchers(mcp.NewRegistry(), nil, nil); got["web_search"] != nil {
+	if got := ActDispatchers(mcp.NewRegistry(), nil, nil, "de"); got["web_search"] != nil {
 		t.Fatal("web_search offered by a registry that lacks it")
 	}
 }
@@ -564,9 +572,9 @@ func TestWebResultsCannotEscapeTheirBlock(t *testing.T) {
 // Fix round 1, finding 4.
 func TestConfluenceWithoutSpaceKeyImportsNothing(t *testing.T) {
 	imp := &fakeImporter{id: "src1"}
-	res, err := actDispatchers(imp, nil)["confluence_import"](adkbridge.WithScope(context.Background(), editScope),
+	res, err := actDispatchers(imp, nil, "de")["confluence_import"](adkbridge.WithScope(context.Background(), editScope),
 		"kb1", "confluence_import", json.RawMessage(`{"spaceKey":"  ","kb_id":"kb1"}`))
-	if err != nil || res.Text != confluenceNoSpaceText || len(imp.calls) != 0 {
+	if err != nil || res.Text != agentTextsDE.confluenceNoSpace || len(imp.calls) != 0 {
 		t.Fatalf("res=%q err=%v calls=%v", res.Text, err, imp.calls)
 	}
 }
@@ -577,7 +585,7 @@ func TestConfluenceWithoutSpaceKeyImportsNothing(t *testing.T) {
 func TestWebAnswerSeesNoEarlierTurns(t *testing.T) {
 	var web int
 	fc := &agentFakeClient{turns: [][]ai.StreamChunk{
-		agentTextTurn("ERSTE-ANTWORT aus der Wissensbasis."),
+		agentTextTurn("ERSTE-ANTWORT aus den Quellen."),
 		agentTextTurn("Laut Web: 4 Mio. Euro."),
 	}}
 	var calls []ChatContextParams
@@ -632,7 +640,149 @@ func TestUnavailableActionsAreNeitherOfferedNorExecuted(t *testing.T) {
 	if !slices.Contains(checked, "u1|web_search") || !slices.Contains(checked, "u1|confluence_import") {
 		t.Fatalf("availability checks = %v", checked)
 	}
-	if got := lastOutput(h.resume(req, map[string]any{"actionId": "web"})); got != actRefusedText || web != 0 {
+	if got := lastOutput(h.resume(req, map[string]any{"actionId": "web"})); got != agentTextsDE.actRefused || web != 0 {
 		t.Fatalf("forged web: output %q, dispatches %d", got, web)
+	}
+}
+
+// Oracle: every fixed text exists in both languages, the English set is a
+// translation (no field left German), and the formats keep their two
+// counts.
+func TestAgentTextsComplete(t *testing.T) {
+	de, en := reflect.ValueOf(agentTextsDE), reflect.ValueOf(agentTextsEN)
+	for i := range de.NumField() {
+		name := de.Type().Field(i).Name
+		d, e := de.Field(i).String(), en.Field(i).String()
+		if strings.TrimSpace(d) == "" || strings.TrimSpace(e) == "" {
+			t.Errorf("%s: empty text (de %q, en %q)", name, d, e)
+		}
+		if d == e {
+			t.Errorf("%s: English text equals German %q", name, d)
+		}
+		if strings.HasSuffix(name, "Format") && (strings.Count(d, "%d") != 2 || strings.Count(e, "%d") != 2) {
+			t.Errorf("%s: want two %%d (de %q, en %q)", name, d, e)
+		}
+		for _, old := range []string{"Wissensbasis", "Wissensbank", "Wissensdatenbank", "knowledge base"} {
+			if strings.Contains(strings.ToLower(d+e), strings.ToLower(old)) {
+				t.Errorf("%s: old vocabulary %q", name, old)
+			}
+		}
+	}
+}
+
+func TestAgentTextsFor(t *testing.T) {
+	cases := []struct {
+		lang string
+		want agentTexts
+	}{
+		{"de", agentTextsDE},
+		{"en", agentTextsEN},
+		{"", agentTextsDE},
+		{"fr", agentTextsDE},
+		{"EN", agentTextsDE}, // agentChatPropsOf passes only "de" or "en"
+	}
+	for _, c := range cases {
+		if got := agentTextsFor(c.lang); got != c.want {
+			t.Errorf("agentTextsFor(%q) = %q…, want %q…", c.lang, got.deadEndNoFiles, c.want.deadEndNoFiles)
+		}
+	}
+}
+
+// Oracle: the flow's Language selects the pause message, the action labels
+// and the plain dead-end text of a fresh turn.
+func TestDeadEndTextsFollowLanguage(t *testing.T) {
+	for _, c := range []struct {
+		lang string
+		want agentTexts
+	}{{"de", agentTextsDE}, {"en", agentTextsEN}, {"", agentTextsDE}} {
+		t.Run("lang="+c.lang, func(t *testing.T) {
+			deps := deadEndDeps(&agentFakeClient{}, allDispatchers())
+			deps.Language = c.lang
+			req := pauseOf(newDeadEndHarness(t, deps, editScope).ask("Budget?"))
+			if req == nil {
+				t.Fatal("flow did not pause")
+			}
+			if want := c.want.deadEndNoEvidence + c.want.suggestSuffix; req.Message != want {
+				t.Errorf("pause message = %q, want %q", req.Message, want)
+			}
+			var labels []string
+			for _, a := range req.Payload.(map[string]any)["actions"].([]adkbridge.Action) {
+				labels = append(labels, a.Label)
+			}
+			wantLabels := []string{c.want.labelWeb, c.want.labelLibrary, c.want.labelUpload, c.want.labelConfluence}
+			if !slices.Equal(labels, wantLabels) {
+				t.Errorf("labels = %q, want %q", labels, wantLabels)
+			}
+
+			// Nothing to offer: the plain no_files text, no pause.
+			deps.FileCounter = func(context.Context, string) (int, error) { return 0, nil }
+			evs := newDeadEndHarness(t, deps, viewScope).ask("Mensa?")
+			if pauseOf(evs) != nil || lastOutput(evs) != c.want.deadEndNoFiles {
+				t.Errorf("view on empty KB: output = %q, want %q", lastOutput(evs), c.want.deadEndNoFiles)
+			}
+		})
+	}
+}
+
+// Oracle: a resume is its own request with its own forwardedProps.language;
+// the handler builds the resumed flow (act texts and dispatcher outcomes)
+// for that language, whatever language the paused turn had.
+func TestResumeTextsFollowResumeLanguage(t *testing.T) {
+	cases := []struct {
+		name, askLang, resumeLang string
+		payload                   map[string]any
+		want                      func(agentTexts) string
+	}{
+		{"upload de→en", "de", "en", map[string]any{"actionId": "upload", "args": map[string]any{"userFileIds": []any{"f1"}}},
+			func(t agentTexts) string { return t.libraryAdded }},
+		{"upload en→de", "en", "de", map[string]any{"actionId": "upload", "args": map[string]any{"userFileIds": []any{"f1"}}},
+			func(t agentTexts) string { return t.libraryAdded }},
+		{"nothing chosen en", "en", "en", map[string]any{"actionId": "library", "args": map[string]any{"userFileIds": []any{}}},
+			func(t agentTexts) string { return t.libraryNothingChosen }},
+		{"cancel en", "de", "en", map[string]any{"cancelled": true},
+			func(t agentTexts) string { return t.actCancelled }},
+		{"refused en", "en", "en", map[string]any{"actionId": "nope"},
+			func(t agentTexts) string { return t.actRefused }},
+		{"refused default", "en", "", map[string]any{"actionId": "nope"},
+			func(t agentTexts) string { return t.actRefused }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			svc := session.InMemoryService()
+			flow := func(lang string) *deadEndHarness {
+				deps := deadEndDeps(&agentFakeClient{}, actDispatchers(nil, &fakeLibrary{}, lang))
+				deps.Language = lang
+				return newDeadEndHarnessOn(t, deps, editScope, svc)
+			}
+			req := pauseOf(flow(c.askLang).ask("Budget?"))
+			if req == nil {
+				t.Fatal("flow did not pause")
+			}
+			if want := agentTextsFor(c.askLang).deadEndNoEvidence; !strings.HasPrefix(req.Message, want) {
+				t.Errorf("pause message = %q, want prefix %q", req.Message, want)
+			}
+			if got, want := lastOutput(flow(c.resumeLang).resume(req, c.payload)), c.want(agentTextsFor(c.resumeLang)); got != want {
+				t.Errorf("resume output = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// Oracle: the dispatcher outcomes and the Confluence texts are in the
+// dispatchers' language.
+func TestActDispatcherOutcomesFollowLanguage(t *testing.T) {
+	ctx := adkbridge.WithScope(context.Background(), editScope)
+	for _, lang := range []string{"de", "en"} {
+		want := agentTextsFor(lang)
+		lib := &fakeLibrary{res: []files.AddResult{{Status: files.AddStatusDuplicate}, {Status: files.AddStatusError}}}
+		res, err := actDispatchers(nil, lib, lang)["library_add_to_kb"](ctx, "kb1", "library_add_to_kb", json.RawMessage(`{"userFileIds":["a","b"]}`))
+		if err != nil || res.Text != fmt.Sprintf(want.libraryDuplicateFailedFormat, 1, 2) {
+			t.Errorf("%s: library = %q, %v", lang, res.Text, err)
+		}
+		imp := &fakeImporter{err: confluence.ErrSyncNotQueued}
+		res, err = actDispatchers(imp, nil, lang)["confluence_import"](ctx, "kb1", "confluence_import", json.RawMessage(`{"spaceKey":"HRZ"}`))
+		if err != nil || res.Text != want.confluenceNotStarted {
+			t.Errorf("%s: confluence = %q, %v", lang, res.Text, err)
+		}
 	}
 }

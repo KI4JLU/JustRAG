@@ -27,6 +27,10 @@ func TestAgentChatPropsOf(t *testing.T) {
 		{`{"forwardedProps":{"reasoning":true}}`, "", "de"},
 		{`{"forwardedProps":"medium"}`, "", "de"},
 		{`{}`, "", "de"},
+		// A resume carries its own forwardedProps; its language selects the
+		// resumed turn's fixed texts.
+		{`{"threadId":"t1","resume":[{"interruptId":"suggest-1","status":"cancelled"}],"forwardedProps":{"language":"en"}}`, "", "en"},
+		{`{"threadId":"t1","resume":[{"interruptId":"suggest-1","status":"cancelled"}]}`, "", "de"},
 	}
 	for _, c := range cases {
 		var in types.RunAgentInput
