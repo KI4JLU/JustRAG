@@ -17,7 +17,7 @@ GOLANGCI_VERSION   := v2.1.6
 GOVULNCHECK_VERSION := v1.6.0
 
 # Integration tests are DB-backed and opt in via the `integration` build tag.
-INTEGRATION_PKGS := ./internal/cascade/... ./internal/vector/... ./internal/kg/... ./internal/tabular/... ./internal/processor/...
+INTEGRATION_PKGS := ./internal/cascade/... ./internal/vector/... ./internal/kg/... ./internal/tabular/... ./internal/processor/... ./internal/glossaryaccess/... ./internal/glossarymembers/... ./internal/translator/...
 
 .DEFAULT_GOAL := help
 

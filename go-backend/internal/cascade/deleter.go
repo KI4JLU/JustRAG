@@ -602,10 +602,15 @@ func (d *Deleter) deleteStorageForFiles(ctx context.Context, files []fileRecord)
 // FK to chats; these delete it for the chats a transaction is about to
 // delete. The chat store and kbmembers.LeaveKB carry their own variants.
 const (
-	adkSessionsOfKBChats  = `DELETE FROM adk_sessions WHERE app_name = 'agentchat' AND id IN (SELECT id::text FROM chats WHERE kb_id = $1)`
-	agentRunsOfKBChats    = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = $1)`
-	adkSessionsOfKBsChats = `DELETE FROM adk_sessions WHERE app_name = 'agentchat' AND id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
-	agentRunsOfKBsChats   = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
+	// Children of the glossaries a user owns, selected through the owner row,
+	// so they must run before that row (and the glossary) is deleted.
+	ownedGlossaryRedemptions    = `DELETE FROM glossary_invite_redemptions WHERE link_id IN (SELECT l.id FROM glossary_invite_links l JOIN glossary_members m ON m.glossary_id = l.glossary_id AND m.user_id = $1 AND m.role = 'owner')`
+	ownedGlossaryLinks          = `DELETE FROM glossary_invite_links WHERE glossary_id IN (SELECT glossary_id FROM glossary_members WHERE user_id = $1 AND role = 'owner')`
+	ownedGlossaryPendingInvites = `DELETE FROM glossary_pending_invites WHERE glossary_id IN (SELECT glossary_id FROM glossary_members WHERE user_id = $1 AND role = 'owner')`
+	adkSessionsOfKBChats        = `DELETE FROM adk_sessions WHERE app_name = 'agentchat' AND id IN (SELECT id::text FROM chats WHERE kb_id = $1)`
+	agentRunsOfKBChats          = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = $1)`
+	adkSessionsOfKBsChats       = `DELETE FROM adk_sessions WHERE app_name = 'agentchat' AND id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
+	agentRunsOfKBsChats         = `DELETE FROM agent_runs WHERE app_name = 'agentchat' AND thread_id IN (SELECT id::text FROM chats WHERE kb_id = ANY($1::uuid[]))`
 
 	// Chat attachment links (migration 0090) of the KB's chats. They would
 	// also go with the messages (ON DELETE CASCADE); listed so the delete
@@ -673,7 +678,7 @@ func (d *Deleter) deleteUserTransaction(ctx context.Context, userID string, kbID
 // userDeleteSteps lists the statements of the user-delete transaction, in
 // execution order.
 func userDeleteSteps(userID string, kbIDs []string) []txStep {
-	steps := make([]txStep, 0, 23)
+	steps := make([]txStep, 0, 30)
 	if len(kbIDs) > 0 {
 		steps = append(steps,
 			txStep{`DELETE FROM files WHERE kb_id = ANY($1::uuid[])`, []any{kbIDs}},
@@ -721,6 +726,16 @@ func userDeleteSteps(userID string, kbIDs []string) []txStep {
 		// adk_app_states is app-wide and untouched.
 		txStep{`DELETE FROM adk_sessions WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM adk_user_states WHERE user_id = $1`, []any{userID}},
+		// Translator glossaries (migration 0109). The glossaries the user owns
+		// go with their invite links and pending invites; the member rows of
+		// those glossaries follow with the glossary row. Then the user's own
+		// memberships in glossaries of others and their redemptions.
+		txStep{ownedGlossaryRedemptions, []any{userID}},
+		txStep{ownedGlossaryLinks, []any{userID}},
+		txStep{ownedGlossaryPendingInvites, []any{userID}},
+		txStep{`DELETE FROM glossaries WHERE id IN (SELECT glossary_id FROM glossary_members WHERE user_id = $1 AND role = 'owner')`, []any{userID}},
+		txStep{`DELETE FROM glossary_invite_redemptions WHERE user_id = $1`, []any{userID}},
+		txStep{`DELETE FROM glossary_members WHERE user_id = $1`, []any{userID}},
 		txStep{`DELETE FROM users WHERE id = $1`, []any{userID}},
 	)
 	return steps

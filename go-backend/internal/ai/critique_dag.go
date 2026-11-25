@@ -108,7 +108,7 @@ func CritiqueDAGProgress(
 	sys := prompts.CritiqueDAGSystemPrompt(lang)
 	user := prompts.CritiqueDAGUserPrompt(question, completed, pending)
 
-	res, err := resolver.structuredCompletionFn(ctx, user, sys, kbID, modelOverride, critiqueDAGSpec)
+	res, err := resolver.structuredCompletionFn(WithoutThinking(ctx), user, sys, kbID, modelOverride, critiqueDAGSpec)
 	if err != nil {
 		observability.RecordCritiqueDAGAction("error")
 		logctx.From(ctx).Warn("critique_dag: completion failed; treating as continue", "error", err)

@@ -74,6 +74,8 @@ SSE `{"error"}` frame) also carries a stable `code`. Clients map the code, never
 | `empty_file` | `400` | The uploaded file has zero bytes |
 | `file_name_too_long` | `400` | The file name exceeds 255 bytes |
 | `invalid_upload` | `400` | The request is not a well-formed file upload |
+| `glossary_too_many_entries` | `400` | A glossary (create, update or CSV import) has more than 5,000 entries |
+| `glossary_term_invalid` | `400` | A glossary term is longer than 200 characters or holds a control character or line break |
 
 The upload routes (`POST /kb/{id}/files`, `/library/files`, `/kb/{id}/chat/attachments`,
 `/kb/{id}/chat/attachment`), the attachment checks of `POST /kb/{id}/chat` and library chat carry
@@ -859,6 +861,41 @@ deletes, so the token keeps resolving; revoked links leave the admin list. A
 link's `redemptionCount` (in `GET /kb/{id}/invite-links`) is the number of
 distinct people who joined through it; `lastUsedAt` is the last such join.
 
+### Translator and glossaries
+
+The translation extension: translate and revise text, detect a language, suggest wordings, and keep glossaries those calls can keep to. Texts only pass through the server and are never stored. The calls run on the Fast Tier model (`model_tier_fast`; the provider's default chat model while that is empty). Contract: [`docs/api-contracts/translator.md`](docs/api-contracts/translator.md); glossary roles: [`docs/glossary-access.md`](docs/glossary-access.md).
+
+Every route needs the **translation permission** (system roles `user`, `admin`, `superadmin`, `api-user`, fixed in code) and, while the global-only site_config key `translator_enabled` is off (the default), answers `403 translator_disabled` — except `GET /translator/config`, which tells the UI that. `{id}` routes also need a **glossary role** (`viewer < editor < admin < owner`, held per glossary in `glossary_members`, independent of the system role): `404` for a missing glossary, `403` for one the caller may not open or whose role is too low. A glossary with `visibility` `global` reads as `viewer` for everyone; `private` is for its members only. There is no `organization` level.
+
+| Method | Path | Access |
+|---|---|---|
+| GET | `/translator/config` | translation permission — `{enabled, defaultTargetLanguage, languages[{code,name}], glossaryLanguages[], model, modelSource, limits{…}}` |
+| POST | `/translator/translate` | translation permission, 60 / min per user — body `{text[], source\|null, target, formality?, style?, tone?, glossaryIds?[]}` → `{text[], detectedSource}` |
+| POST | `/translator/rephrase` | same — body `{text[], language\|null, formality?, style?, tone?, glossaryIds?[]}` → `{text[], detectedLanguage}` |
+| POST | `/translator/detect` | same — body `{text}` (up to 500 characters) → `{language}` (`null` when not one the translator offers) |
+| POST | `/translator/suggest` | same — body `{kind: alternatives\|synonyms\|correction, text, context?, language?, formality?, style?, tone?, exclusions?[]}` → `{suggestions[]}` |
+| GET | `/glossaries` | translation permission — `{glossaries[], languages[]}`: every glossary the caller can open, by name, each with `role`, `isMember` and the flags `canEdit`, `canManage`, `canDelete` |
+| POST | `/glossaries` | translation permission — body `{name, description?, category?, visibility?, entries[]}` (at most 5,000 entries, terms up to 200 characters without control characters or line breaks; body up to 1 MiB, `413` above); the creator becomes the `owner`; `201` with the detail. `visibility: global` publishes to every user: open to everyone with the translation permission by design (see `docs/glossary-access.md`) |
+| POST | `/glossaries/import` | translation permission — multipart form: `file` (CSV, two columns, comma, semicolon or tab separated, an optional header row; up to 5 MiB, exempt from the server's global 1 MiB body cap), `name`, `description?`, `sourceLanguage`, `targetLanguage`; creates a private glossary owned by the caller; `413` for a larger file, `400 glossary_too_many_entries` over 5,000 pairs |
+| GET | `/glossaries/{id}` | viewer — the detail with `entries[]` |
+| PUT | `/glossaries/{id}` | editor — body `{name, description?, category?, entries[]}`, a full replacement: an empty or missing description or category clears it (only creating defaults the category to `general`); same limits as creating; bumps `updatedAt` |
+| PATCH | `/glossaries/{id}` | admin — body `{visibility: private\|global}` (body up to 1 MiB, `413` above); `204`; does not bump `updatedAt` |
+| DELETE | `/glossaries/{id}` | owner — `204` |
+| GET | `/glossaries/{id}/members` | admin — `{members[{userId,username,firstName,lastName,role,createdAt}], pending[{username,role,createdAt}]}` |
+| PUT | `/glossaries/{id}/members/{userId}` | admin — body `{role}` (`viewer`, `editor` or `admin`); `409` on the owner's row, `404` for a non-member |
+| DELETE | `/glossaries/{id}/members/{userId}` | admin — `204`; `409` on the owner's row |
+| POST | `/glossaries/{id}/members/bulk` | admin — body `{usernames[], role}` (up to 500): `{shared[], pending[], alreadyHadAccess[]}`. A known account becomes a member, an existing member is reported and left unchanged, an unknown username becomes a pending invite applied at their next login (password, LDAP or OIDC) |
+| DELETE | `/glossaries/{id}/members/pending/{username}` | admin — withdraws a pending invite; `204` |
+| GET | `/glossaries/{id}/invite-links` | admin — `{links[{id,glossaryId,token,role,label,createdByName,createdAt,redemptionCount,lastUsedAt}]}`; revoked links leave the list |
+| POST | `/glossaries/{id}/invite-links` | admin — body `{role, label?}` (label up to 100 characters); `201` with the link |
+| DELETE | `/glossaries/{id}/invite-links/{linkId}` | admin — revokes (`revoked_at`), the token keeps resolving; existing members stay; `204` |
+| GET | `/glossary-invites/{token}` | authenticated (no glossary role), 30 / min per client address — changes nothing: `{status: invite\|member\|revoked, glossaryId?, glossaryName, description?, linkRole?, role}` |
+| POST | `/glossary-invites/{token}/redeem` | same — joins with the link's role: `{linkId, glossaryId, glossaryName, role, alreadyMember}`; a link never changes an existing membership; a revoked link is `410 invite_revoked` |
+| POST | `/glossaries/{id}/transfer-owner` | owner (an actual owner row) — body `{userId}`; the target must already be a member (`400` otherwise); the old owner becomes `admin`; `204`; `409` when a concurrent transfer already moved the ownership |
+| DELETE | `/glossaries/{id}/membership` | any role (self) — the caller leaves; `409` for the owner (transfer or delete instead); `204` |
+
+Errors: `400` for a refused request (limits, unknown language, unreadable glossary id), `413` for a JSON body over its cap (1 MiB on the glossary and member routes; the text routes allow a text of 50,000 characters even when every character is JSON-escaped), when the model could not answer `504 translator_model_timeout` (no answer in time: 30 seconds plus 10 ms per character sent, at most 110 s), `503 translator_model_unavailable` (no provider is active or it rejects the key) or `502 translator_model_failed` (anything else, including an answer without any text after one repeat), `499` without a body when the client left first, `429` over the budget. The member list sits behind `admin`, not `viewer`: on a global glossary every user is a viewer and the roster is not theirs to read.
+
 ### Files and source ingestion
 
 | Method | Path |
@@ -1492,9 +1529,11 @@ The Go server applies per-category Redis-backed rate limits:
 | api | 100 / min | `/api/v1/*`, `/openai/v1/*` |
 | search | 60 / min **per user** | `GET /api/search` |
 | chat_attachments | 60 / min **per user** | `POST /api/kb/{id}/chat/attachments` |
+| translator | 60 / min **per user** | `POST /api/translator/{translate,rephrase,detect,suggest}` |
+| invite | 30 / min | `GET`/`POST /api/invites/{token}[/redeem]`, `GET`/`POST /api/glossary-invites/{token}[/redeem]` |
 | owui_chat | 600 / min **per API key** | `POST /owui/api/chat/completions` |
 | owui_data | 300 / min **per API key** | every other `/owui/*` route |
 
-Limits are counted per client IP, except `search` and `chat_attachments`, which run after
+Limits are counted per client IP, except `search`, `chat_attachments` and `translator`, which run after
 authentication and are counted per user, and the two `owui_*` categories, which
 are counted per API key because one ILIAS server carries every student.

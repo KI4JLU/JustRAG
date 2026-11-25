@@ -99,7 +99,9 @@ func GenerateCompletionCapped(ctx context.Context, resolver *ConfigResolver, pro
 		slog.Warn("ai: model override not available in resolved config, falling back to ChatModel",
 			"modelOverride", modelOverride, "providerName", config.ProviderName, "fallback", config.ChatModel)
 	}
-	res, err := generateCompletionStructuredInner(ctx, config, nil, prompt, systemPrompt, model, false, 0.2, nil, maxTokens)
+	// These helpers answer in a few dozen tokens: a model that thinks first spends the cap
+	// on its reasoning and is cut off before the answer (ai.helper.truncated).
+	res, err := generateCompletionStructuredInner(WithoutThinking(ctx), config, nil, prompt, systemPrompt, model, false, 0.2, nil, maxTokens)
 	if err == nil && maxTokens > 0 && res != nil && res.FinishReason == "length" {
 		logctx.From(ctx).Warn("ai.helper.truncated", "task", task, "model", model, "max_tokens", maxTokens)
 	}
@@ -207,6 +209,7 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 		Temperature: &temperature,
 		MaxTokens:   maxTokens,
 	}
+	req.ChatTemplateKwargs = noThinkingKwargs(ctx, config, model)
 	if structured != nil {
 		req.ResponseFormat = &ResponseFormat{
 			Type: "json_schema",
@@ -231,6 +234,13 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 
 	var lastErr error
 	skipBackoff := false
+	// chat_template_kwargs is only known to vLLM/LiteLLM-style endpoints; any
+	// other answers 400/422 to it. kwargsDropped: the field was taken out of
+	// the request after such an answer (once per call); kwargsProbe: the
+	// attempt in flight is the one right after the drop, so its success is the
+	// evidence that the field was the cause.
+	kwargsSaved := req.ChatTemplateKwargs
+	kwargsDropped, kwargsProbe := false, false
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 && !skipBackoff {
 			// time.NewTimer + t.Stop() instead of time.After: when ctx is
@@ -253,6 +263,23 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 		resp, err := client.ChatCompletion(ctx, req)
 		if err != nil {
 			lastErr = err
+			wasProbe := kwargsProbe
+			kwargsProbe = false
+			switch {
+			case req.ChatTemplateKwargs != nil && !kwargsDropped && rejectedRequestParams(err):
+				// Ask once more without the field, at once: a rejection is
+				// deterministic, and a success below records the endpoint.
+				_, status := FailureClass(err)
+				logctx.From(ctx).Info("ai.thinking.kwargs_rejected_retrying_without",
+					"model", model, "upstream_status", status)
+				req.ChatTemplateKwargs = nil
+				kwargsDropped, kwargsProbe, skipBackoff = true, true, true
+				continue
+			case wasProbe && rejectedRequestParams(err):
+				// The request without the field failed the same way, so the
+				// field was not the cause (a rejected schema, say): put it back.
+				req.ChatTemplateKwargs = kwargsSaved
+			}
 			// Some backends don't support strict json_schema — downgrade
 			// to the looser json_object contract for the remaining
 			// attempts so the feature degrades gracefully on older
@@ -261,8 +288,11 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 			// that costs only strictness, not correctness, since every
 			// caller keeps tolerant JSON parsing.
 			if req.ResponseFormat != nil && req.ResponseFormat.Type == "json_schema" {
+				// Only the failure class: the provider's answer body may echo the
+				// submitted text, and must not reach a log.
+				class, status := FailureClass(err)
 				logctx.From(ctx).Info("ai.structured.strict_schema_rejected_falling_back",
-					"error", err, "model", model)
+					"failure", class, "upstream_status", status, "model", model)
 				req.ResponseFormat = &ResponseFormat{Type: "json_object"}
 				// A rejected schema is deterministic: try the looser
 				// contract straight away instead of after a backoff.
@@ -273,6 +303,13 @@ func generateCompletionStructuredInner(ctx context.Context, config *ResolvedConf
 				return nil, fmt.Errorf("ai: completion failed: %w", err)
 			}
 			continue
+		}
+
+		if kwargsProbe {
+			// The endpoint refused the request with the field and accepted it
+			// without: skip the field from now on.
+			thinkingKwargsRejected.add(config.BaseURL, model)
+			kwargsProbe = false
 		}
 
 		if len(resp.Choices) == 0 {

@@ -19,11 +19,19 @@ import (
 // encoding changes, so old fingerprints never match new ones — and whenever
 // the index the same inputs produce changes shape, so copy mode never hands
 // out an index built the old way. 2: markdown table headers repeated in
-// every chunk of a split table (KI-853).
-const fingerprintVersion = 2
+// every chunk of a split table (KI-853). 3: contextual enrichment, KG
+// extraction and RAPTOR summaries run without thinking on a reasoning model
+// (ai.WithoutThinking), so their thinking mode is a fingerprint input.
+const fingerprintVersion = 3
 
 // FingerprintInputs is the resolved, ordered input set (exported for tests/logs).
 type FingerprintInputs map[string]string
+
+// The *_thinking inputs record the mode an opted-in step (ai.WithoutThinking)
+// runs in on its resolved model: "off" for a model flagged as reasoning, else
+// "default". The same model name reads differently once the admin flips the
+// is_reasoning flag, and the index (enrichment prefixes, RAPTOR summaries, KG
+// extractions) then differs, so a copy must not cross that line.
 
 // Drift-guard scope: the guard test covers per-KB registry keys only
 // (siteconfig.All with RequiresReingest). Global-only ingest keys that shape
@@ -83,7 +91,9 @@ func (p *Processor) IndexFingerprintInputs(ctx context.Context, kbID string, chu
 	enrich := resolveEnrichmentEnabled(ctx, r)
 	in["contextual_enrichment"] = b(enrich)
 	if enrich {
-		in["contextual_enrichment_model"] = rc.EffectiveChatModel(resolveEnrichmentModel(ctx, r))
+		model := rc.EffectiveChatModel(resolveEnrichmentModel(ctx, r))
+		in["contextual_enrichment_model"] = model
+		in["contextual_enrichment_thinking"] = rc.ThinkingModeWhenOptedOut(model)
 	}
 	late := resolveLateChunkingEnabled(ctx, r)
 	in["late_chunking_enabled"] = b(late)
@@ -102,14 +112,18 @@ func (p *Processor) IndexFingerprintInputs(ctx context.Context, kbID string, chu
 		in["raptor_min_chunks"] = strconv.Itoa(chat.RaptorMinChunks(ctx, r))
 		in["raptor_max_levels"] = strconv.Itoa(chat.RaptorMaxLevels(ctx, r))
 		in["raptor_branching_factor"] = strconv.Itoa(chat.RaptorBranchingFactor(ctx, r))
-		in["raptor_summary_model"] = rc.EffectiveChatModel(chat.RaptorSummaryModel(ctx, r))
+		model := rc.EffectiveChatModel(chat.RaptorSummaryModel(ctx, r))
+		in["raptor_summary_model"] = model
+		in["raptor_summary_thinking"] = rc.ThinkingModeWhenOptedOut(model)
 		in["raptor_clustering_algorithm"] = chat.RaptorClusteringAlgorithm(ctx, r)
 		in["raptor_leiden_resolution"] = strconv.FormatFloat(chat.RaptorLeidenResolution(ctx, r), 'g', -1, 64)
 	}
 	kgOn := resolveKGExtractionEnabled(ctx, r)
 	in["kg_extraction_enabled"] = b(kgOn)
 	if kgOn {
-		in["kg_extraction_model"] = rc.EffectiveChatModel(resolveKGExtractionModel(ctx, r))
+		model := rc.EffectiveChatModel(resolveKGExtractionModel(ctx, r))
+		in["kg_extraction_model"] = model
+		in["kg_extraction_thinking"] = rc.ThinkingModeWhenOptedOut(model)
 	}
 	return in, nil
 }

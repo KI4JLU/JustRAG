@@ -130,7 +130,7 @@ func ExtractKG(ctx context.Context, resolver *ConfigResolver, documentName, docu
 	sys := prompts.KGExtractorSystemPrompt(lang)
 	user := prompts.KGExtractorUserPrompt(documentName, documentBody, chunkContent)
 
-	res, err := resolver.structuredCompletionFn(ctx, user, sys, kbID, modelOverride, kgExtractionSpec)
+	res, err := resolver.structuredCompletionFn(WithoutThinking(ctx), user, sys, kbID, modelOverride, kgExtractionSpec)
 	if err != nil {
 		observability.RecordKGExtraction("error")
 		return KGExtraction{}, fmt.Errorf("kg_extractor: completion: %w", err)

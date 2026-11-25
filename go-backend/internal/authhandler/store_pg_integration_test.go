@@ -263,3 +263,45 @@ func TestLinkUserExternalID_Guard(t *testing.T) {
 		})
 	}
 }
+
+// A glossary invite parked for an unknown username (migration 0109) lands as
+// a glossary_members row with its role on the person's first login, and the
+// invite is consumed. An existing owner row is never demoted.
+func TestApplyPendingInvites_GlossaryInvites(t *testing.T) {
+	pool := testPool(t)
+	store := authhandler.NewStore(pool)
+	ctx := context.Background()
+
+	owner := insertUser(t, pool, "gl-owner")
+	invitee := insertUser(t, pool, "gl-invitee")
+	var g string
+	if err := pool.QueryRow(ctx, `INSERT INTO glossaries (name) VALUES ('pending-test') RETURNING id::text`).Scan(&g); err != nil {
+		t.Fatalf("insert glossary: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM glossaries WHERE id = $1::uuid`, g) }) //nolint:errcheck
+	mustExec(t, pool, `INSERT INTO glossary_members (glossary_id, user_id, role) VALUES ($1, $2, 'owner')`, g, owner)
+	mustExec(t, pool, `
+		INSERT INTO glossary_pending_invites (glossary_id, username, role, invited_by)
+		VALUES ($1, 'gl-invitee', 'editor', $2), ($1, 'gl-owner', 'viewer', $2)`, g, owner)
+
+	if err := store.ApplyPendingInvites(ctx, invitee, "GL-Invitee"); err != nil {
+		t.Fatalf("ApplyPendingInvites: %v", err)
+	}
+	var role string
+	if err := pool.QueryRow(ctx, `SELECT role FROM glossary_members WHERE glossary_id = $1::uuid AND user_id = $2::uuid`, g, invitee).Scan(&role); err != nil || role != "editor" {
+		t.Fatalf("promoted role = %q, %v; want editor", role, err)
+	}
+	var left int
+	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM glossary_pending_invites WHERE glossary_id = $1::uuid AND username = 'gl-invitee'`, g).Scan(&left)
+	if left != 0 {
+		t.Errorf("the applied invite must be consumed, %d left", left)
+	}
+
+	// An invite for the owner's own name must not demote the owner row.
+	if err := store.ApplyPendingInvites(ctx, owner, "gl-owner"); err != nil {
+		t.Fatalf("ApplyPendingInvites (owner): %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT role FROM glossary_members WHERE glossary_id = $1::uuid AND user_id = $2::uuid`, g, owner).Scan(&role); err != nil || role != "owner" {
+		t.Errorf("owner role = %q, %v; an invite must never demote the owner", role, err)
+	}
+}

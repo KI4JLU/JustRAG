@@ -124,6 +124,8 @@ this table only maps each code to the message the web client shows.
 | `parse_timeout` | 422 | Reading the file took longer than the server allows | `errorParseTimeout` ([S8](#2-shared-messages)) |
 | `already_in_kb` | 409 | The topic already holds this file | `errorAlreadyInKb` ([S9](#2-shared-messages)) |
 | `invalid_upload` | 400 | The request is not a well-formed file upload | `errorUploadFailed` (the upload fallback, section 1) |
+| `glossary_too_many_entries` | 400 | A translator glossary (create, update or CSV import) has more than 5,000 entries; the limit is `config.limits.glossaryEntriesMax` | *(frontend key to add; until then the glossary form's own fallback shows)* |
+| `glossary_term_invalid` | 400 | A glossary term is longer than 200 characters (`config.limits.glossaryTermMaxRunes`) or holds a control character or line break | *(frontend key to add; until then the glossary form's own fallback shows)* |
 
 On a chat send, every file code other than `too_large_for_context` shows
 `chatAttachmentsUnusable`, because the send knows no file name.

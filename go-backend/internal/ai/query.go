@@ -276,7 +276,7 @@ func GenerateMultiQueriesWithModel(ctx context.Context, resolver *ConfigResolver
 // resolver's configured ChatModel.
 func GenerateChunkContext(ctx context.Context, resolver *ConfigResolver, fileName string, doc ContextDoc, chunk, kbID, modelOverride string) (string, error) {
 	userPrompt := prompts.ContextualPrefixUser(fileName, doc.Text(), chunk)
-	result, err := GenerateCompletionWithModel(ctx, resolver, userPrompt, prompts.ContextualPrefixSystem(), kbID, false, modelOverride)
+	result, err := GenerateCompletionWithModel(WithoutThinking(ctx), resolver, userPrompt, prompts.ContextualPrefixSystem(), kbID, false, modelOverride)
 	if err != nil {
 		return "", err
 	}

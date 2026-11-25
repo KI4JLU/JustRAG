@@ -33,6 +33,7 @@ func isUploadExempt(r *http.Request) bool {
 		"/api/admin/agent/template",                 // template upload, 10 MiB (adminmaintenance)
 		"/api/admin/eval/golden-sets",               // golden-set JSONL upload, 5 MiB (admineval)
 		"/api/library/files",                        // user library upload, 500 MiB (uploadcheck.MaxUploadSize)
+		"/api/glossaries/import",                    // glossary CSV import, 5 MiB + form framing (translator.Import)
 		"/owui/api/v1/files/", "/owui/api/v1/files", // ILIAS plugin upload, 500 MiB (owuicompat → uploadcheck.MaxUploadSize)
 		"/owui/api/chat/completions": // ILIAS plugin chat, 4 MiB (owuicompat.maxChatBodyBytes)
 		return true
@@ -55,6 +56,12 @@ func isUploadExempt(r *http.Request) bool {
 		return true
 	}
 	return false
+}
+
+// globalBodyCap is the server's global request-body cap: n bytes for every
+// route except the upload routes of isUploadExempt, which set their own.
+func globalBodyCap(n int64) func(http.Handler) http.Handler {
+	return middleware.MaxBytesExcept(n, isUploadExempt)
 }
 
 // RunServer starts the HTTP server with all wiring. It blocks until the server
@@ -150,7 +157,7 @@ func RunServer(cfg *config.Config, version string) error {
 	// Global body cap — only the upload routes enumerated in isUploadExempt
 	// are exempt; each sets its own larger http.MaxBytesReader / multipart
 	// cap internally.
-	handler = middleware.MaxBytesExcept(cfg.MaxRequestBodyBytes, isUploadExempt)(handler)
+	handler = globalBodyCap(cfg.MaxRequestBodyBytes)(handler)
 	handler = apiLimiter.MiddlewareForPrefix("/api", handler)
 	handler = middleware.MetricsMiddleware(handler)
 	handler = middleware.Logging(cfg.LogVerbose)(handler)

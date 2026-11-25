@@ -110,6 +110,26 @@ func TestRedactSecretPath(t *testing.T) {
 			want:  "/join/{token}",
 		},
 		{
+			name:  "glossary invite preview path is redacted",
+			input: "/api/glossary-invites/" + token,
+			want:  "/api/glossary-invites/{token}",
+		},
+		{
+			name:  "glossary invite redeem path is redacted",
+			input: "/api/glossary-invites/" + token + "/redeem",
+			want:  "/api/glossary-invites/{token}/redeem",
+		},
+		{
+			name:  "glossary join shell path is redacted",
+			input: "/join-glossary/" + token,
+			want:  "/join-glossary/{token}",
+		},
+		{
+			name:  "glossary invite path with another suffix is not caught",
+			input: "/api/glossary-invites/" + token + "/other",
+			want:  "/api/glossary-invites/" + token + "/other",
+		},
+		{
 			name:  "path that merely starts similarly is not caught",
 			input: "/api/invitesfoo/x",
 			want:  "/api/invitesfoo/x",

@@ -23,6 +23,7 @@ e2e/.auth/
 !/docs/user-error-messages.md
 !/docs/feature-reference.md
 !/docs/kb-access.md
+!/docs/glossary-access.md
 !/docs/ui-views.md
 !/docs/eval-cli.md
 !/docs/presentation/
@@ -38,6 +39,7 @@ e2e/.auth/
 !/docs/api-contracts/agent-chat.md
 !/docs/api-contracts/chat-sse-early-open.md
 !/docs/api-contracts/owui-compat.md
+!/docs/api-contracts/translator.md
 !/docs/runbooks/
 /docs/runbooks/*
 !/docs/runbooks/hnsw-reindex.md
