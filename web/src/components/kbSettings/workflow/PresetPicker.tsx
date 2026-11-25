@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WorkflowLane, WorkflowPreset } from '../../../types';
 import { Alert, AlertDescription } from '@ki4jlu/design-system';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { fetchPresets, previewPreset, applyPreset } from './api';
 import './PresetPicker.css';
 
@@ -67,8 +68,10 @@ interface ConfirmState {
   plan: ConfirmPlan | null;
 }
 
-function formatCost(estLlmCalls: number, estLatencyMs: number): string {
-  return `${estLlmCalls} LLM-Aufrufe · ~${(estLatencyMs / 1000).toFixed(1)}s`;
+function formatCost(t: (key: string) => string, estLlmCalls: number, estLatencyMs: number): string {
+  return t('wfPresetCost')
+    .replace('{calls}', String(estLlmCalls))
+    .replace('{seconds}', (estLatencyMs / 1000).toFixed(1));
 }
 
 /** Focusable descendants of the dialog, in tab order. Used by the focus trap
@@ -111,6 +114,7 @@ export function PresetPicker({
   kbId, lane, presetBase, presetBaseKnown, deviations, presetBaseLoading,
   draftPending, onError, onApplied,
 }: Props) {
+  const { t } = useTheme();
   const [presets, setPresets] = useState<WorkflowPreset[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -273,11 +277,11 @@ export function PresetPicker({
     <div className="wf-presets" ref={rootRef} tabIndex={-1}>
       {listError ? (
         <Alert tone="error" live="assertive">
-          <AlertDescription>Vorlagen konnten nicht geladen werden ({listError}).</AlertDescription>
+          <AlertDescription>{t('wfPresetsLoadFailed').replace('{error}', listError)}</AlertDescription>
         </Alert>
       ) : (
         <>
-          <ul className="wf-presets__list" aria-label="Vorlagen">
+          <ul className="wf-presets__list" aria-label={t('wfPresetsList')}>
             {(presets ?? []).map((p) => {
               const cost = p.costs[lane];
               return (
@@ -292,7 +296,7 @@ export function PresetPicker({
                     <span className="wf-presets__card-label">{p.label}</span>
                     <span className="wf-presets__card-desc">{p.description}</span>
                     {cost && (
-                      <span className="wf-presets__card-cost">{formatCost(cost.estLlmCalls, cost.estLatencyMs)}</span>
+                      <span className="wf-presets__card-cost">{formatCost(t, cost.estLlmCalls, cost.estLatencyMs)}</span>
                     )}
                   </button>
                 </li>
@@ -305,9 +309,7 @@ export function PresetPicker({
             // legitimately differ, and an unexplained "3" above a "geschätzt 4"
             // is exactly the kind of small lie this surface exists to avoid.
             <p className="wf-presets__note">
-              Die Kostenangaben gelten für eine Wissensbank ohne weitere eigene Einstellungen.
-              Eigene Einstellungen außerhalb der Vorlage können den Wert verschieben, den die
-              Leiste unten für diese Wissensbank anzeigt.
+              {t('wfPresetsCostNote')}
             </p>
           )}
         </>
@@ -315,7 +317,7 @@ export function PresetPicker({
 
       {draftPending && (
         <p className="wf-presets__hint">
-          Speichere oder verwirf deine Änderungen, bevor du eine Vorlage anwendest.
+          {t('wfPresetsDraftHint')}
         </p>
       )}
 
@@ -324,16 +326,18 @@ export function PresetPicker({
           that as „Noch keine Vorlage angewendet." tells a KB that IS based on
           „Hohe Präzision" the opposite for the duration of the load. */}
       {presetBaseLoading ? (
-        <p className="wf-presets__base wf-presets__base--loading">Basis wird geladen…</p>
+        <p className="wf-presets__base wf-presets__base--loading">{t('wfPresetBaseLoading')}</p>
       ) : (
         <p className="wf-presets__base">
           {!presetBaseKnown ? (
-            `Basis: „${presetBase}“ — diese Vorlage gibt es nicht mehr, Abweichungen lassen sich nicht bestimmen.`
+            t('wfPresetBaseGone').replace('{base}', presetBase)
           ) : !presetBase ? (
-            'Noch keine Vorlage angewendet.'
+            t('wfPresetNone')
           ) : (
             <>
-              {`Basis: ${baseLabel} · ${deviations.length} ${deviations.length === 1 ? 'Abweichung' : 'Abweichungen'}`}
+              {t(deviations.length === 1 ? 'wfPresetBaseOne' : 'wfPresetBaseMany')
+                .replace('{base}', baseLabel)
+                .replace('{count}', String(deviations.length))}
               {deviations.length > 0 && (
                 <button
                   type="button"
@@ -341,7 +345,7 @@ export function PresetPicker({
                   onClick={() => openConfirm(presetBase, baseLabel, '')}
                   disabled={busy}
                 >
-                  Auf Vorlage zurücksetzen
+                  {t('wfPresetResetToBase')}
                 </button>
               )}
             </>
@@ -365,30 +369,31 @@ export function PresetPicker({
             tabIndex={-1}
             onKeyDown={onDialogKeyDown}
           >
-            <h3 id="wf-presets-confirm-title">{`„${confirm.label}“ anwenden?`}</h3>
+            <h3 id="wf-presets-confirm-title">{t('wfPresetConfirmTitle').replace('{label}', confirm.label)}</h3>
             {confirm.description && <p className="wf-presets__confirm-desc">{confirm.description}</p>}
             {plan === null ? (
-              <p className="wf-presets__confirm-loading">Prüft, was sich ändert…</p>
+              <p className="wf-presets__confirm-loading">{t('wfPresetChecking')}</p>
             ) : (
               <>
                 <p className="wf-presets__confirm-count">
                   {plan.effective.length === 0
-                    ? 'Keine Einstellung ändert dadurch ihr Verhalten.'
-                    : `${plan.effective.length} ${plan.effective.length === 1 ? 'Einstellung ändert' : 'Einstellungen ändern'} dadurch ihr Verhalten.`}
+                    ? t('wfPresetEffectiveNone')
+                    : t(plan.effective.length === 1 ? 'wfPresetEffectiveOne' : 'wfPresetEffectiveMany')
+                      .replace('{count}', String(plan.effective.length))}
                 </p>
                 {plan.effective.length > 0 && (
                   <>
                     <p className="wf-presets__confirm-own">
                       {plan.overwrites.length === 0
-                        ? 'Keine davon hast du selbst gesetzt.'
-                        : `Davon hast du ${plan.overwrites.length} selbst gesetzt — unten markiert.`}
+                        ? t('wfPresetOwnNone')
+                        : t('wfPresetOwnSome').replace('{count}', String(plan.overwrites.length))}
                     </p>
                     <ul className="wf-presets__confirm-keys">
                       {plan.effective.map((k) => (
                         <li key={k}>
                           <code>{k}</code>
                           {plan.overwrites.includes(k) && (
-                            <span className="wf-presets__confirm-own-tag"> — von dir gesetzt</span>
+                            <span className="wf-presets__confirm-own-tag">{` — ${t('wfPresetOwnTag')}`}</span>
                           )}
                         </li>
                       ))}
@@ -402,19 +407,20 @@ export function PresetPicker({
                     change anything today. */}
                 {plan.pinned > 0 && (
                   <p className="wf-presets__confirm-pinned">
-                    {`${plan.pinned} ${plan.pinned === 1 ? 'Einstellung wird' : 'Einstellungen werden'} dabei für diese Wissensbank festgeschrieben und ${plan.pinned === 1 ? 'folgt' : 'folgen'} danach nicht mehr den globalen Vorgaben.`}
+                    {t(plan.pinned === 1 ? 'wfPresetPinnedOne' : 'wfPresetPinnedMany')
+                      .replace('{count}', String(plan.pinned))}
                   </p>
                 )}
               </>
             )}
             <div className="wf-presets__confirm-actions">
-              <button type="button" onClick={cancelConfirm} disabled={applying}>Abbrechen</button>
+              <button type="button" onClick={cancelConfirm} disabled={applying}>{t('cancel')}</button>
               <button
                 type="button"
                 onClick={confirmApply}
                 disabled={applying || plan === null || draftPending}
               >
-                {applying ? 'Wird angewendet…' : 'Anwenden'}
+                {applying ? t('wfPresetApplying') : t('wfPresetApply')}
               </button>
             </div>
           </div>

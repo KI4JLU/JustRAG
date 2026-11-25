@@ -69,7 +69,7 @@ export const agentStepsTranslations = {
     stepInsufficientContext: { de: 'Quellen reichen für eine belastbare Antwort nicht aus', en: 'The sources are not enough for a reliable answer' },
     stepBudget: { de: 'Rechenbudget erreicht, Recherche beendet', en: 'Budget reached, research stopped' },
     stepToolCall: { de: 'Werkzeug genutzt', en: 'Used a tool' },
-    stepToolKbSearch: { de: 'Suche in der Wissensdatenbank', en: 'Knowledge base search' },
+    stepToolKbSearch: { de: 'Suche in den Quellen', en: 'Source search' },
     stepToolGraphSearch: { de: 'Suche im Wissensgraphen', en: 'Knowledge graph search' },
     stepToolWebSearch: { de: 'Websuche', en: 'Web search' },
     stepToolRecentDocuments: { de: 'Neueste Dokumente', en: 'Recent documents' },
@@ -106,7 +106,7 @@ export const agentStepsTranslations = {
     stepFindings: { de: '{n} Befunde', en: '{n} findings' },
     stepFindingsOne: { de: '1 Befund', en: '1 finding' },
     stepAttachmentsDropped: { de: 'Nicht alle angehängten Dokumente passten in den Kontext', en: 'Not every attached document fit into the context' },
-    stepAttachmentsTrimmed: { de: 'Angehängte Dokumente zuerst, weniger Quellen aus der Wissensdatenbank', en: 'Attached documents first, fewer knowledge base sources' },
+    stepAttachmentsTrimmed: { de: 'Angehängte Dokumente zuerst, weniger Quellen aus dem Thema', en: 'Attached documents first, fewer sources from the topic' },
 
     // Checks after retrieval
     stepConflicts: { de: 'Quellen auf Widersprüche geprüft', en: 'Checked the sources for contradictions' },

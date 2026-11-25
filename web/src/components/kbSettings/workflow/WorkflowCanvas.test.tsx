@@ -23,6 +23,16 @@ vi.mock('./api', async (importOriginal) => {
   };
 });
 import { fetchWorkflow, saveKbSettings, resetKbSetting, fetchPresets } from './api';
+import { de, deRe } from './testI18n';
+
+// Components read their labels through useTheme(); this renders them in
+// German with one stable `t` (a fresh `t` per render would recompute the
+// canvas layout on every render).
+vi.mock('../../../contexts/ThemeContext', async () => {
+  const { translations: tr } = await import('../../../i18n/translations');
+  const t = (key: string) => tr[key as keyof typeof tr]?.de ?? key;
+  return { useTheme: () => ({ t }) };
+});
 
 // WorkflowCanvas reads useReducedMotion, which calls window.matchMedia —
 // not available in jsdom by default (same treatment as Login.test.tsx).
@@ -121,14 +131,14 @@ describe('WorkflowCanvas', () => {
     vi.mocked(fetchWorkflow).mockResolvedValue(graph());
     render(<WorkflowCanvas kbId="kb-1" />);
     await screen.findByText('Retrieval');
-    await userEvent.click(screen.getByRole('button', { name: 'Nachschlagen' }));
+    await userEvent.click(screen.getByRole('button', { name: de('wfLaneLookup') }));
     await waitFor(() => expect(fetchWorkflow).toHaveBeenCalledWith('kb-1', 'lookup'));
   });
 
   it('shows the cost estimate, labelled as an estimate', async () => {
     vi.mocked(fetchWorkflow).mockResolvedValue(graph());
     render(<WorkflowCanvas kbId="kb-1" />);
-    expect(await screen.findByText(/gesch(ä|ae)tzt/i)).toBeInTheDocument();
+    expect(await screen.findByText(deRe('wfCostEstimate'))).toBeInTheDocument();
     expect(screen.getByText(/4/)).toBeInTheDocument();
   });
 
@@ -167,8 +177,8 @@ describe('WorkflowCanvas', () => {
       // `plan_execute` and `corpus_table` verbatim to a German-speaking user.
       vi.mocked(fetchWorkflow).mockResolvedValue(withOrchestrators());
       render(<WorkflowCanvas kbId="kb-1" />);
-      expect(await screen.findByText('Korpus-Vergleichstabelle')).toBeInTheDocument();
-      expect(screen.getByText('Plan-and-Execute')).toBeInTheDocument();
+      expect(await screen.findByText(de('wfOrchCorpusTable'))).toBeInTheDocument();
+      expect(screen.getByText(de('wfOrchPlanExecute'))).toBeInTheDocument();
       expect(screen.queryByText('corpus_table')).not.toBeInTheDocument();
       expect(screen.queryByText('plan_execute')).not.toBeInTheDocument();
     });
@@ -176,16 +186,16 @@ describe('WorkflowCanvas', () => {
     it('labels the group so three bare words are not left unexplained', async () => {
       vi.mocked(fetchWorkflow).mockResolvedValue(withOrchestrators());
       render(<WorkflowCanvas kbId="kb-1" />);
-      expect(await screen.findByText('Orchestrator:')).toBeInTheDocument();
+      expect(await screen.findByText(de('wfOrchestrators'))).toBeInTheDocument();
     });
 
     it('carries the activation state as text, not hue alone', async () => {
       vi.mocked(fetchWorkflow).mockResolvedValue(withOrchestrators());
       render(<WorkflowCanvas kbId="kb-1" />);
-      const chip = (await screen.findByText('Korpus-Vergleichstabelle')).closest('li')!;
-      expect(chip).toHaveTextContent('bedingt');
-      const active = screen.getByText('Plan-and-Execute').closest('li')!;
-      expect(active).toHaveTextContent('läuft');
+      const chip = (await screen.findByText(de('wfOrchCorpusTable'))).closest('li')!;
+      expect(chip).toHaveTextContent(de('wfActivationConditional'));
+      const active = screen.getByText(de('wfOrchPlanExecute')).closest('li')!;
+      expect(active).toHaveTextContent(de('wfActivationActive'));
     });
 
     it('surfaces the condition explaining when a conditional orchestrator wins', async () => {
@@ -208,8 +218,8 @@ describe('WorkflowCanvas', () => {
     // one state reading as two different things on the same screen.
     vi.mocked(fetchWorkflow).mockResolvedValue(graph());
     render(<WorkflowCanvas kbId="kb-1" />);
-    expect(await screen.findByText('bedingt')).toBeInTheDocument();
-    expect(screen.getByText('Bedingt')).toBeInTheDocument(); // the crag_grade badge
+    expect(await screen.findByText(de('wfActivationConditional'))).toBeInTheDocument();
+    expect(screen.getByText(de('wfReasonConditional'))).toBeInTheDocument(); // the crag_grade badge
   });
 
   // --- Task 5: save, reset, refetch ---
@@ -264,7 +274,7 @@ describe('WorkflowCanvas', () => {
       render(<WorkflowCanvas kbId="kb-1" />);
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      expect(await screen.findByText(/1 Einstellung geändert/)).toBeInTheDocument();
+      expect(await screen.findByText(de('wfChangedOne'))).toBeInTheDocument();
     });
 
     // THE batching guarantee: two edits on two DIFFERENT nodes must land in
@@ -283,9 +293,9 @@ describe('WorkflowCanvas', () => {
       await userEvent.click(screen.getByTestId('wf-node-self_rag'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Self-RAG aktiviert' }), 'true');
 
-      expect(await screen.findByText(/2 Einstellungen geändert/)).toBeInTheDocument();
+      expect(await screen.findByText(de('wfChangedMany', { count: 2 }))).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('save') }));
 
       await waitFor(() => expect(saveKbSettings).toHaveBeenCalledTimes(1));
       expect(saveKbSettings).toHaveBeenCalledWith('kb-1', {
@@ -301,11 +311,11 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('save') }));
 
       await waitFor(() => expect(fetchWorkflow).toHaveBeenCalledTimes(2));
       expect(fetchWorkflow).toHaveBeenNthCalledWith(2, 'kb-1', 'complex_reasoning');
-      await waitFor(() => expect(screen.queryByText(/geändert/)).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByText(deRe('wfChangedOne', 'wfChangedMany'))).not.toBeInTheDocument());
     });
 
     // CRITICAL regression test: `selected` used to be a snapshot object taken
@@ -326,7 +336,7 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('save') }));
 
       await waitFor(() => expect(fetchWorkflow).toHaveBeenCalledTimes(2));
       // The inspector is still open on the same node (a successful save does
@@ -355,13 +365,13 @@ describe('WorkflowCanvas', () => {
       render(<WorkflowCanvas kbId="kb-1" />);
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
-      await userEvent.click(screen.getByRole('button', { name: /CRAG aktiviert zurücksetzen/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfResetLabel', { label: 'CRAG aktiviert' }) }));
 
       await waitFor(() => expect(fetchWorkflow).toHaveBeenCalledTimes(2));
-      expect(await screen.findByText('global')).toBeInTheDocument();
+      expect(await screen.findByText(de('wfOriginGlobal'))).toBeInTheDocument();
       // Reset only offers itself for a 'kb'-origin key — it must disappear
       // once the origin is genuinely 'global'.
-      expect(screen.queryByRole('button', { name: /CRAG aktiviert zurücksetzen/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: de('wfResetLabel', { label: 'CRAG aktiviert' }) })).not.toBeInTheDocument();
     });
 
     it('keeps the draft and surfaces the server message when save fails', async () => {
@@ -373,12 +383,12 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('save') }));
 
       expect(await screen.findByText(/cannot both be enabled/)).toBeInTheDocument();
       // The draft is still there — the count row didn't disappear, and the
       // save button is still there to retry.
-      expect(screen.getByText(/1 Einstellung geändert/)).toBeInTheDocument();
+      expect(screen.getByText(de('wfChangedOne'))).toBeInTheDocument();
       // No refetch was attempted off the back of a failed save.
       expect(fetchWorkflow).toHaveBeenCalledTimes(1);
     });
@@ -389,11 +399,11 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      await screen.findByText(/geändert/);
+      await screen.findByText(deRe('wfChangedOne', 'wfChangedMany'));
 
-      await userEvent.click(screen.getByRole('button', { name: /verwerfen/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfDiscard') }));
 
-      expect(screen.queryByText(/geändert/)).not.toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfChangedOne', 'wfChangedMany'))).not.toBeInTheDocument();
       expect(saveKbSettings).not.toHaveBeenCalled();
     });
 
@@ -403,7 +413,7 @@ describe('WorkflowCanvas', () => {
       render(<WorkflowCanvas kbId="kb-1" />);
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
-      await userEvent.click(screen.getByRole('button', { name: /CRAG aktiviert zurücksetzen/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfResetLabel', { label: 'CRAG aktiviert' }) }));
 
       await waitFor(() => expect(resetKbSetting).toHaveBeenCalledWith('kb-1', 'crag_enabled'));
       await waitFor(() => expect(fetchWorkflow).toHaveBeenCalledTimes(2));
@@ -427,7 +437,7 @@ describe('WorkflowCanvas', () => {
       render(<WorkflowCanvas kbId="kb-1" />);
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
-      await userEvent.click(screen.getByRole('button', { name: /CRAG aktiviert zurücksetzen/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfResetLabel', { label: 'CRAG aktiviert' }) }));
 
       expect(await screen.findByText(/conflicts with chat_self_rag_enabled/)).toBeInTheDocument();
     });
@@ -444,8 +454,8 @@ describe('WorkflowCanvas', () => {
       await userEvent.clear(input);
 
       // Never became dirty — no save bar count for it.
-      expect(screen.queryByText(/geändert/)).not.toBeInTheDocument();
-      expect(await screen.findByText(/Leerer Wert/i)).toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfChangedOne', 'wfChangedMany'))).not.toBeInTheDocument();
+      expect(await screen.findByText(deRe('wfEmptyValueRefused'))).toBeInTheDocument();
       expect(saveKbSettings).not.toHaveBeenCalled();
     });
 
@@ -460,8 +470,8 @@ describe('WorkflowCanvas', () => {
       const input = screen.getByRole('textbox', { name: 'Zeitzone' });
       fireEvent.change(input, { target: { value: '   ' } });
 
-      expect(screen.queryByText(/geändert/)).not.toBeInTheDocument();
-      expect(await screen.findByText(/Leerer Wert/i)).toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfChangedOne', 'wfChangedMany'))).not.toBeInTheDocument();
+      expect(await screen.findByText(deRe('wfEmptyValueRefused'))).toBeInTheDocument();
       expect(saveKbSettings).not.toHaveBeenCalled();
     });
 
@@ -472,7 +482,7 @@ describe('WorkflowCanvas', () => {
       await userEvent.click(await screen.findByTestId('wf-node-tz_node'));
       await userEvent.clear(screen.getByRole('textbox', { name: 'Zeitzone' }));
 
-      const hint = await screen.findByText(/Leerer Wert/i);
+      const hint = await screen.findByText(deRe('wfEmptyValueRefused'));
       expect(hint).toHaveAttribute('aria-live', 'polite');
     });
 
@@ -482,12 +492,12 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-tz_node'));
       await userEvent.clear(screen.getByRole('textbox', { name: 'Zeitzone' }));
-      expect(await screen.findByText(/Leerer Wert/i)).toBeInTheDocument();
+      expect(await screen.findByText(deRe('wfEmptyValueRefused'))).toBeInTheDocument();
 
       vi.mocked(fetchWorkflow).mockResolvedValue(stringFieldGraph());
-      await userEvent.click(screen.getByRole('button', { name: 'Nachschlagen' }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfLaneLookup') }));
 
-      await waitFor(() => expect(screen.queryByText(/Leerer Wert/i)).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByText(deRe('wfEmptyValueRefused'))).not.toBeInTheDocument());
     });
 
     it('clears the empty-value refusal hint after a successful save', async () => {
@@ -497,13 +507,13 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-tz_node'));
       await userEvent.clear(screen.getByRole('textbox', { name: 'Zeitzone' }));
-      expect(await screen.findByText(/Leerer Wert/i)).toBeInTheDocument();
+      expect(await screen.findByText(deRe('wfEmptyValueRefused'))).toBeInTheDocument();
 
       await userEvent.click(screen.getByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('save') }));
 
-      await waitFor(() => expect(screen.queryByText(/Leerer Wert/i)).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByText(deRe('wfEmptyValueRefused'))).not.toBeInTheDocument());
     });
 
     // IMPORTANT 4 mitigation: KbSettingsPanel.tsx unmounts this component on
@@ -516,10 +526,10 @@ describe('WorkflowCanvas', () => {
       render(<WorkflowCanvas kbId="kb-1" />);
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
-      expect(screen.queryByText(/Tab-Wechsel/)).not.toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfUnsavedTabWarning'))).not.toBeInTheDocument();
 
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      expect(await screen.findByText(/Tab-Wechsel/)).toBeInTheDocument();
+      expect(await screen.findByText(de('wfUnsavedTabWarning'))).toBeInTheDocument();
     });
 
     // IMPORTANT 3 regression test: `refetchGraph` used to apply whatever
@@ -551,10 +561,10 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('save') }));
 
       // Switch lanes WHILE the save's refetch is still pending.
-      await userEvent.click(screen.getByRole('button', { name: 'Nachschlagen' }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfLaneLookup') }));
       await screen.findByText('Nur-Lookup');
 
       // Now let the stale save-refetch resolve.
@@ -596,10 +606,10 @@ describe('WorkflowCanvas', () => {
       render(<WorkflowCanvas kbId="kb-1" />);
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('save') }));
 
       // Switch lanes WHILE the PUT is still in flight.
-      await userEvent.click(screen.getByRole('button', { name: 'Nachschlagen' }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfLaneLookup') }));
       await screen.findByText('Nur-Lookup');
 
       resolveSave();
@@ -624,13 +634,13 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('save') }));
 
-      expect(await screen.findByText(/Gespeichert/)).toBeInTheDocument();
+      expect(await screen.findByText(de('wfSavedRefetchFailed'))).toBeInTheDocument();
       // The refetch's own text would read as a failed save; it must not appear.
       expect(screen.queryByText(/fetch workflow: 500/)).not.toBeInTheDocument();
       // The values are on the server, so the draft is correctly gone …
-      expect(screen.queryByText(/geändert/)).not.toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfChangedOne', 'wfChangedMany'))).not.toBeInTheDocument();
       // … and this is NOT the initial-load failure: the graph stays on screen.
       expect(screen.getByTestId('wf-node-crag_grade')).toBeInTheDocument();
     });
@@ -644,15 +654,15 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      expect(await screen.findByText(/1 Einstellung geändert/)).toBeInTheDocument();
+      expect(await screen.findByText(de('wfChangedOne'))).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole('button', { name: /CRAG aktiviert zurücksetzen/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfResetLabel', { label: 'CRAG aktiviert' }) }));
 
       // The DELETE landed, so the pending edit for that very key is obsolete —
       // it used to survive (the cleanup sat AFTER the await) and could be
       // saved straight back over the value just cleared.
-      await waitFor(() => expect(screen.queryByText(/geändert/)).not.toBeInTheDocument());
-      expect(await screen.findByText(/Zurückgesetzt/)).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText(deRe('wfChangedOne', 'wfChangedMany'))).not.toBeInTheDocument());
+      expect(await screen.findByText(de('wfResetRefetchFailed'))).toBeInTheDocument();
       expect(screen.queryByText(/fetch workflow: 500/)).not.toBeInTheDocument();
     });
   });
@@ -671,38 +681,38 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      expect(await screen.findByText(/1 Einstellung geändert/)).toBeInTheDocument();
+      expect(await screen.findByText(de('wfChangedOne'))).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole('button', { name: 'Nachschlagen' }));
-      expect(await screen.findByRole('alert')).toHaveTextContent(/nicht geladen werden/);
+      await userEvent.click(screen.getByRole('button', { name: de('wfLaneLookup') }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(deRe('wfLoadFailed'));
     };
 
     it('keeps the draft saveable and the lanes reachable', async () => {
       await failingLaneSwitch();
 
-      expect(screen.getByText(/1 Einstellung geändert/)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /speichern/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /verwerfen/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Komplexe Frage' })).toBeInTheDocument();
+      expect(screen.getByText(de('wfChangedOne'))).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: de('save') })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: de('wfDiscard') })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: de('wfLaneComplex') })).toBeInTheDocument();
     });
 
     it('hides the previous lane\'s orchestrators and cost estimate instead of attributing them to the new lane', async () => {
       await failingLaneSwitch();
 
-      expect(screen.queryByText(/gesch(ä|ae)tzt/i)).not.toBeInTheDocument();
-      expect(screen.queryByText('Orchestrator:')).not.toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfCostEstimate'))).not.toBeInTheDocument();
+      expect(screen.queryByText(de('wfOrchestrators'))).not.toBeInTheDocument();
     });
 
     it('recovers on the next lane that loads, without a reload', async () => {
       await failingLaneSwitch();
 
       vi.mocked(fetchWorkflow).mockResolvedValueOnce(editableGraph());
-      await userEvent.click(screen.getByRole('button', { name: 'Komplexe Frage' }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfLaneComplex') }));
 
       expect(await screen.findByTestId('wf-node-crag_grade')).toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
       // The draft survived the whole detour.
-      expect(screen.getByText(/1 Einstellung geändert/)).toBeInTheDocument();
+      expect(screen.getByText(de('wfChangedOne'))).toBeInTheDocument();
     });
   });
 
@@ -716,11 +726,11 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-tz_node'));
       await userEvent.clear(screen.getByRole('textbox', { name: 'Zeitzone' }));
-      expect(await screen.findByText(/Leerer Wert/i)).toBeInTheDocument();
+      expect(await screen.findByText(deRe('wfEmptyValueRefused'))).toBeInTheDocument();
 
       await userEvent.click(screen.getByTestId('wf-node-crag_grade'));
 
-      expect(screen.queryByText(/Leerer Wert/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfEmptyValueRefused'))).not.toBeInTheDocument();
     });
 
     it('clears a failed-save message when another node is selected', async () => {
@@ -730,7 +740,7 @@ describe('WorkflowCanvas', () => {
 
       await userEvent.click(await screen.findByTestId('wf-node-crag_grade'));
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'CRAG aktiviert' }), 'false');
-      await userEvent.click(screen.getByRole('button', { name: /speichern/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('save') }));
       expect(await screen.findByText(/conflicts with something/)).toBeInTheDocument();
 
       await userEvent.click(screen.getByTestId('wf-node-tz_node'));
@@ -738,7 +748,7 @@ describe('WorkflowCanvas', () => {
       expect(screen.queryByText(/conflicts with something/)).not.toBeInTheDocument();
       // The draft itself spans the whole graph on purpose and must NOT be
       // dropped just because the admin looked at another stage.
-      expect(screen.getByText(/1 Einstellung geändert/)).toBeInTheDocument();
+      expect(screen.getByText(de('wfChangedOne'))).toBeInTheDocument();
     });
 
     // Asserts the invariant, not the mechanism: a repeated identical refusal
@@ -757,12 +767,12 @@ describe('WorkflowCanvas', () => {
       const input = screen.getByRole('textbox', { name: 'Zeitzone' }) as HTMLInputElement;
 
       fireEvent.change(input, { target: { value: '' } });
-      await screen.findByText(/Leerer Wert/i);
+      await screen.findByText(deRe('wfEmptyValueRefused'));
       expect(input.value).toBe('Europe/Berlin');
 
       fireEvent.change(input, { target: { value: '' } });
       expect(input.value).toBe('Europe/Berlin');
-      expect(screen.queryByText(/geändert/)).not.toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfChangedOne', 'wfChangedMany'))).not.toBeInTheDocument();
     });
   });
 });

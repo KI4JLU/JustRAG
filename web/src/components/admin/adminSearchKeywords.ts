@@ -35,7 +35,7 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
         'systemNoticeDismissible', 'systemNoticePreview', 'systemNoticeTemplateName',
     ],
     'kb-overview': [
-        'colName', 'colOwner', 'tabFiles', 'colSuspicious', 'colInjectionFlagged', 'colFailed', 'colSize', 'colActivity',
+        'colName', 'colOwner', 'kbListColSources', 'colSuspicious', 'colInjectionFlagged', 'colFailed', 'colSize', 'colActivity',
         'colLastActivity', 'colProcessing', 'colChats', 'colCreated', 'colOldestContent', 'colStaleShare', 'colLastSync', 'colRagas',
     ],
     'global-kbs': ['autoSubscribe', 'unpublishKb'],
@@ -57,11 +57,18 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
     ],
 };
 
-/** Words that are not translated: protocol names, queue names, the web/API pair. */
+/**
+ * Words that are not translated: protocol names, queue names, the web/API pair — and the old
+ * names of what the admin now reads as „Thema"/„Quelle" (topic/source), so an admin who still
+ * searches for „KB", „Knowledge Base" or „Dateien" finds the section.
+ */
+const OLD_TOPIC_WORDS = ['KB', 'Knowledge Base', 'Wissensdatenbank', 'Wissensbasis', 'Wissensbank'] as const;
 const FIXED_WORDS: Partial<Record<AdminSection, readonly string[]>> = {
     auth: ['LDAP', 'OIDC'],
-    'kb-overview': ['Web', 'API'],
-    health: ['System Health', 'Queue', 'Redis', 'CPU'],
+    'kb-overview': ['Web', 'API', ...OLD_TOPIC_WORDS, 'Dateien', 'Files'],
+    'global-kbs': [...OLD_TOPIC_WORDS],
+    agent: ['KB-Router', 'KB router'],
+    health: ['System Health', 'Queue', 'Redis', 'CPU', 'Knowledge Bases', 'Dateien', 'Files'],
 };
 
 /** The search keywords of every section, in the session language. */

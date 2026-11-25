@@ -287,7 +287,7 @@ describe('SharedTopicsView add-topic tile', () => {
     renderView(<SharedTopicsView kbs={[]} {...noopProps} />);
 
     expect(screen.getByRole('heading', { name: translations.sharedTopicsEmptyTitle.en })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Knowledge Base öffnen/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: new RegExp(`^${translations.openKb.en}:`) })).toBeNull();
     // The toolbar button and the placeholder's own.
     const add = screen.getAllByRole('button', { name: translations.addTopic.en });
     expect(add).toHaveLength(2);

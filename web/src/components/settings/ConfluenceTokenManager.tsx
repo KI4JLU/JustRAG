@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { BookOpen, Trash2, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle, Button } from '@ki4jlu/design-system';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import { API_BASE_URL } from '../../api';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalContext } from '../../contexts/ModalContext';
@@ -66,7 +66,7 @@ export default function ConfluenceTokenManager() {
             setEditing(false);
             showTempSuccess(t('confluenceProfileSaved'));
         } catch (e: unknown) {
-            setError(getApiErrorMessage(e, t('error')));
+            setError(userErrorMessage(e, t, { fallbackKey: 'confluenceProfileSaveError' }));
         } finally {
             setSaving(false);
         }
@@ -79,14 +79,17 @@ export default function ConfluenceTokenManager() {
         setSuccess('');
         try {
             const res = await axios.post(`${API_BASE_URL}/api/confluence/connections/${connInfo.connection.id}/verify`);
+            // Refresh first: fetchConnection clears the error, which would
+            // otherwise wipe the verify failure right after it is set.
+            await fetchConnection();
             if (res.data.ok) {
                 showTempSuccess(t('confluenceProfileVerified'));
             } else {
-                setError(res.data.error || t('confluenceProfileVerifyFailed'));
+                // res.data.error is Confluence's or the backend's own text: never shown.
+                setError(t('confluenceProfileVerifyFailed'));
             }
-            await fetchConnection();
         } catch (e: unknown) {
-            setError(getApiErrorMessage(e, t('error')));
+            setError(userErrorMessage(e, t, { fallbackKey: 'confluenceProfileVerifyFailed' }));
         } finally {
             setVerifying(false);
         }
@@ -105,7 +108,7 @@ export default function ConfluenceTokenManager() {
             showTempSuccess(t('confluenceProfileDeleted'));
             await fetchConnection();
         } catch (e: unknown) {
-            setError(getApiErrorMessage(e, t('error')));
+            setError(userErrorMessage(e, t, { fallbackKey: 'confluenceProfileDeleteError' }));
         } finally {
             setDeleting(false);
         }
@@ -113,6 +116,8 @@ export default function ConfluenceTokenManager() {
 
     const connection = connInfo?.connection;
     const isConnected = !!connection;
+    // The backend reports a token it can no longer decrypt only as English
+    // text (no code yet); errorMessage itself is never shown.
     const isDecryptError = connection?.errorMessage?.includes('could not be decrypted') ?? false;
 
     return (
@@ -156,7 +161,9 @@ export default function ConfluenceTokenManager() {
                             <p>
                                 {t('confluenceProfileToken')}: <code className="rounded-sm bg-surface-container-lowest px-1 py-px">{connection.token}</code>
                             </p>
-                            {connection.errorMessage && <p>{connection.errorMessage}</p>}
+                            {connection.errorMessage && (
+                                <p>{t(isDecryptError ? 'confluenceProfileTokenUnreadable' : 'confluenceProfileConnectionFailed')}</p>
+                            )}
                             {connection.lastVerifiedAt && (
                                 <p>{t('confluenceProfileLastVerified')}: {new Date(connection.lastVerifiedAt).toLocaleString()}</p>
                             )}

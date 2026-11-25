@@ -328,13 +328,13 @@ export const OwnedAndShared: Story = {
     // ORACLE: the fixture names, through each card's own open control.
     for (const name of SHARED_NAMES) {
       await expect(
-        canvas.getByRole('button', { name: `Knowledge Base öffnen: ${name}` }),
+        canvas.getByRole('button', { name: `Thema öffnen: ${name}` }),
       ).toBeInTheDocument();
     }
     // The half that makes the half above mean something.
     for (const name of OWNED_NAMES) {
       await expect(
-        canvas.queryByRole('button', { name: `Knowledge Base öffnen: ${name}` }),
+        canvas.queryByRole('button', { name: `Thema öffnen: ${name}` }),
       ).toBeNull();
     }
 

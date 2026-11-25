@@ -8,7 +8,7 @@ import { useReducedMotion, getMotionProps } from '../../hooks/useReducedMotion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { parseDimensionsInput, formatDimensionsValue } from '../../utils/embeddingDimensions';
 import { API_BASE_URL } from '../../api';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import {
     CheckboxFieldRow,
     FieldRow,
@@ -161,7 +161,7 @@ export default function AdminConfigsTab({
             setConfigFormData({ ...configFormData, chat_models: models });
             setWindowDetect({ status: 'done', message: filled > 0 ? t('contextWindowDetected').replace('{n}', String(filled)) : t('contextWindowNoneDetected') });
         } catch (err) {
-            setWindowDetect({ status: 'error', message: getApiErrorMessage(err, t('contextWindowDetectFailed')) });
+            setWindowDetect({ status: 'error', message: userErrorMessage(err, t, { fallbackKey: 'contextWindowDetectFailed' }) });
         }
     };
 
@@ -263,7 +263,7 @@ export default function AdminConfigsTab({
                     {(configFormData.chat_models || []).map((model, idx) => (
                         <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                             <Input
-                                aria-label={`Chat model ${idx + 1}`}
+                                aria-label={t('admChatModelN').replace('{n}', String(idx + 1))}
                                 className={`${COMPACT_INPUT} flex-1`}
                                 value={model.name}
                                 onChange={e => {
@@ -271,7 +271,7 @@ export default function AdminConfigsTab({
                                     models[idx] = { ...models[idx], name: e.target.value };
                                     setConfigFormData({ ...configFormData, chat_models: models });
                                 }}
-                                placeholder="e.g. gpt-4o"
+                                placeholder={t('admExample').replace('{value}', 'gpt-4o')}
                             />
                             <Input
                                 aria-label={t('contextWindowFor').replace('{name}', model.name || String(idx + 1))}
@@ -350,7 +350,7 @@ export default function AdminConfigsTab({
                     {(configFormData.embedding_models || []).map((model, idx) => (
                         <div key={idx} style={{ display: 'flex', gap: '0.5rem' }}>
                             <Input
-                                aria-label={`Embedding model ${idx + 1}`}
+                                aria-label={t('admEmbeddingModelN').replace('{n}', String(idx + 1))}
                                 className={`${COMPACT_INPUT} flex-[2]`}
                                 value={model.name}
                                 onChange={e => {
@@ -358,10 +358,10 @@ export default function AdminConfigsTab({
                                     models[idx] = { ...models[idx], name: e.target.value };
                                     setConfigFormData({ ...configFormData, embedding_models: models });
                                 }}
-                                placeholder="e.g. text-embedding-3-small"
+                                placeholder={t('admExample').replace('{value}', 'text-embedding-3-small')}
                             />
                             <Input
-                                aria-label={`Dimensions for embedding model ${idx + 1}`}
+                                aria-label={t('admEmbeddingDimensionsN').replace('{n}', String(idx + 1))}
                                 type="number"
                                 min={0}
                                 className={`${COMPACT_INPUT} w-[120px]`}
@@ -410,7 +410,7 @@ export default function AdminConfigsTab({
                     {(configFormData.rerank_models || []).map((model, idx) => (
                         <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                             <Input
-                                aria-label={`Rerank model ${idx + 1}`}
+                                aria-label={t('admRerankModelN').replace('{n}', String(idx + 1))}
                                 className={`${COMPACT_INPUT} flex-1`}
                                 value={model.name}
                                 onChange={e => {
@@ -418,7 +418,7 @@ export default function AdminConfigsTab({
                                     models[idx] = { ...models[idx], name: e.target.value };
                                     setConfigFormData({ ...configFormData, rerank_models: models });
                                 }}
-                                placeholder="e.g. jina-reranker-v2-base-multilingual"
+                                placeholder={t('admExample').replace('{value}', 'jina-reranker-v2-base-multilingual')}
                             />
                             {(configFormData.rerank_models || []).length > 1 && (
                                 <Button
@@ -456,7 +456,7 @@ export default function AdminConfigsTab({
                     {(configFormData.tts_models || []).map((model, idx) => (
                         <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                             <Input
-                                aria-label={`TTS model ${idx + 1}`}
+                                aria-label={t('admTtsModelN').replace('{n}', String(idx + 1))}
                                 className={`${COMPACT_INPUT} flex-1`}
                                 value={model.name}
                                 onChange={e => {
@@ -464,7 +464,7 @@ export default function AdminConfigsTab({
                                     models[idx] = { ...models[idx], name: e.target.value };
                                     setConfigFormData({ ...configFormData, tts_models: models });
                                 }}
-                                placeholder="e.g. tts-1"
+                                placeholder={t('admExample').replace('{value}', 'tts-1')}
                             />
                             {(configFormData.tts_models || []).length > 1 && (
                                 <Button
@@ -502,7 +502,7 @@ export default function AdminConfigsTab({
                     {(configFormData.stt_models || []).map((model, idx) => (
                         <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                             <Input
-                                aria-label={`STT model ${idx + 1}`}
+                                aria-label={t('admSttModelN').replace('{n}', String(idx + 1))}
                                 className={`${COMPACT_INPUT} flex-1`}
                                 value={model.name}
                                 onChange={e => {
@@ -510,7 +510,7 @@ export default function AdminConfigsTab({
                                     models[idx] = { ...models[idx], name: e.target.value };
                                     setConfigFormData({ ...configFormData, stt_models: models });
                                 }}
-                                placeholder="e.g. whisper-1"
+                                placeholder={t('admExample').replace('{value}', 'whisper-1')}
                             />
                             {(configFormData.stt_models || []).length > 1 && (
                                 <Button

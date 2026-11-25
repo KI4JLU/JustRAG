@@ -1,7 +1,8 @@
 import type { NodeActivation } from '../../../types';
 
 /**
- * reasonLabel maps a node's (activation, reason) pair to a short German badge.
+ * reasonLabel maps a node's (activation, reason) pair to the translation key
+ * (i18n/translations.workflow.ts) of a short badge; callers resolve it with t().
  *
  * Activation is read FIRST and deliberately: `internal/pipeline/project.go`
  * spends a paragraph (`complexBypassCondition`, :250-268) explaining why an
@@ -20,21 +21,21 @@ import type { NodeActivation } from '../../../types';
  */
 export function reasonLabel(activation: NodeActivation, reason?: string): string | null {
   // A stage the backend calls conditional is never "skipped" — see above.
-  if (activation === 'conditional') return 'Bedingt';
+  if (activation === 'conditional') return 'wfReasonConditional';
 
   switch (reason) {
     case 'flag_off':
-      return 'Deaktiviert';
+      return 'wfReasonFlagOff';
     case 'lane_skipped':
     case 'orchestrator_bypass':
-      return 'Übersprungen';
+      return 'wfReasonSkipped';
     default:
       // `requires:<other node>` — the stage is configured but structurally
       // cannot fire, because a prerequisite stage is off (project.go:293, :306
       // emit `requires:citation_validation`). Rendering nothing left those
       // nodes dimmed and silent beside a `flag_off` node that says "Deaktiviert".
-      if (reason?.startsWith('requires:')) return 'Voraussetzung fehlt';
-      if (reason?.startsWith('superseded_by:')) return 'Ersetzt';
+      if (reason?.startsWith('requires:')) return 'wfReasonRequires';
+      if (reason?.startsWith('superseded_by:')) return 'wfReasonSuperseded';
       return null;
   }
 }

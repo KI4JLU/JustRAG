@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, waitFor } from 'storybook/test';
 import SystemHealthDashboard from './SystemHealthDashboard';
+import { translations } from '../../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * The admin system-health dashboard, on the design system's `DashboardLayout`
@@ -203,7 +204,7 @@ export const Degraded: Story = {
     // cpuCount = 8 is 146%, and GaugeBar's contract is to clamp at 100 — so
     // the fill's computed width must equal its track's, never exceed it. The
     // widths come from Chromium's layout, not from the component.
-    const track = canvas.getByText('CPU Load (1m)').closest('div')!.nextElementSibling as HTMLElement;
+    const track = canvas.getByText(translations.admHealthCpuLoad.de).closest('div')!.nextElementSibling as HTMLElement;
     const fill = track.firstElementChild as HTMLElement;
     await expect(fill.getBoundingClientRect().width).toBeCloseTo(track.getBoundingClientRect().width, 0);
   },
@@ -237,7 +238,7 @@ export const Loading: Story = {
     // ORACLE: WAI-ARIA's `status` role, carried by the DS Spinner that
     // replaced `<RefreshCw className="spin">`.
     const status = await canvas.findByRole('status');
-    await expect(status).toHaveTextContent('Lade System-Health-Dashboard...');
+    await expect(status).toHaveTextContent(translations.admHealthLoading.de);
     // Level 2 since v0.24.0's `headingLevel` (card KI-743): the page title is
     // an <h2>, so pinning "no heading yet" on level 1 would pass vacuously.
     await expect(canvas.queryByRole('heading', { level: 2 })).toBeNull();

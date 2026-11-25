@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axios from 'axios';
 import SystemHealthDashboard from './SystemHealthDashboard';
+import { translations } from '../../i18n/translations';
 
 /* ---------------------------------------------------------------------------
  * Card KI-714 (Stage 4b) replaced this page's outer shell with the design
@@ -28,8 +29,10 @@ vi.mock('axios', () => ({
 // dependency list, so a fresh object per render makes the initial-load effect
 // re-run forever. Measured: with an inline object literal the four /history
 // requests became 3168 before the assertion timed out. Same trap
-// Login.shell.test.tsx documents.
-const themeMock = { t: (k: string) => k, language: 'en' as const };
+// Login.shell.test.tsx documents. It reads the real German table, so the
+// assertions below name the strings through their translation keys.
+const de = (k: string) => translations[k as keyof typeof translations]?.de ?? k;
+const themeMock = { t: de, language: 'de' as const };
 vi.mock('../../contexts/ThemeContext', () => ({ useTheme: () => themeMock }));
 
 const mockedGet = axios.get as unknown as Mock;
@@ -104,7 +107,7 @@ describe('SystemHealthDashboard — the shell', () => {
         // `AdminUI.headings.test.tsx`; this pins that the nested page adds none.
         const { container } = render(<SystemHealthDashboard />);
         await waitFor(() => expect(container.querySelectorAll('h2')).toHaveLength(1));
-        expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('System Health');
+        expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(translations.adminTabHealth.de);
         expect(container.querySelectorAll('h1')).toHaveLength(0);
     });
 
@@ -138,7 +141,7 @@ describe('SystemHealthDashboard — the shell', () => {
         render(<SystemHealthDashboard />);
         await screen.findByRole('heading', { level: 2 });
 
-        const box = screen.getByRole('checkbox', { name: 'Auto-Refresh (10s)' });
+        const box = screen.getByRole('checkbox', { name: translations.admHealthAutoRefresh.de });
         expect(box).toHaveAttribute('aria-checked', 'true');
         await userEvent.click(box);
         expect(box).toHaveAttribute('aria-checked', 'false');
@@ -244,7 +247,7 @@ describe('SystemHealthDashboard — the range switch survived the SegmentedContr
         await screen.findByRole('heading', { level: 2 });
         await waitFor(() => expect(historyCalls()).toHaveLength(4));
 
-        const refresh = screen.getByRole('button', { name: 'Aktualisieren' });
+        const refresh = screen.getByRole('button', { name: translations.refresh.de });
         // The DS Spinner carries role="status"; the idle button holds none.
         expect(refresh.querySelector('[role="status"]')).toBeNull();
 
@@ -265,10 +268,10 @@ describe('SystemHealthDashboard — subsystem status', () => {
         render(<SystemHealthDashboard />);
         await screen.findByRole('heading', { level: 2 });
 
-        expect(screen.getByText('Haupt-Datenbank')).toBeInTheDocument();
-        expect(screen.getByText('Vektor-Datenbank')).toBeInTheDocument();
+        expect(screen.getByText(translations.admHealthMainDb.de)).toBeInTheDocument();
+        expect(screen.getByText(translations.admHealthVectorDb.de)).toBeInTheDocument();
         expect(screen.getByText('Redis')).toBeInTheDocument();
         expect(screen.getByText(/connection refused/)).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Prüfen' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: translations.admHealthCheck.de })).toBeInTheDocument();
     });
 });

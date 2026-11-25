@@ -4,7 +4,8 @@ import type { KnowledgeBase, RssFeed, SyncSchedule } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage, isForbidden } from '../utils/apiError';
+import { isForbidden } from '../utils/apiError';
+import { userErrorMessage } from '../utils/userErrors';
 import { unlistableKbId } from '../utils/kbAccess';
 
 const POLL_REFRESH_MS = 3000;
@@ -87,7 +88,7 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
                 }, delay);
             }
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'rssFeedAddFailed' }));
         } finally {
             setRssLoading(false);
         }
@@ -102,7 +103,7 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
             toast.success(t('rssFeedUpdated'));
         } catch (err: unknown) {
             await fetchRssFeeds();
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'rssFeedUpdateFailed' }));
         }
     }, [currentKb, fetchRssFeeds, t, toast]);
 
@@ -117,7 +118,7 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
         const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
         if (failure) {
             await fetchRssFeeds();
-            toast.error(getApiErrorMessage(failure.reason, t('error')));
+            toast.error(userErrorMessage(failure.reason, t, { fallbackKey: 'rssFeedDeleteFailed' }));
         } else {
             toast.success(t('rssFeedDeleted'));
         }
@@ -132,7 +133,7 @@ export function useRssFeeds({ currentKb, fetchFiles }: UseRssFeedsParams) {
             const since = feedsRef.current.find(f => f.id === feedId)?.lastPolledAt ?? null;
             setPolling(prev => ({ ...prev, [feedId]: { since, until: Date.now() + POLL_WAIT_MS } }));
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'rssPollFailed' }));
         }
     }, [currentKb, t, toast]);
 

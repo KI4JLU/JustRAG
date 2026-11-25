@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Key, Plus, Trash2, Copy, Check, Eye, EyeOff } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle, Button } from '@ki4jlu/design-system';
 import { API_BASE_URL } from '../../api';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalContext } from '../../contexts/ModalContext';
 
@@ -71,7 +71,7 @@ export default function ApiKeyManager() {
             setNewKeyName('');
             await fetchKeys();
         } catch (e: unknown) {
-            setError(getApiErrorMessage(e, t('apiKeyCreateError')));
+            setError(userErrorMessage(e, t, { fallbackKey: 'apiKeyCreateError' }));
         } finally {
             setCreating(false);
         }

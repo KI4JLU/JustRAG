@@ -4,7 +4,8 @@ import type { KnowledgeBase, GitRepoSource, SyncSchedule } from '../types';
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage, isForbidden } from '../utils/apiError';
+import { isForbidden } from '../utils/apiError';
+import { userErrorMessage } from '../utils/userErrors';
 import { unlistableKbId } from '../utils/kbAccess';
 
 interface UseGitRepoSourcesParams {
@@ -91,7 +92,7 @@ export function useGitRepoSources({ currentKb, fetchFiles }: UseGitRepoSourcesPa
             await fetchGitRepoSources(currentKb.id);
             await fetchFiles(currentKb.id);
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'gitRepoAddFailed' }));
         } finally {
             setGitRepoLoading(false);
         }
@@ -106,7 +107,7 @@ export function useGitRepoSources({ currentKb, fetchFiles }: UseGitRepoSourcesPa
             toast.success(t('gitRepoSourceUpdated'));
         } catch (err: unknown) {
             await fetchGitRepoSources(currentKb.id);
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'gitRepoUpdateFailed' }));
         }
     }, [currentKb, fetchGitRepoSources, t, toast]);
 
@@ -120,7 +121,7 @@ export function useGitRepoSources({ currentKb, fetchFiles }: UseGitRepoSourcesPa
         const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
         if (failure) {
             await fetchGitRepoSources(currentKb.id);
-            toast.error(getApiErrorMessage(failure.reason, t('error')));
+            toast.error(userErrorMessage(failure.reason, t, { fallbackKey: 'gitRepoDeleteFailed' }));
         } else {
             toast.success(t('gitRepoSourceDeleted'));
         }
@@ -134,7 +135,7 @@ export function useGitRepoSources({ currentKb, fetchFiles }: UseGitRepoSourcesPa
             toast.success(t('gitRepoSyncTriggered'));
             await fetchGitRepoSources(currentKb.id);
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'gitRepoSyncFailed' }));
         }
     }, [currentKb, fetchGitRepoSources, t, toast]);
 

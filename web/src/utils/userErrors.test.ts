@@ -4,6 +4,8 @@ import {
   errorInfo,
   errorInfoFromBody,
   formatLimit,
+  HttpError,
+  httpErrorFrom,
   isFileErrorCode,
   uploadFailureMessage,
   userErrorKey,
@@ -131,6 +133,26 @@ describe('isFileErrorCode', () => {
     expect(isFileErrorCode('file_unreadable')).toBe(true);
     expect(isFileErrorCode('quota_exceeded')).toBe(false);
     expect(isFileErrorCode(undefined)).toBe(false);
+  });
+});
+
+describe('httpErrorFrom / HttpError', () => {
+  const tr = (key: string) => translations[key as keyof typeof translations].en;
+
+  it('carries the status and code of a refused fetch, never its text', async () => {
+    const err = await httpErrorFrom(new Response(JSON.stringify({ error: 'pq: syntax error', code: 'kb_full' }), { status: 400 }));
+    expect(err).toBeInstanceOf(HttpError);
+    expect(errorInfo(err)).toEqual({ status: 400, code: 'kb_full' });
+    expect(err.message).not.toContain('pq:');
+  });
+
+  it('maps an uncoded 400 or 404 to the fallback and a 503 to the service message', async () => {
+    for (const status of [400, 404]) {
+      const err = await httpErrorFrom(new Response(JSON.stringify({ error: 'raw backend text' }), { status }));
+      expect(userErrorMessage(err, tr, { fallbackKey: 'exportFailed' })).toBe('Export failed');
+    }
+    const down = await httpErrorFrom(new Response('<html>Bad gateway</html>', { status: 503 }));
+    expect(userErrorMessage(down, tr, { fallbackKey: 'exportFailed' })).toBe(tr('errorServiceUnavailable'));
   });
 });
 

@@ -13,6 +13,16 @@ export const SOURCE_TYPE_CHIP: Record<SourceDetailsTarget['kind'], string> = {
     git: 'GIT',
 };
 
+/**
+ * The message of a synced source in status `error`. Its `errorMessage` is
+ * the remote system's or the backend's own text and is never shown.
+ */
+export const SOURCE_SYNC_ERROR_KEY: Record<SourceDetailsTarget['kind'], string> = {
+    rss: 'rssFeedSyncError',
+    confluence: 'confluenceSourceSyncError',
+    git: 'gitRepoSyncError',
+};
+
 export function sourceDetailsTitle(target: SourceDetailsTarget): string {
     switch (target.kind) {
         case 'rss': return target.source.title || target.source.url;

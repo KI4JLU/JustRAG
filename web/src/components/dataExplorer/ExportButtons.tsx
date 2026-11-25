@@ -1,4 +1,5 @@
 import { API_BASE_URL, authFetch } from '../../api';
+import { httpErrorFrom } from '../../utils/userErrors';
 
 /**
  * Export query results as a CSV file download.
@@ -24,10 +25,7 @@ export async function exportCsv(
         }),
     });
 
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({ error: 'Export failed' }));
-        throw new Error(err.error || 'Export failed');
-    }
+    if (!response.ok) throw await httpErrorFrom(response);
 
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);

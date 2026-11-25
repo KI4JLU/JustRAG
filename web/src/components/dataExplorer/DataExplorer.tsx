@@ -3,6 +3,8 @@ import { API_BASE_URL, authFetch } from '../../api';
 import type { DataExplorerConfig, FileSchema, DataExplorerQueryResult } from '../../types';
 import DataExplorerToolbar from './DataExplorerToolbar';
 import { exportCsv, exportPng } from './ExportButtons';
+import { useTheme } from '../../contexts/ThemeContext';
+import { httpErrorFrom, userErrorMessage } from '../../utils/userErrors';
 
 const ChartRenderer = lazy(() => import('../ui/ChartRenderer'));
 
@@ -15,6 +17,7 @@ interface DataExplorerProps {
 }
 
 export default function DataExplorer({ initialConfig, initialSeries, schema, fileId, kbId }: DataExplorerProps) {
+    const { t } = useTheme();
     const [config, setConfig] = useState<DataExplorerConfig>(initialConfig);
     const [series, setSeries] = useState<Record<string, unknown>[]>(initialSeries);
     const [loading, setLoading] = useState(false);
@@ -49,19 +52,16 @@ export default function DataExplorer({ initialConfig, initialSeries, schema, fil
                 }),
             });
 
-            if (!response.ok) {
-                const err = await response.json().catch(() => ({ error: 'Query failed' }));
-                throw new Error(err.error || 'Query failed');
-            }
+            if (!response.ok) throw await httpErrorFrom(response);
 
             const result: DataExplorerQueryResult = await response.json();
             setSeries(result.rows);
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : 'Query failed');
+            setError(userErrorMessage(err, t, { fallbackKey: 'dataExplorerQueryFailed' }));
         } finally {
             setLoading(false);
         }
-    }, [kbId, fileId]);
+    }, [kbId, fileId, t]);
 
     const handleConfigChange = useCallback((newConfig: DataExplorerConfig) => {
         setConfig(newConfig);
@@ -79,9 +79,9 @@ export default function DataExplorer({ initialConfig, initialSeries, schema, fil
         try {
             await exportCsv(kbId, fileId, config.query);
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : 'Export failed');
+            setError(userErrorMessage(err, t, { fallbackKey: 'exportFailed' }));
         }
-    }, [kbId, fileId, config.query]);
+    }, [kbId, fileId, config.query, t]);
 
     const handleExportPng = useCallback(() => {
         exportPng(chartRef, config.title);

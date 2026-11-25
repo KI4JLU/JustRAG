@@ -213,7 +213,7 @@ describe('buildSteps: the standard path and answer-time tools', () => {
             { stage: 'decision', decision: 'agent_tool_call_result', reason: 'web_search', findings: 1 },
         ], undefined, de);
         expect(steps.map(s => `${s.title}|${s.summary ?? ''}|${s.warning}`)).toEqual([
-            'Suche in der Wissensdatenbank|4 Treffer · „Frist“|false',
+            'Suche in den Quellen|4 Treffer · „Frist“|false',
             'Rechner|fehlgeschlagen|true',
         ]);
         expect(steps[1].lines).toEqual(['{"expression":"2*3"}']);

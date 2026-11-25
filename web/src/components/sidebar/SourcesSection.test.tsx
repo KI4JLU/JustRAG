@@ -198,10 +198,12 @@ describe('SourcesSection synced source rows', () => {
 
   // A failure tints the row and is its tooltip / description (DS SidebarCard `error`).
   it('keeps a failure on the row', () => {
-    render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[makeGitRepoSource({ status: 'error', errorMessage: 'auth' })]} />);
+    render(<SourcesSection {...baseProps} files={[]} gitRepoSources={[makeGitRepoSource({ status: 'error', errorMessage: 'authentication required' })]} />);
     const row = screen.getByRole('listitem');
     expect(row).toHaveAttribute('data-error');
-    expect(screen.getByRole('button', { name: 'acme/repo' })).toHaveAccessibleDescription('auth');
+    // Oracle: docs/user-error-messages.md A22 — the kind's message, never the stored text.
+    expect(screen.getByRole('button', { name: 'acme/repo' })).toHaveAccessibleDescription('gitRepoSyncError');
+    expect(screen.queryByText(/authentication required/)).not.toBeInTheDocument();
   });
 
   it.each([
