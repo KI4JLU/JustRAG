@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { RotateCcw, X } from 'lucide-react';
 import type { WorkflowConfigField, WorkflowNodeData } from '../../../types';
+import { useTheme } from '../../../contexts/ThemeContext';
 import { reasonLabel } from './reasonLabel';
 import { fieldFor } from './api';
 import { NodeFieldInput } from './NodeFieldInput';
@@ -57,6 +58,7 @@ interface Props {
 export function NodeInspector({
   node, onClose, fields, draft, onChange, onRefuse, onReset, readOnlyReason,
 }: Props) {
+  const { t } = useTheme();
   const panelRef = useRef<HTMLElement | null>(null);
   const nodeId = node?.id;
 
@@ -69,7 +71,8 @@ export function NodeInspector({
 
   if (!node) return null;
 
-  const badge = reasonLabel(node.activation, node.reason);
+  const badgeKey = reasonLabel(node.activation, node.reason);
+  const badge = badgeKey ? t(badgeKey) : null;
 
   return (
     <aside
@@ -77,14 +80,14 @@ export function NodeInspector({
       className="wf-inspector"
       // -1: programmatically focusable, but never a tab stop of its own.
       tabIndex={-1}
-      aria-label={`Details zu ${node.label}`}
+      aria-label={t('wfInspectorLabel').replace('{label}', node.label)}
     >
       <div className="wf-inspector__head">
         <div>
           <span className="wf-inspector__group">{node.group}</span>
           <h3 className="wf-inspector__title">{node.label}</h3>
         </div>
-        <button type="button" onClick={onClose} aria-label="Schließen"
+        <button type="button" onClick={onClose} aria-label={t('close')}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
           <X size={16} aria-hidden="true" />
         </button>
@@ -96,7 +99,7 @@ export function NodeInspector({
 
       {node.keys.length > 0 && (
         <>
-          <div className="wf-inspector__section">Einstellungen</div>
+          <div className="wf-inspector__section">{t('wfInspectorSettings')}</div>
           {readOnlyReason && <p className="wf-inspector__note">{readOnlyReason}</p>}
           <ul className="wf-inspector__keys">
             {node.keys.map((k) => {
@@ -121,9 +124,9 @@ export function NodeInspector({
                       <span className="wf-inspector__key-name">{k}</span>
                       <span className="wf-inspector__key-meta">
                         <span className={origin === 'default' ? 'wf-inspector__value wf-inspector__value--default' : 'wf-inspector__value'}>
-                          {origin === 'default' ? DEFAULT_VALUE_LABEL : (value ?? '—')}
+                          {origin === 'default' ? t(DEFAULT_VALUE_LABEL) : (value ?? '—')}
                         </span>
-                        <span className="wf-inspector__origin">{ORIGIN_LABEL[origin] ?? UNKNOWN_ORIGIN_LABEL}</span>
+                        <span className="wf-inspector__origin">{t(ORIGIN_LABEL[origin] ?? UNKNOWN_ORIGIN_LABEL)}</span>
                       </span>
                     </>
                   )}
@@ -132,10 +135,10 @@ export function NodeInspector({
                       type="button"
                       className="wf-inspector__reset"
                       onClick={() => onReset(k)}
-                      aria-label={`${field?.label ?? k} zurücksetzen`}
-                      title="Auf globalen Wert zurücksetzen"
+                      aria-label={t('wfResetLabel').replace('{label}', field?.label ?? k)}
+                      title={t('wfResetTitle')}
                     >
-                      <RotateCcw size={12} aria-hidden="true" /> Zurücksetzen
+                      <RotateCcw size={12} aria-hidden="true" /> {t('wfReset')}
                     </button>
                   )}
                 </li>
@@ -147,7 +150,7 @@ export function NodeInspector({
 
       {!node.editable && node.keys.length > 0 && (
         <p className="wf-inspector__note">
-          Diese Stufe ist derzeit nicht pro Knowledge Base einstellbar — sie folgt der globalen Konfiguration.
+          {t('wfNotEditable')}
         </p>
       )}
     </aside>

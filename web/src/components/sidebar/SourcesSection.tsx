@@ -10,7 +10,7 @@ import { sourceIconFor, sourceTypeLabel } from './sourceIconFor';
 import { SourceHoverPreview, SyncedSourceHoverPreview } from './SourceHoverPreview';
 import { useSourcePreviews } from '../../hooks/sourcePreviews';
 import { cardFiles, confluenceKey, feedExcluded, feedKey, fileKey, gitKey, syncedExcluded, type SourceKey } from './sourceSelection';
-import { SOURCE_TYPE_CHIP, sourceDetailsTitle, type SourceDetailsTarget } from '../sources/sourceDetails';
+import { SOURCE_SYNC_ERROR_KEY, SOURCE_TYPE_CHIP, sourceDetailsTitle, type SourceDetailsTarget } from '../sources/sourceDetails';
 import { INGEST_STAGE_LABEL_KEYS } from '../../utils/ingestStages';
 import type { PendingUpload } from '../../hooks/useFileManagement';
 import { fillTemplate } from '../../utils/sourceDisplay';
@@ -144,8 +144,9 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
         const n = entries.filter(f => f.status === 'pending' || f.status === 'processing').length;
         return n > 0 ? fillTemplate(t('sourceEntriesProcessing'), { count: n }) : undefined;
     };
-    const errorOf = (source: { status: string; errorMessage?: string | null }) => (source.status === 'error'
-        ? (source.errorMessage || t('feedError'))
+    // A source's errorMessage is the remote system's text: never shown.
+    const errorOf = (kind: SourceDetailsTarget['kind'], source: { status: string }) => (source.status === 'error'
+        ? t(SOURCE_SYNC_ERROR_KEY[kind])
         : undefined);
 
     /* The management actions of a synced source, in its ⋯ menu: sync now,
@@ -267,8 +268,8 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             iconText={SOURCE_TYPE_CHIP.rss}
                             title={sourceDetailsTitle(target)}
                             onOpen={() => onViewSource(target)}
-                            error={errorOf(feed)}
-                            busy={errorOf(feed) ? undefined : syncedBusy(pollingFeedIds?.has(feed.id) ?? false, files.filter(f => f.rssFeedId === feed.id))}
+                            error={errorOf('rss', feed)}
+                            busy={errorOf('rss', feed) ? undefined : syncedBusy(pollingFeedIds?.has(feed.id) ?? false, files.filter(f => f.rssFeedId === feed.id))}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
@@ -305,8 +306,8 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             iconText={SOURCE_TYPE_CHIP.confluence}
                             title={sourceDetailsTitle(target)}
                             onOpen={() => onViewSource(target)}
-                            error={errorOf(source)}
-                            busy={errorOf(source) ? undefined : syncedBusy(source.status === 'syncing', files.filter(f => f.confluenceSourceId === source.id))}
+                            error={errorOf('confluence', source)}
+                            busy={errorOf('confluence', source) ? undefined : syncedBusy(source.status === 'syncing', files.filter(f => f.confluenceSourceId === source.id))}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },
@@ -338,8 +339,8 @@ const SourcesSectionComp: React.FC<SourcesSectionProps> = ({
                             iconText={SOURCE_TYPE_CHIP.git}
                             title={sourceDetailsTitle(target)}
                             onOpen={() => onViewSource(target)}
-                            error={errorOf(source)}
-                            busy={errorOf(source) ? undefined : syncedBusy(source.status === 'syncing', files.filter(f => f.gitRepoSourceId === source.id))}
+                            error={errorOf('git', source)}
+                            busy={errorOf('git', source) ? undefined : syncedBusy(source.status === 'syncing', files.filter(f => f.gitRepoSourceId === source.id))}
                             actionsLabel={t('sourceActions')}
                             actions={[
                                 { label: t('sourceDetails'), icon: <Info size={16} aria-hidden="true" />, onSelect: () => onViewSource(target) },

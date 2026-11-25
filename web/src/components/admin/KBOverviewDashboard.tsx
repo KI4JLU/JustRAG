@@ -6,7 +6,7 @@ import {
     PopoverContent, PopoverTrigger, Spinner, Stack, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, cn,
     useSettingsSearch, type ActionMenuItem,
 } from '@ki4jlu/design-system';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import { COMPACT_INPUT } from '../form/SettingsFieldRow';
 import { formatRelative } from '../../utils/dates';
 import { translations } from '../../i18n/translations';
@@ -333,7 +333,7 @@ export default function KBOverviewDashboard({ onOpenRagSettings }: KBOverviewDas
             setData(res.data as OverviewResponse);
             setError(null);
         } catch (err: unknown) {
-            setError(getApiErrorMessage(err, t('kbOverviewLoadError')));
+            setError(userErrorMessage(err, t, { fallbackKey: 'kbOverviewLoadError' }));
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -349,7 +349,7 @@ export default function KBOverviewDashboard({ onOpenRagSettings }: KBOverviewDas
             setActionError(null);
             await fetchData();
         } catch (err: unknown) {
-            setActionError(getApiErrorMessage(err, t('kbDeleteFailed')));
+            setActionError(userErrorMessage(err, t, { fallbackKey: 'kbDeleteFailed' }));
         } finally {
             setActionBusy(false);
         }
@@ -376,7 +376,7 @@ export default function KBOverviewDashboard({ onOpenRagSettings }: KBOverviewDas
             setActionError(null);
             await fetchData();
         } catch (err: unknown) {
-            setActionError(getApiErrorMessage(err, t('kbPublishFailed')));
+            setActionError(userErrorMessage(err, t, { fallbackKey: 'kbPublishFailed' }));
         } finally {
             setActionBusy(false);
         }
@@ -391,7 +391,7 @@ export default function KBOverviewDashboard({ onOpenRagSettings }: KBOverviewDas
             setActionError(null);
             await fetchData();
         } catch (err: unknown) {
-            setActionError(getApiErrorMessage(err, t('kbTransferFailed')));
+            setActionError(userErrorMessage(err, t, { fallbackKey: 'kbTransferFailed' }));
         } finally {
             setActionBusy(false);
         }
@@ -474,7 +474,7 @@ export default function KBOverviewDashboard({ onOpenRagSettings }: KBOverviewDas
     const ALL_COLUMNS: ColumnDef[] = [
         { key: 'name', label: t('colName') },
         { key: 'ownerName', label: t('colOwner') },
-        { key: 'fileCount', label: t('tabFiles'), numeric: true, icon: <FileText size={16} aria-hidden="true" /> },
+        { key: 'fileCount', label: t('kbListColSources'), numeric: true, icon: <FileText size={16} aria-hidden="true" /> },
         { key: 'injectionFlagged', label: t('colSuspicious'), numeric: true, icon: <ShieldAlert size={16} aria-hidden="true" />, tooltip: t('colInjectionFlagged') },
         { key: 'failedFileCount', label: t('colFailed'), numeric: true, icon: <XCircle size={16} aria-hidden="true" /> },
         { key: 'totalSizeBytes', label: t('colSize'), numeric: true },

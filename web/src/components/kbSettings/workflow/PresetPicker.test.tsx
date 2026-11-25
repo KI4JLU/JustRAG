@@ -10,6 +10,16 @@ vi.mock('./api', () => ({
   applyPreset: vi.fn(),
 }));
 import { fetchPresets, previewPreset, applyPreset } from './api';
+import { de, deMatch, deRe } from './testI18n';
+
+// Components read their labels through useTheme(); this renders them in
+// German with one stable `t` (a fresh `t` per render would recompute the
+// canvas layout on every render).
+vi.mock('../../../contexts/ThemeContext', async () => {
+  const { translations: tr } = await import('../../../i18n/translations');
+  const t = (key: string) => tr[key as keyof typeof tr]?.de ?? key;
+  return { useTheme: () => ({ t }) };
+});
 
 const presets: WorkflowPreset[] = [
   {
@@ -90,16 +100,16 @@ describe('PresetPicker', () => {
     expect(await screen.findByText('Schnell')).toBeInTheDocument();
     expect(screen.getByText('Hohe Präzision')).toBeInTheDocument();
     // complex_reasoning lane: high_precision costs 8, not its lookup figure of 11.
-    expect(screen.getByText(/8 LLM-Aufrufe/)).toBeInTheDocument();
-    expect(screen.queryByText(/11 LLM-Aufrufe/)).not.toBeInTheDocument();
+    expect(screen.getByText(de('wfPresetCost', { calls: 8, seconds: '7.0' }))).toBeInTheDocument();
+    expect(screen.queryByText(deMatch('wfPresetCost', { calls: 11 }))).not.toBeInTheDocument();
   });
 
   it('shows the lookup-lane cost when the lookup lane is selected, not the complex figure', async () => {
     vi.mocked(fetchPresets).mockResolvedValue(presets);
     renderPicker({ lane: 'lookup' });
 
-    expect(await screen.findByText(/11 LLM-Aufrufe/)).toBeInTheDocument();
-    expect(screen.queryByText(/8 LLM-Aufrufe/)).not.toBeInTheDocument();
+    expect(await screen.findByText(de('wfPresetCost', { calls: 11, seconds: '9.0' }))).toBeInTheDocument();
+    expect(screen.queryByText(deMatch('wfPresetCost', { calls: 8 }))).not.toBeInTheDocument();
   });
 
   // The badge prices the bundle over the DEPLOYMENT defaults (PricePresets);
@@ -110,7 +120,7 @@ describe('PresetPicker', () => {
     vi.mocked(fetchPresets).mockResolvedValue(presets);
     renderPicker();
 
-    expect(await screen.findByText(/ohne weitere eigene Einstellungen/)).toBeInTheDocument();
+    expect(await screen.findByText(de('wfPresetsCostNote'))).toBeInTheDocument();
   });
 
   it('selecting a preset shows a confirmation naming what actually changes', async () => {
@@ -125,9 +135,9 @@ describe('PresetPicker', () => {
     await userEvent.click(await screen.findByText('Schnell'));
 
     // The number that decides whether clicking is safe is the EFFECTIVE one…
-    expect(await screen.findByText(/2 Einstellungen ändern dadurch ihr Verhalten/)).toBeInTheDocument();
+    expect(await screen.findByText(de('wfPresetEffectiveMany', { count: 2 }))).toBeInTheDocument();
     // …and the admin's own share is stated separately, not instead of it.
-    expect(screen.getByText(/Davon hast du 1 selbst gesetzt/)).toBeInTheDocument();
+    expect(screen.getByText(de('wfPresetOwnSome', { count: 1 }))).toBeInTheDocument();
     expect(previewPreset).toHaveBeenCalledWith('kb-1', 'fast');
     expect(previewPreset).toHaveBeenCalledTimes(1);
   });
@@ -147,8 +157,8 @@ describe('PresetPicker', () => {
 
     await userEvent.click(await screen.findByText('Schnell'));
 
-    expect(await screen.findByText(/1 Einstellung ändert dadurch ihr Verhalten/)).toBeInTheDocument();
-    expect(screen.getByText(/Keine davon hast du selbst gesetzt/)).toBeInTheDocument();
+    expect(await screen.findByText(de('wfPresetEffectiveOne'))).toBeInTheDocument();
+    expect(screen.getByText(de('wfPresetOwnNone'))).toBeInTheDocument();
     expect(within(screen.getByRole('dialog')).getByText('chat_supervisor_enabled')).toBeInTheDocument();
   });
 
@@ -159,8 +169,8 @@ describe('PresetPicker', () => {
 
     await userEvent.click(await screen.findByText('Schnell'));
 
-    expect(await screen.findByText(/Keine Einstellung ändert dadurch ihr Verhalten/)).toBeInTheDocument();
-    expect(screen.getByText(/21 Einstellungen werden dabei für diese Wissensbank festgeschrieben/))
+    expect(await screen.findByText(de('wfPresetEffectiveNone'))).toBeInTheDocument();
+    expect(screen.getByText(de('wfPresetPinnedMany', { count: 21 })))
       .toBeInTheDocument();
   });
 
@@ -175,8 +185,8 @@ describe('PresetPicker', () => {
 
     await userEvent.click(await screen.findByText('Schnell'));
 
-    expect(await screen.findByText(/Keine Einstellung ändert dadurch ihr Verhalten/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^anwenden$/i })).toBeEnabled();
+    expect(await screen.findByText(de('wfPresetEffectiveNone'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: de('wfPresetApply') })).toBeEnabled();
   });
 
   it('confirming calls the apply endpoint exactly once and refetches', async () => {
@@ -186,9 +196,9 @@ describe('PresetPicker', () => {
     const { onApplied } = renderPicker();
 
     await userEvent.click(await screen.findByText('Schnell'));
-    await screen.findByText(/1 Einstellung ändert dadurch ihr Verhalten/);
+    await screen.findByText(de('wfPresetEffectiveOne'));
 
-    await userEvent.click(screen.getByRole('button', { name: /^anwenden$/i }));
+    await userEvent.click(screen.getByRole('button', { name: de('wfPresetApply') }));
 
     await waitFor(() => expect(applyPreset).toHaveBeenCalledTimes(1));
     expect(applyPreset).toHaveBeenCalledWith('kb-1', 'fast');
@@ -203,9 +213,9 @@ describe('PresetPicker', () => {
     const { onApplied } = renderPicker();
 
     await userEvent.click(await screen.findByText('Schnell'));
-    await screen.findByText(/ihr Verhalten/);
+    await screen.findByText(deRe('wfPresetEffectiveNone', 'wfPresetEffectiveOne', 'wfPresetEffectiveMany'));
 
-    await userEvent.click(screen.getByRole('button', { name: /abbrechen/i }));
+    await userEvent.click(screen.getByRole('button', { name: de('cancel') }));
 
     expect(applyPreset).not.toHaveBeenCalled();
     expect(onApplied).not.toHaveBeenCalled();
@@ -219,8 +229,8 @@ describe('PresetPicker', () => {
     const { onError, onApplied } = renderPicker();
 
     await userEvent.click(await screen.findByText('Schnell'));
-    await screen.findByText(/Keine Einstellung ändert dadurch ihr Verhalten/);
-    await userEvent.click(screen.getByRole('button', { name: /^anwenden$/i }));
+    await screen.findByText(de('wfPresetEffectiveNone'));
+    await userEvent.click(screen.getByRole('button', { name: de('wfPresetApply') }));
 
     await waitFor(() => expect(onError).toHaveBeenCalledWith(
       expect.stringContaining('chat_self_rag_enabled and chat_factuality_verifier_enabled cannot both be enabled'),
@@ -249,9 +259,9 @@ describe('PresetPicker', () => {
 
       await userEvent.click(await screen.findByText('Schnell'));
       const dialog = await screen.findByRole('dialog');
-      expect(within(dialog).getByText(/Prüft, was sich ändert/)).toBeInTheDocument();
+      expect(within(dialog).getByText(de('wfPresetChecking'))).toBeInTheDocument();
 
-      const apply = within(dialog).getByRole('button', { name: /^anwenden$/i });
+      const apply = within(dialog).getByRole('button', { name: de('wfPresetApply') });
       expect(apply).toBeDisabled();
       await userEvent.click(apply);
       expect(applyPreset).not.toHaveBeenCalled();
@@ -268,13 +278,13 @@ describe('PresetPicker', () => {
       const { update } = renderPicker({ draftPending: false });
 
       await userEvent.click(await screen.findByText('Schnell'));
-      await screen.findByText(/ihr Verhalten/);
+      await screen.findByText(deRe('wfPresetEffectiveNone', 'wfPresetEffectiveOne', 'wfPresetEffectiveMany'));
 
       // The canvas behind the dialog is still live: an edit there creates a
       // draft while the confirmation is open.
       update({ draftPending: true });
 
-      await userEvent.click(screen.getByRole('button', { name: /^anwenden$/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('wfPresetApply') }));
       expect(applyPreset).not.toHaveBeenCalled();
     });
 
@@ -286,9 +296,9 @@ describe('PresetPicker', () => {
       renderPicker();
 
       await userEvent.click(await screen.findByText('Schnell'));
-      await screen.findByText(/ihr Verhalten/);
+      await screen.findByText(deRe('wfPresetEffectiveNone', 'wfPresetEffectiveOne', 'wfPresetEffectiveMany'));
 
-      const apply = screen.getByRole('button', { name: /^anwenden$/i });
+      const apply = screen.getByRole('button', { name: de('wfPresetApply') });
       await userEvent.click(apply);
       await userEvent.click(apply);
 
@@ -318,7 +328,7 @@ describe('PresetPicker', () => {
 
       await userEvent.click(await screen.findByText('Schnell'));
       await screen.findByRole('dialog');
-      await userEvent.click(screen.getByRole('button', { name: /abbrechen/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('cancel') }));
 
       pending.reject(new Error('preview preset: 500'));
       await waitFor(() => expect(previewPreset).toHaveBeenCalledTimes(1));
@@ -337,13 +347,13 @@ describe('PresetPicker', () => {
 
       await userEvent.click(await screen.findByText('Schnell'));
       await screen.findByRole('dialog');
-      await userEvent.click(screen.getByRole('button', { name: /abbrechen/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('cancel') }));
 
       vi.mocked(previewPreset).mockResolvedValue(result({
         preset: 'high_precision', label: 'Hohe Präzision', effective: ['crag_enabled'],
       }));
       await userEvent.click(screen.getByText('Hohe Präzision'));
-      await screen.findByText(/ihr Verhalten/);
+      await screen.findByText(deRe('wfPresetEffectiveNone', 'wfPresetEffectiveOne', 'wfPresetEffectiveMany'));
 
       // The first dialog's response arrives now, naming a key the second
       // preset does not touch.
@@ -372,7 +382,7 @@ describe('PresetPicker', () => {
       const dialog = await screen.findByRole('dialog');
       await waitFor(() => expect(dialog).toHaveFocus());
 
-      await userEvent.click(screen.getByRole('button', { name: /abbrechen/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('cancel') }));
       await waitFor(() => expect(trigger).toHaveFocus());
     });
 
@@ -391,7 +401,7 @@ describe('PresetPicker', () => {
       await screen.findByRole('dialog');
 
       update({ draftPending: true });
-      await userEvent.click(screen.getByRole('button', { name: /abbrechen/i }));
+      await userEvent.click(screen.getByRole('button', { name: de('cancel') }));
 
       await waitFor(() => {
         expect(trigger).toBeDisabled();
@@ -421,7 +431,7 @@ describe('PresetPicker', () => {
 
       await userEvent.click(await screen.findByText('Schnell'));
       const dialog = await screen.findByRole('dialog');
-      await screen.findByText(/ihr Verhalten/);
+      await screen.findByText(deRe('wfPresetEffectiveNone', 'wfPresetEffectiveOne', 'wfPresetEffectiveMany'));
 
       // Tab through every control and one past the last one.
       const controls = within(dialog).getAllByRole('button');
@@ -441,40 +451,40 @@ describe('PresetPicker', () => {
       renderPicker({ presetBase: '', presetBaseKnown: true, deviations: [], presetBaseLoading: true });
 
       expect(await screen.findByText('Schnell')).toBeInTheDocument();
-      expect(screen.queryByText(/Noch keine Vorlage/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Basis:/)).not.toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfPresetNone'))).not.toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfPresetBaseOne', 'wfPresetBaseMany', 'wfPresetBaseGone'))).not.toBeInTheDocument();
     });
 
     it('says plainly that no preset has been applied, with no deviation count, when there is no base', async () => {
       vi.mocked(fetchPresets).mockResolvedValue(presets);
       renderPicker({ presetBase: '', presetBaseKnown: true, deviations: [] });
 
-      expect(await screen.findByText(/Noch keine Vorlage/)).toBeInTheDocument();
-      expect(screen.queryByText(/Abweichung/)).not.toBeInTheDocument();
+      expect(await screen.findByText(de('wfPresetNone'))).toBeInTheDocument();
+      expect(screen.queryByText(deRe('wfPresetBaseOne', 'wfPresetBaseMany'))).not.toBeInTheDocument();
     });
 
     it('renders "Basis: <Label> · N Abweichungen" with a reset action for a live base', async () => {
       vi.mocked(fetchPresets).mockResolvedValue(presets);
       renderPicker({ presetBase: 'fast', presetBaseKnown: true, deviations: ['crag_enabled', 'mmr_lambda'] });
 
-      expect(await screen.findByText(/Basis: Schnell · 2 Abweichungen/)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /zurücksetzen/i })).toBeInTheDocument();
+      expect(await screen.findByText(de('wfPresetBaseMany', { base: 'Schnell', count: 2 }))).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: de('wfPresetResetToBase') })).toBeInTheDocument();
     });
 
     it('uses the singular for exactly one deviation', async () => {
       vi.mocked(fetchPresets).mockResolvedValue(presets);
       renderPicker({ presetBase: 'fast', presetBaseKnown: true, deviations: ['crag_enabled'] });
 
-      expect(await screen.findByText(/Basis: Schnell · 1 Abweichung\b/)).toBeInTheDocument();
-      expect(screen.queryByText(/1 Abweichungen/)).not.toBeInTheDocument();
+      expect(await screen.findByText(de('wfPresetBaseOne', { base: 'Schnell' }))).toBeInTheDocument();
+      expect(screen.queryByText(deMatch('wfPresetBaseMany', { count: 1 }))).not.toBeInTheDocument();
     });
 
     it('hides the reset action when the KB already matches its base exactly', async () => {
       vi.mocked(fetchPresets).mockResolvedValue(presets);
       renderPicker({ presetBase: 'fast', presetBaseKnown: true, deviations: [] });
 
-      expect(await screen.findByText(/Basis: Schnell · 0 Abweichungen/)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /zurücksetzen/i })).not.toBeInTheDocument();
+      expect(await screen.findByText(de('wfPresetBaseMany', { base: 'Schnell', count: 0 }))).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: new RegExp(de('wfReset'), 'i') })).not.toBeInTheDocument();
     });
 
     it('renders an honest, distinct message for a base that no longer resolves to a real preset', async () => {
@@ -485,8 +495,8 @@ describe('PresetPicker', () => {
       // No NUMBERED deviation count — that would claim a bundle exists to
       // compare against when there is none. The message may still use the
       // word "Abweichungen" to explain why it cannot be determined.
-      expect(base.textContent).not.toMatch(/\d+ Abweichung/);
-      expect(screen.queryByRole('button', { name: /zurücksetzen/i })).not.toBeInTheDocument();
+      expect(base.textContent).not.toMatch(deRe('wfPresetBaseOne', 'wfPresetBaseMany'));
+      expect(screen.queryByRole('button', { name: new RegExp(de('wfReset'), 'i') })).not.toBeInTheDocument();
     });
 
     it('the reset action re-applies the current base preset', async () => {
@@ -495,9 +505,9 @@ describe('PresetPicker', () => {
       vi.mocked(applyPreset).mockResolvedValue(result({ overwrites: ['crag_enabled'], effective: ['crag_enabled'] }));
       renderPicker({ presetBase: 'fast', presetBaseKnown: true, deviations: ['crag_enabled'] });
 
-      await userEvent.click(await screen.findByRole('button', { name: /zurücksetzen/i }));
-      await screen.findByText(/1 Einstellung ändert dadurch ihr Verhalten/);
-      await userEvent.click(screen.getByRole('button', { name: /^anwenden$/i }));
+      await userEvent.click(await screen.findByRole('button', { name: de('wfPresetResetToBase') }));
+      await screen.findByText(de('wfPresetEffectiveOne'));
+      await userEvent.click(screen.getByRole('button', { name: de('wfPresetApply') }));
 
       await waitFor(() => expect(applyPreset).toHaveBeenCalledWith('kb-1', 'fast'));
     });
@@ -508,7 +518,7 @@ describe('PresetPicker', () => {
       vi.mocked(fetchPresets).mockResolvedValue(presets);
       renderPicker({ draftPending: true });
 
-      expect(await screen.findByText(/Speichere oder verwirf/)).toBeInTheDocument();
+      expect(await screen.findByText(de('wfPresetsDraftHint'))).toBeInTheDocument();
       await userEvent.click(screen.getByText('Schnell'));
       expect(previewPreset).not.toHaveBeenCalled();
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -519,7 +529,7 @@ describe('PresetPicker', () => {
     vi.mocked(fetchPresets).mockRejectedValue(new Error('fetch presets: 500'));
     renderPicker();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/nicht geladen werden/);
+    expect(await screen.findByRole('alert')).toHaveTextContent(de('wfPresetsLoadFailed', { error: 'fetch presets: 500' }));
   });
 
   it('lists the changed keys inside the confirmation, not just the count', async () => {
@@ -536,6 +546,6 @@ describe('PresetPicker', () => {
     expect(within(dialog).getByText('crag_enabled')).toBeInTheDocument();
     expect(within(dialog).getByText('mmr_lambda')).toBeInTheDocument();
     // The admin's own key is marked as such inside the same list.
-    expect(within(dialog).getByText(/von dir gesetzt/)).toBeInTheDocument();
+    expect(within(dialog).getByText(deRe('wfPresetOwnTag'))).toBeInTheDocument();
   });
 });

@@ -4,6 +4,16 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { NodeInspector } from './NodeInspector';
 import type { WorkflowConfigField, WorkflowNodeData } from '../../../types';
+import { de } from './testI18n';
+
+// Components read their labels through useTheme(); this renders them in
+// German with one stable `t` (a fresh `t` per render would recompute the
+// canvas layout on every render).
+vi.mock('../../../contexts/ThemeContext', async () => {
+  const { translations: tr } = await import('../../../i18n/translations');
+  const t = (key: string) => tr[key as keyof typeof tr]?.de ?? key;
+  return { useTheme: () => ({ t }) };
+});
 
 function data(over: Partial<WorkflowNodeData> = {}): WorkflowNodeData {
   return {
@@ -68,8 +78,8 @@ describe('NodeInspector', () => {
     renderInspector();
     expect(screen.getByText('crag_enabled')).toBeInTheDocument();
     expect(screen.getByText('true')).toBeInTheDocument();
-    expect(screen.getByText('diese KB')).toBeInTheDocument();
-    expect(screen.getByText('Standard')).toBeInTheDocument();
+    expect(screen.getByText(de('wfOriginKb'))).toBeInTheDocument();
+    expect(screen.getByText(de('wfOriginDefault'))).toBeInTheDocument();
   });
 
   it('says the code default applies for a key that is unset everywhere, not "nothing"', () => {
@@ -79,7 +89,7 @@ describe('NodeInspector', () => {
     // defaults to true (project.go:179): the canvas drew "Faktencheck" as
     // ACTIVE while its inspector row looked blank.
     renderInspector();
-    expect(screen.getByText('Standardwert')).toBeInTheDocument();
+    expect(screen.getByText(de('wfDefaultValue'))).toBeInTheDocument();
     expect(screen.queryByText('—')).not.toBeInTheDocument();
   });
 
@@ -98,8 +108,8 @@ describe('NodeInspector', () => {
       origins: { crag_enabled: 'kb', crag_min_relevant_chunks: 'agent' as WorkflowNodeData['origins'][string] },
     });
     renderInspector({ node });
-    expect(screen.getByText('unbekannt')).toBeInTheDocument();
-    expect(screen.queryByText('Standard')).not.toBeInTheDocument();
+    expect(screen.getByText(de('wfOriginUnknown'))).toBeInTheDocument();
+    expect(screen.queryByText(de('wfOriginDefault'))).not.toBeInTheDocument();
   });
 
   it('shows the long condition prose, which the node badge omits', () => {
@@ -120,18 +130,18 @@ describe('NodeInspector', () => {
     renderInspector({
       node: data({ activation: 'inactive', reason: 'flag_off', condition: undefined }),
     });
-    expect(screen.getByText('Deaktiviert')).toBeInTheDocument();
+    expect(screen.getByText(de('wfReasonFlagOff'))).toBeInTheDocument();
   });
 
   it('tells the user when a node is not editable per KB', () => {
     renderInspector({ node: data({ editable: false }) });
-    expect(screen.getByText(/nicht pro Knowledge Base einstellbar/i)).toBeInTheDocument();
+    expect(screen.getByText(de('wfNotEditable'))).toBeInTheDocument();
   });
 
   it('calls onClose when the close button is pressed', async () => {
     const onClose = vi.fn();
     renderInspector({ onClose });
-    await userEvent.click(screen.getByRole('button', { name: /schließen/i }));
+    await userEvent.click(screen.getByRole('button', { name: de('close') }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -230,7 +240,7 @@ describe('NodeInspector', () => {
       node: data({ origins: { crag_enabled: 'kb', crag_min_relevant_chunks: 'global' } }),
       fields: {},
     });
-    expect(screen.queryByRole('button', { name: /zurücksetzen/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: new RegExp(de('wfReset'), 'i') })).not.toBeInTheDocument();
   });
 
   it('renders no editing controls for a non-editable node, even when its keys are registered', () => {
@@ -240,7 +250,7 @@ describe('NodeInspector', () => {
     // Still shows the label instead of a bare key name for the registered field
     // (the registered-but-locked improvement over today).
     expect(screen.getByText(boolField().label)).toBeInTheDocument();
-    expect(screen.getByText(/nicht pro Knowledge Base einstellbar/i)).toBeInTheDocument();
+    expect(screen.getByText(de('wfNotEditable'))).toBeInTheDocument();
   });
 
   it('renders a non-editable node with one registered and one unregistered key consistently: no controls, registered label, unregistered raw key, one note', () => {
@@ -261,15 +271,15 @@ describe('NodeInspector', () => {
     expect(screen.getByText(boolField().label)).toBeInTheDocument();
     expect(screen.queryByText('crag_enabled')).not.toBeInTheDocument();
     expect(screen.getByText('true')).toBeInTheDocument(); // its value
-    expect(screen.getByText('diese KB')).toBeInTheDocument(); // its origin
+    expect(screen.getByText(de('wfOriginKb'))).toBeInTheDocument(); // its origin
 
     // Unregistered key: falls back to the raw key name.
     expect(screen.getByText('crag_min_relevant_chunks')).toBeInTheDocument();
-    expect(screen.getByText('Standardwert')).toBeInTheDocument(); // unset -> default
-    expect(screen.getByText('Standard')).toBeInTheDocument(); // its origin
+    expect(screen.getByText(de('wfDefaultValue'))).toBeInTheDocument(); // unset -> default
+    expect(screen.getByText(de('wfOriginDefault'))).toBeInTheDocument(); // its origin
 
     // One note, not one per key.
-    expect(screen.getAllByText(/nicht pro Knowledge Base einstellbar/i)).toHaveLength(1);
+    expect(screen.getAllByText(de('wfNotEditable'))).toHaveLength(1);
   });
 
   it('offers no Reset for a non-editable node even on a kb-origin key', () => {

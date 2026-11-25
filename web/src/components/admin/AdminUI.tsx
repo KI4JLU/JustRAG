@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Plus, ShieldCheck, ShieldUser, Cpu, UserPlus, Search, FileText, Activity, Globe, Settings, Database, Blocks, Megaphone } from 'lucide-react';
 import { Button, SettingsDialog, type SettingsSection } from '@ki4jlu/design-system';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import { API_BASE_URL } from '../../api';
 import { SITE_CONFIG_UPDATED_EVENT } from '../../utils/siteConfigEvents';
 
@@ -300,7 +300,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             window.dispatchEvent(new CustomEvent(SITE_CONFIG_UPDATED_EVENT, { detail: notice }));
             toast.success(t('settingsSaved'));
         } catch (error: unknown) {
-            toast.error(getApiErrorMessage(error, t('settingsSaveError')));
+            toast.error(userErrorMessage(error, t, { fallbackKey: 'settingsSaveError' }));
         }
     };
 
@@ -314,7 +314,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             toast.success(t('systemNoticeTemplatesSaved'));
             return true;
         } catch (error: unknown) {
-            toast.error(getApiErrorMessage(error, t('settingsSaveError')));
+            toast.error(userErrorMessage(error, t, { fallbackKey: 'settingsSaveError' }));
             return false;
         }
     };
@@ -444,7 +444,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             setTimeout(() => setConnectionTest(prev => prev?.configId === savedId ? null : prev), 15_000);
         } catch (error: unknown) {
             console.error('Save failed:', error);
-            toast.error(getApiErrorMessage(error, t('saveFailed')));
+            toast.error(userErrorMessage(error, t, { fallbackKey: 'saveFailed' }));
         }
     };
 
@@ -474,7 +474,7 @@ export default function AdminUI({ open, onOpenChange, section, onSectionChange, 
             fetchAuthProviders();
         } catch (error: unknown) {
             console.error('Save failed:', error);
-            toast.error(getApiErrorMessage(error, t('saveFailed')));
+            toast.error(userErrorMessage(error, t, { fallbackKey: 'saveFailed' }));
         }
     };
 

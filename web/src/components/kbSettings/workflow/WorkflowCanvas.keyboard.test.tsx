@@ -34,6 +34,16 @@ vi.mock('./api', async (importOriginal) => {
   };
 });
 import { fetchWorkflow } from './api';
+import { de } from './testI18n';
+
+// Components read their labels through useTheme(); this renders them in
+// German with one stable `t` (a fresh `t` per render would recompute the
+// canvas layout on every render).
+vi.mock('../../../contexts/ThemeContext', async () => {
+  const { translations: tr } = await import('../../../i18n/translations');
+  const t = (key: string) => tr[key as keyof typeof tr]?.de ?? key;
+  return { useTheme: () => ({ t }) };
+});
 
 const graph: WorkflowGraph = {
   lane: 'complex_reasoning',
@@ -131,7 +141,7 @@ describe('WorkflowCanvas inspector focus journey (real, unmocked React Flow)', (
     const rfNode = node.closest('.react-flow__node') as HTMLElement;
     rfNode.focus();
     fireEvent.keyDown(rfNode, { key: 'Enter' });
-    const panel = await screen.findByLabelText('Details zu CRAG-Bewertung');
+    const panel = await screen.findByLabelText(de('wfInspectorLabel', { label: 'CRAG-Bewertung' }));
     return { rfNode, panel };
   };
 
@@ -147,16 +157,16 @@ describe('WorkflowCanvas inspector focus journey (real, unmocked React Flow)', (
     fireEvent.keyDown(panel, { key: 'Escape' });
 
     await waitFor(() =>
-      expect(screen.queryByLabelText('Details zu CRAG-Bewertung')).not.toBeInTheDocument());
+      expect(screen.queryByLabelText(de('wfInspectorLabel', { label: 'CRAG-Bewertung' }))).not.toBeInTheDocument());
     expect(document.activeElement).toBe(rfNode);
   });
 
   it('hands focus back to the node when closed with the close button', async () => {
     const { rfNode } = await openViaKeyboard();
-    await userEvent.click(screen.getByRole('button', { name: /schließen/i }));
+    await userEvent.click(screen.getByRole('button', { name: de('close') }));
 
     await waitFor(() =>
-      expect(screen.queryByLabelText('Details zu CRAG-Bewertung')).not.toBeInTheDocument());
+      expect(screen.queryByLabelText(de('wfInspectorLabel', { label: 'CRAG-Bewertung' }))).not.toBeInTheDocument());
     expect(document.activeElement).toBe(rfNode);
   });
 

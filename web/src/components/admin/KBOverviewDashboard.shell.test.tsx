@@ -137,7 +137,7 @@ describe('KBOverviewDashboard — the column picker survived the Popover swap', 
         render(<KBOverviewDashboard />);
         await screen.findByRole('heading', { level: 2 });
 
-        for (const [name, tooltip] of [['tabFiles', 'tabFiles'], ['colSuspicious', 'colInjectionFlagged'], ['colFailed', 'colFailed']]) {
+        for (const [name, tooltip] of [['kbListColSources', 'kbListColSources'], ['colSuspicious', 'colInjectionFlagged'], ['colFailed', 'colFailed']]) {
             const head = screen.getByRole('columnheader', { name: new RegExp(name) });
             const sort = within(head).getByRole('button'); // the header's name is the sort button
             expect(sort.querySelector('svg')).not.toBeNull();

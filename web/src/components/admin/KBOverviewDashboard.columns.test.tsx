@@ -437,7 +437,7 @@ describe('KBOverviewDashboard injection screening count', () => {
 
         expect(cellUnder('colSuspicious', 'Alpha KB')).toHaveTextContent('3');
         // The files cell is just the file count now: no tooltip.
-        const files = cellUnder('tabFiles', 'Alpha KB');
+        const files = cellUnder('kbListColSources', 'Alpha KB');
         expect(files.textContent).toBe('10');
         expect(files).not.toHaveAttribute('title');
     });

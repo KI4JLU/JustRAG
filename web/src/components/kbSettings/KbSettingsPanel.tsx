@@ -7,6 +7,8 @@ import { fetchKbSettings, saveKbSettings, resetKbSetting, reembedKb, KbSettingsH
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useModalContext } from '../../contexts/ModalContext';
 import { copyToClipboard } from '../../utils/clipboard';
+import { userErrorMessage } from '../../utils/userErrors';
+import { useTheme } from '../../contexts/ThemeContext';
 import AdminEvalTab from '../admin/AdminEvalTab';
 import { WorkflowCanvas } from './workflow/WorkflowCanvas';
 
@@ -20,9 +22,9 @@ interface Props {
 // KB-Übersicht; a caller who arrives without the right gets the explicit
 // "Keine Berechtigung" state below rather than three tabs that each 403.
 const TABS = [
-  { id: 'settings', label: 'RAG Settings', Icon: SlidersHorizontal },
-  { id: 'evals', label: 'Evals', Icon: FlaskConical },
-  { id: 'workflow', label: 'Workflow', Icon: Workflow },
+  { id: 'settings', labelKey: 'ragTabSettings', Icon: SlidersHorizontal },
+  { id: 'evals', labelKey: 'ragTabEvals', Icon: FlaskConical },
+  { id: 'workflow', labelKey: 'ragTabWorkflow', Icon: Workflow },
 ] as const;
 
 const STORAGE_KEY = 'kb-settings-sections-open-v1';
@@ -30,6 +32,11 @@ const STORAGE_KEY = 'kb-settings-sections-open-v1';
 // draft maps key -> string value being edited. Only keys whose draft differs
 // from the effective value are sent on Save.
 export function KbSettingsPanel({ kbId }: Props) {
+  const { t } = useTheme();
+  // The panel's own request errors carry only a status; userErrorMessage maps
+  // it like any other request (403/429/5xx shared keys, else the fallback).
+  const failure = (e: unknown, fallbackKey: string) =>
+    userErrorMessage(e instanceof KbSettingsHttpError ? { status: e.status } : e, t, { fallbackKey });
   const reducedMotion = useReducedMotion();
   const { showConfirm, showAlert } = useModalContext();
   const [tab, setTab] = useState<'settings' | 'evals' | 'workflow'>('settings');
@@ -70,7 +77,7 @@ export function KbSettingsPanel({ kbId }: Props) {
       .catch((e) => {
         const denied = e instanceof KbSettingsHttpError && e.status === 403;
         setForbidden(denied);
-        if (!denied) setError(String(e));
+        if (!denied) setError(failure(e, 'ragLoadError'));
       });
   }, [kbId]);
 
@@ -107,21 +114,21 @@ export function KbSettingsPanel({ kbId }: Props) {
 
       if (reingestLabels.length > 0) {
         const ok = await showConfirm(
-          `These changes (${reingestLabels.join(', ')}) only take effect after re-ingesting all files in this knowledge base. Schedule the re-ingest now?`,
-          'Re-ingest required',
+          t('ragReingestConfirm').replace('{labels}', reingestLabels.join(', ')),
+          t('ragReingestRequiredTitle'),
         );
         if (ok) {
           const { queued } = await reembedKb(kbId);
           await showAlert(
             queued > 0
-              ? `Queued ${queued} file(s) for re-ingest.`
-              : 'No files to re-ingest in this knowledge base.',
-            'Re-ingest scheduled',
+              ? t('ragReingestQueued').replace('{count}', String(queued))
+              : t('ragReingestNone'),
+            t('ragReingestScheduledTitle'),
           );
         }
       }
     } catch (e) {
-      setError(String(e));
+      setError(failure(e, 'ragSaveError'));
     } finally {
       setSaving(false);
     }
@@ -145,7 +152,7 @@ export function KbSettingsPanel({ kbId }: Props) {
         return rest;
       });
     } catch (e) {
-      setError(String(e));
+      setError(failure(e, 'ragResetError'));
     }
   };
 
@@ -153,7 +160,7 @@ export function KbSettingsPanel({ kbId }: Props) {
     <>
       <KbModelNameRow kbId={kbId} />
       <div style={{ display: 'flex', gap: '1.75rem', borderBottom: '1px solid var(--border-color)', marginBottom: '1.25rem' }}>
-        {TABS.map(({ id, label, Icon }) => {
+        {TABS.map(({ id, labelKey, Icon }) => {
           const active = tab === id;
           return (
             <button
@@ -168,7 +175,7 @@ export function KbSettingsPanel({ kbId }: Props) {
                 fontWeight: active ? 600 : 400, fontSize: '0.9rem',
               }}
             >
-              <Icon size={16} aria-hidden="true" /> {label}
+              <Icon size={16} aria-hidden="true" /> {t(labelKey)}
               {active && (
                 <motion.div
                   layoutId={reducedMotion ? undefined : 'kb-settings-tab-underline'}
@@ -190,11 +197,9 @@ export function KbSettingsPanel({ kbId }: Props) {
     return (
       <div className="kb-settings">
         <Alert tone="error" live="assertive" className="max-w-[560px]">
-          <AlertTitle asChild><h2 className="text-sm">Keine Berechtigung</h2></AlertTitle>
+          <AlertTitle asChild><h2 className="text-sm">{t('ragForbiddenTitle')}</h2></AlertTitle>
           <AlertDescription>
-            Die RAG-Settings sind Systemadmins vorbehalten, und das nur bei
-            eigenen, geteilten oder öffentlichen Themen: ein fremdes Thema, das
-            niemand mit anderen teilt, bleibt privat.
+            {t('ragForbiddenBody')}
           </AlertDescription>
         </Alert>
       </div>
@@ -215,7 +220,7 @@ export function KbSettingsPanel({ kbId }: Props) {
     return (
       <div className="kb-settings">
         {header}
-        <div style={{ opacity: 0.6 }}>Loading…</div>
+        <div style={{ opacity: 0.6 }}>{t('ragLoading')}</div>
       </div>
     );
   }
@@ -243,15 +248,15 @@ export function KbSettingsPanel({ kbId }: Props) {
               <Search size={16} aria-hidden="true" style={{ position: 'absolute', left: '0.7rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.55, pointerEvents: 'none' }} />
               <input
                 type="text"
-                placeholder="Search settings…"
+                placeholder={t('ragSearchPlaceholder')}
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                aria-label="Search settings"
+                aria-label={t('ragSearchLabel')}
                 style={{ width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', padding: '0.55rem 0.7rem 0.55rem 2.1rem', borderRadius: 8, color: 'var(--text-primary)' }}
               />
             </div>
-            <button type="button" onClick={() => setAll(true)} style={ghostBtn}>Expand all</button>
-            <button type="button" onClick={() => setAll(false)} style={ghostBtn}>Collapse all</button>
+            <button type="button" onClick={() => setAll(true)} style={ghostBtn}>{t('ragExpandAll')}</button>
+            <button type="button" onClick={() => setAll(false)} style={ghostBtn}>{t('ragCollapseAll')}</button>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -268,17 +273,17 @@ export function KbSettingsPanel({ kbId }: Props) {
                         <label htmlFor={`field-${f.key}`} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.9rem' }}>
                           <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{f.label}</span>
                           {overridden && (
-                            <span data-testid={`override-badge-${f.key}`} title="Overridden for this KB" style={badgeOverride}>overridden</span>
+                            <span data-testid={`override-badge-${f.key}`} title={t('ragOverriddenTitle')} style={badgeOverride}>{t('ragOverriddenBadge')}</span>
                           )}
                           {f.requiresReingest && (
-                            <span title="Takes effect after re-ingest" style={badgeReingest}>re-ingest</span>
+                            <span title={t('ragReingestBadgeTitle')} style={badgeReingest}>{t('ragReingestBadge')}</span>
                           )}
                         </label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                           <FieldInput field={f} value={effective(f.key)} onChange={(v) => setVal(f.key, v)} />
                           {overridden && (
-                            <button type="button" onClick={() => onReset(f.key)} title="Reset to global default" style={resetBtn}>
-                              <RotateCcw size={13} aria-hidden="true" /> Reset
+                            <button type="button" onClick={() => onReset(f.key)} title={t('ragResetTitle')} style={resetBtn}>
+                              <RotateCcw size={13} aria-hidden="true" /> {t('ragReset')}
                             </button>
                           )}
                         </div>
@@ -298,7 +303,7 @@ export function KbSettingsPanel({ kbId }: Props) {
               disabled={saving}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--accent-primary)', color: '#fff', border: 'none', padding: '0.6rem 1.2rem', borderRadius: 8, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}
             >
-              <Save size={16} aria-hidden="true" /> Save
+              <Save size={16} aria-hidden="true" /> {t('save')}
             </button>
           </div>
         </>
@@ -314,6 +319,7 @@ export function KbSettingsPanel({ kbId }: Props) {
 // The OpenAI-compatible endpoint takes "kb-{uuid}" in the `model` field, NOT the
 // raw KB uuid — see extractKBID in internal/openaicompat/handler.go.
 function KbModelNameRow({ kbId }: { kbId: string }) {
+  const { t } = useTheme();
   const modelName = `kb-${kbId}`;
   const [copied, setCopied] = useState(false);
 
@@ -329,7 +335,7 @@ function KbModelNameRow({ kbId }: { kbId: string }) {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '1.1rem' }}>
-      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>API model name</span>
+      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t('ragModelNameLabel')}</span>
       <code
         data-testid="kb-model-value"
         style={{ fontSize: '0.8rem', color: 'var(--text-primary)',
@@ -342,12 +348,12 @@ function KbModelNameRow({ kbId }: { kbId: string }) {
       <button
         type="button"
         onClick={onCopy}
-        title="Copy the model name for the OpenAI-compatible API"
-        aria-label="Copy API model name"
+        title={t('ragModelNameCopyTitle')}
+        aria-label={t('ragModelNameCopyLabel')}
         style={{ ...resetBtn, color: copied ? 'var(--accent-primary)' : 'var(--text-secondary)' }}
       >
         {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-        {copied ? 'Copied' : 'Copy'}
+        {copied ? t('ragModelNameCopied') : t('copy')}
       </button>
     </div>
   );

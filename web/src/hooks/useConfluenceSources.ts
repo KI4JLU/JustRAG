@@ -4,7 +4,8 @@ import type { KnowledgeBase, ConfluenceSource, ConfluenceConnectionInfo, Conflue
 import { API_BASE_URL } from '../api';
 import { useTheme } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
-import { getApiErrorMessage, isForbidden } from '../utils/apiError';
+import { isForbidden } from '../utils/apiError';
+import { userErrorMessage } from '../utils/userErrors';
 import { unlistableKbId } from '../utils/kbAccess';
 
 interface UseConfluenceSourcesParams {
@@ -51,7 +52,7 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
             setConfluenceConnection(prev => ({ baseUrl: null, ...prev, enabled: true, connection: res.data }));
             toast.success(t('confluenceConnected'));
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'confluenceProfileSaveError' }));
             throw err;
         } finally {
             setConfluenceLoading(false);
@@ -139,7 +140,7 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
             setConfluenceSources(prev => [res.data, ...prev]);
             toast.success(t('confluenceSourceAdded'));
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'confluenceSourceAddFailed' }));
         } finally {
             setConfluenceLoading(false);
         }
@@ -154,7 +155,7 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
             toast.success(t('confluenceSourceUpdated'));
         } catch (err: unknown) {
             await fetchSources();
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'confluenceSourceUpdateFailed' }));
         }
     }, [currentKb, fetchSources, t, toast]);
 
@@ -169,7 +170,7 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
         const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
         if (failure) {
             await fetchSources();
-            toast.error(getApiErrorMessage(failure.reason, t('error')));
+            toast.error(userErrorMessage(failure.reason, t, { fallbackKey: 'confluenceSourceDeleteFailed' }));
         } else {
             toast.success(t('confluenceSourceDeleted'));
         }
@@ -185,7 +186,7 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
             pendingSourceIdsRef.current.add(sourceId);
             await fetchSources();
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'confluenceSyncFailed' }));
         }
     }, [currentKb, fetchSources, t, toast]);
 
@@ -209,7 +210,7 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
             const res = await axios.get(`${API_BASE_URL}/api/confluence/pages/${pageId}/children`);
             return Array.isArray(res.data) ? res.data : [];
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'confluencePagesLoadError' }));
             return [];
         }
     }, [t, toast]);
@@ -219,7 +220,7 @@ export function useConfluenceSources({ currentKb, fetchFiles }: UseConfluenceSou
             const res = await axios.get(`${API_BASE_URL}/api/confluence/spaces/${spaceKey}/pages/all`);
             return Array.isArray(res.data) ? res.data : [];
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('error')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'confluencePagesLoadError' }));
             return [];
         }
     }, [t, toast]);

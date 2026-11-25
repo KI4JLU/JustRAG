@@ -4,6 +4,15 @@ import { ReactFlow, ReactFlowProvider } from '@xyflow/react';
 import WorkflowNode from './WorkflowNode';
 import type { WorkflowNodeData } from '../../../types';
 
+// Components read their labels through useTheme(); this renders them in
+// German with one stable `t` (a fresh `t` per render would recompute the
+// canvas layout on every render).
+vi.mock('../../../contexts/ThemeContext', async () => {
+  const { translations: tr } = await import('../../../i18n/translations');
+  const t = (key: string) => tr[key as keyof typeof tr]?.de ?? key;
+  return { useTheme: () => ({ t }) };
+});
+
 // This file deliberately does NOT mock '@xyflow/react' (unlike WorkflowNode.test.tsx):
 // it exists to pin which DOM element owns the keyboard tab stop for a workflow
 // node, which only a real <ReactFlow> render can answer. React Flow's internal

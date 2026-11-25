@@ -2,6 +2,16 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import WorkflowNode from './WorkflowNode';
 import type { WorkflowNodeData } from '../../../types';
+import { de } from './testI18n';
+
+// Components read their labels through useTheme(); this renders them in
+// German with one stable `t` (a fresh `t` per render would recompute the
+// canvas layout on every render).
+vi.mock('../../../contexts/ThemeContext', async () => {
+  const { translations: tr } = await import('../../../i18n/translations');
+  const t = (key: string) => tr[key as keyof typeof tr]?.de ?? key;
+  return { useTheme: () => ({ t }) };
+});
 
 vi.mock('@xyflow/react', () => ({
   Handle: () => null,
@@ -41,19 +51,19 @@ describe('WorkflowNode', () => {
     // "Bedingt", not "Übersprungen": project.go deliberately projects an
     // orchestrator-bypassed stage as conditional because it still runs on the
     // non-streaming, MCP and eval paths. See reasonLabel.ts.
-    expect(screen.getByText('Bedingt')).toBeInTheDocument();
-    expect(screen.queryByText('Übersprungen')).not.toBeInTheDocument();
+    expect(screen.getByText(de('wfReasonConditional'))).toBeInTheDocument();
+    expect(screen.queryByText(de('wfReasonSkipped'))).not.toBeInTheDocument();
     expect(screen.queryByText(/Standard-Ablaufs/)).not.toBeInTheDocument();
   });
 
   it('badges a genuinely inactive, lane-skipped stage "Übersprungen"', () => {
     renderNode(data({ activation: 'inactive', reason: 'lane_skipped' }));
-    expect(screen.getByText('Übersprungen')).toBeInTheDocument();
+    expect(screen.getByText(de('wfReasonSkipped'))).toBeInTheDocument();
   });
 
   it('badges a stage whose prerequisite is off, instead of rendering it silent', () => {
     renderNode(data({ activation: 'inactive', reason: 'requires:citation_validation' }));
-    expect(screen.getByText('Voraussetzung fehlt')).toBeInTheDocument();
+    expect(screen.getByText(de('wfReasonRequires'))).toBeInTheDocument();
   });
 
   it('shows the LLM-call cost only when the node actually runs', () => {

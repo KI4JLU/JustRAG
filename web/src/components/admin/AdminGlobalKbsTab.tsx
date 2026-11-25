@@ -9,7 +9,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useModalContext } from '../../contexts/ModalContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import type { KbCategory } from '../../types';
 import { AdminUnpublishDialog } from './AdminUnpublishDialog';
 import { KbListRow } from './KbListRow';
@@ -188,7 +188,7 @@ export default function AdminGlobalKbsTab({ onEditGlobalKb }: AdminGlobalKbsTabP
             setUnpublishTarget(null);
         } catch (err: unknown) {
             console.error(err);
-            setUnpublishError(getApiErrorMessage(err, t('unpublishError')));
+            setUnpublishError(userErrorMessage(err, t, { fallbackKey: 'unpublishError' }));
         } finally {
             setUnpublishBusy(false);
         }

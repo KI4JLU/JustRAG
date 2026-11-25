@@ -15,14 +15,25 @@ import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { useToast } from '../contexts/ToastContext';
 import { ConfluenceModal } from '../components/sidebar/ConfluenceModal';
 import { SyncScheduleSelect } from '../components/sidebar/SyncScheduleSelect';
-import { getApiErrorMessage } from '../utils/apiError';
-import { uploadFailureMessage, userErrorMessage } from '../utils/userErrors';
+import { errorInfo, uploadFailureMessage, userErrorMessage } from '../utils/userErrors';
 
 interface GlobalKbSettingsProps {
     kb: KnowledgeBase;
     onBack: () => void;
     onOpenKb: () => void;
     onUpdate: (kb: KnowledgeBase) => void;
+}
+
+/**
+ * The message for a refused URL fetch. The endpoint's 502 means the remote
+ * page is unreachable, not an outage of this service, and its uncoded 400 is
+ * an invalid or blocked address; both are handled before the shared mapping.
+ */
+function fetchUrlErrorMessage(err: unknown, t: (key: string) => string): string {
+    const info = errorInfo(err);
+    if (!info.code && info.status === 400) return t('urlInvalid');
+    if (!info.code && info.status === 502) return t('urlFetchFailed');
+    return userErrorMessage(err, t, { fallbackKey: 'urlFetchFailed' });
 }
 
 export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, onOpenKb, onUpdate }) => {
@@ -203,7 +214,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
             toast.success(t('sourceAdded'));
             fetchFiles();
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('addSourcesFailed')));
+            toast.error(fetchUrlErrorMessage(err, t));
         } finally {
             setFetchingUrl(false);
         }
@@ -242,7 +253,8 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                     break;
                 }
                 if (statusRes.data.state === 'failed') {
-                    throw new Error(statusRes.data.error || 'crawl failed');
+                    // The job's error is the crawler's own text: never shown.
+                    throw new Error('crawl failed');
                 }
             }
             if (pages.length === 0 && Date.now() >= deadline) {
@@ -258,7 +270,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
             toast.success(`${pages.length} ${t('foundPages')}`);
             fetchFiles();
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('addSourcesFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'addSourcesFailed' }));
         } finally {
             setCrawling(false);
         }
@@ -282,7 +294,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
             toast.success(t('rssFeedAdded'));
             fetchRssFeeds();
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('addSourcesFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'rssFeedAddFailed' }));
         } finally {
             setRssLoading(false);
         }
@@ -346,7 +358,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
             toast.success(t('confluenceSourceAdded'));
             fetchConfluenceSources();
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('addSourcesFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'confluenceSourceAddFailed' }));
         } finally {
             setConfluenceLoading(false);
         }
@@ -369,7 +381,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
             await axios.post(`${API_BASE_URL}/api/kb/${kb.id}/confluence-sources/${sourceId}/sync`);
             toast.success(t('confluenceSyncTriggered'));
         } catch (err: unknown) {
-            toast.error(getApiErrorMessage(err, t('addSourcesFailed')));
+            toast.error(userErrorMessage(err, t, { fallbackKey: 'confluenceSyncFailed' }));
         }
     };
 
@@ -794,7 +806,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                                                 <div style={{ fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                     {source.spaceKey}{source.rootPageTitle ? ` / ${source.rootPageTitle}` : ''}
                                                 </div>
-                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{source.status} · {source.pageCount} pages</div>
+                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{source.status} · {source.pageCount} {t('pages')}</div>
                                             </div>
                                             <div style={{ display: 'flex', gap: '4px' }}>
                                                 <button
@@ -802,7 +814,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', padding: '4px', fontSize: '0.7rem' }}
                                                     title={t('confluenceSyncTriggered')}
                                                 >
-                                                    Sync
+                                                    {t('admSyncNow')}
                                                 </button>
                                                 <Button
                                                     type="button"
@@ -956,7 +968,7 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                     </h2>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                         <div>
-                            <label htmlFor="gkb-ai-provider" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>KI-Provider</label>
+                            <label htmlFor="gkb-ai-provider" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>{t('admAiProvider')}</label>
                             <select
                                 id="gkb-ai-provider"
                                 value={aiConfigId}
@@ -972,30 +984,30 @@ export const GlobalKbSettings: React.FC<GlobalKbSettingsProps> = ({ kb, onBack, 
                         {selectedConfig && (
                             <>
                                 <div>
-                                    <label htmlFor="gkb-chat-model" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Chat-Modell</label>
+                                    <label htmlFor="gkb-chat-model" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>{t('admChatModel')}</label>
                                     <select id="gkb-chat-model" value={chatModel} onChange={(e) => setChatModel(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-                                        <option value="">Standard</option>
+                                        <option value="">{t('standard')}</option>
                                         {selectedConfig.chat_models.map(m => <option key={m} value={m}>{m}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label htmlFor="gkb-embedding-model" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Embedding-Modell</label>
+                                    <label htmlFor="gkb-embedding-model" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>{t('admEmbeddingModel')}</label>
                                     <select id="gkb-embedding-model" value={embeddingModel} onChange={(e) => setEmbeddingModel(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-                                        <option value="">Standard</option>
+                                        <option value="">{t('standard')}</option>
                                         {selectedConfig.embedding_models.map(m => <option key={m} value={m}>{m}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label htmlFor="gkb-rerank-model" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>Rerank-Modell</label>
+                                    <label htmlFor="gkb-rerank-model" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>{t('admRerankModel')}</label>
                                     <select id="gkb-rerank-model" value={rerankModel} onChange={(e) => setRerankModel(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-                                        <option value="">Standard</option>
+                                        <option value="">{t('standard')}</option>
                                         {selectedConfig.rerank_models.map(m => <option key={m} value={m}>{m}</option>)}
                                     </select>
                                 </div>
                                 <div>
-                                    <label htmlFor="gkb-tts-model" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>TTS-Modell</label>
+                                    <label htmlFor="gkb-tts-model" style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>{t('admTtsModel')}</label>
                                     <select id="gkb-tts-model" value={ttsModel} onChange={(e) => setTtsModel(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-                                        <option value="">Keines</option>
+                                        <option value="">{t('admNone')}</option>
                                         {selectedConfig.tts_models.map(m => <option key={m} value={m}>{m}</option>)}
                                     </select>
                                 </div>

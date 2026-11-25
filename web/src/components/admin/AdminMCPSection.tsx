@@ -3,6 +3,7 @@ import { CheckCircle2, AlertCircle, RefreshCw, ChevronDown, ChevronRight, Wrench
 import { Alert, AlertDescription, Badge, Button } from '@ki4jlu/design-system';
 import { API_BASE_URL, authFetch } from '../../api';
 import { CheckboxFieldRow, TextareaFieldRow } from '../form/SettingsFieldRow';
+import { useTheme } from '../../contexts/ThemeContext';
 
 // Mirrors mcp.ServerSpec on the backend.
 interface ServerSpec {
@@ -43,16 +44,16 @@ interface AdminMCPSectionProps {
 // Validates and pretty-prints the mcp_servers JSON the user is editing.
 // Returns [parsed, error]. An empty string parses as an empty array so a
 // fresh deployment doesn't surface a confusing error.
-function parseServers(raw: string): [ServerSpec[] | null, string | null] {
+function parseServers(raw: string, t: (key: string) => string): [ServerSpec[] | null, string | null] {
     const trimmed = raw.trim();
     if (trimmed === '') return [[], null];
     try {
         const parsed = JSON.parse(trimmed);
-        if (!Array.isArray(parsed)) return [null, 'mcp_servers must be a JSON array'];
+        if (!Array.isArray(parsed)) return [null, t('admMcpErrNotArray')];
         for (const s of parsed) {
-            if (typeof s !== 'object' || s === null) return [null, 'each entry must be an object'];
-            if (typeof s.name !== 'string' || s.name === '') return [null, 'each entry needs a non-empty "name"'];
-            if (typeof s.url !== 'string' || s.url === '') return [null, 'each entry needs a non-empty "url"'];
+            if (typeof s !== 'object' || s === null) return [null, t('admMcpErrEntryObject')];
+            if (typeof s.name !== 'string' || s.name === '') return [null, t('admMcpErrEntryName')];
+            if (typeof s.url !== 'string' || s.url === '') return [null, t('admMcpErrEntryUrl')];
         }
         return [parsed as ServerSpec[], null];
     } catch (e) {
@@ -61,19 +62,21 @@ function parseServers(raw: string): [ServerSpec[] | null, string | null] {
 }
 
 function ServerStatusBadge({ s }: { s: ServerStatus }) {
+    const { t } = useTheme();
     return s.reachable ? (
         <Badge tone="success">
-            <CheckCircle2 size={14} aria-hidden="true" /> reachable
+            <CheckCircle2 size={14} aria-hidden="true" /> {t('admMcpReachable')}
         </Badge>
     ) : (
         <Badge tone="error">
-            <AlertCircle size={14} aria-hidden="true" /> unreachable
+            <AlertCircle size={14} aria-hidden="true" /> {t('admMcpUnreachable')}
         </Badge>
     );
 }
 
 function ToolList({ tools }: { tools: ToolSummary[] }) {
-    if (tools.length === 0) return <em style={{ opacity: 0.6 }}>no tools advertised</em>;
+    const { t: tr } = useTheme();
+    if (tools.length === 0) return <em style={{ opacity: 0.6 }}>{tr('admMcpNoTools')}</em>;
     return (
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
             {tools.map(t => (
@@ -127,6 +130,7 @@ function ServerCard({ s }: { s: ServerStatus }) {
 }
 
 export default function AdminMCPSection({ siteConfigs, setSiteConfigs }: AdminMCPSectionProps) {
+    const { t } = useTheme();
     const [status, setStatus] = useState<StatusResponse | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -176,7 +180,7 @@ export default function AdminMCPSection({ siteConfigs, setSiteConfigs }: AdminMC
 
     const onEditorChange = (next: string) => {
         setEditor(next);
-        const [, perr] = parseServers(next);
+        const [, perr] = parseServers(next, t);
         setEditorErr(perr);
         // Push valid (or empty-trimmed) values back to siteConfigs so
         // the form's Save settings includes them. Invalid JSON is left
@@ -191,17 +195,17 @@ export default function AdminMCPSection({ siteConfigs, setSiteConfigs }: AdminMC
     return (
         <div style={{ marginTop: '2rem', padding: '1.25rem', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
             <div style={{ marginBottom: '0.5rem' }}>
-                <h4 style={{ margin: 0 }}>Tools (MCP)</h4>
+                <h4 style={{ margin: 0 }}>{t('admMcpTitle')}</h4>
             </div>
             <p style={{ fontSize: '0.85rem', opacity: 0.75, marginTop: 0 }}>
-                The plan-execute orchestrator can dispatch tool calls through the MCP registry: the in-process built-ins (kb_search, web_search, memory_*) plus admin-configured remote MCP servers listed below.
+                {t('admMcpIntro')}
             </p>
 
             {/* Master switch */}
             <div className="mb-4">
                 <CheckboxFieldRow
                     width="wide"
-                    label="Route plan-execute searches through the MCP registry (chat_use_mcp_tools)"
+                    label={t('admMcpUseRegistry')}
                     checked={useMCPNow}
                     onCheckedChange={checked => setSiteConfigs(prev => ({ ...prev, chat_use_mcp_tools: checked ? 'true' : 'false' }))}
                 />
@@ -211,20 +215,20 @@ export default function AdminMCPSection({ siteConfigs, setSiteConfigs }: AdminMC
             <div className="mb-4">
                 <TextareaFieldRow
                     width="wide"
-                    label="Configured remote servers (mcp_servers, JSON array)"
+                    label={t('admMcpServersLabel')}
                     value={editor}
                     onChange={e => onEditorChange(e.target.value)}
                     rows={Math.min(12, Math.max(4, editor.split('\n').length + 1))}
                     spellCheck={false}
                     placeholder={`[\n  {"name": "fetch", "url": "https://my-mcp-server.example.com/mcp", "headers": {"Authorization": "Bearer …"}}\n]`}
-                    error={editorErr ? `Invalid JSON: ${editorErr}` : undefined}
-                    help={<>Format: <code>{`[{name, url, headers?}]`}</code>. Save the form to persist; click <em>Reload registry</em> below to apply without restarting.</>}
+                    error={editorErr ? t('admMcpInvalidJson').replace('{error}', editorErr) : undefined}
+                    help={<>{t('admMcpFormat')} <code>{`[{name, url, headers?}]`}</code>. {t('admMcpServersHelp')}</>}
                 />
             </div>
 
             {/* Live status panel */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <strong>Live status</strong>
+                <strong>{t('admMcpLiveStatus')}</strong>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <Button
                         type="button"
@@ -233,23 +237,23 @@ export default function AdminMCPSection({ siteConfigs, setSiteConfigs }: AdminMC
                         onClick={refreshStatus}
                         disabled={loading || reloading}
                     >
-                        {loading ? '…' : 'Refresh'}
+                        {loading ? '…' : t('refresh')}
                     </Button>
                     <Button
                         type="button"
                         size="sm"
                         onClick={reload}
                         disabled={loading || reloading}
-                        title="Re-read mcp_servers from site_config and apply to the running registry"
+                        title={t('admMcpReloadTitle')}
                     >
                         <RefreshCw size={14} className={reloading ? 'animate-spin' : undefined} />
-                        {reloading ? 'Applying…' : 'Reload registry'}
+                        {reloading ? t('admMcpApplying') : t('admMcpReload')}
                     </Button>
                 </div>
             </div>
             {error && (
                 <Alert tone="error" live="assertive" className="mb-2">
-                    <AlertDescription>Error: {error}</AlertDescription>
+                    <AlertDescription>{t('admErrorPrefix').replace('{error}', error)}</AlertDescription>
                 </Alert>
             )}
             {status && (
@@ -257,18 +261,18 @@ export default function AdminMCPSection({ siteConfigs, setSiteConfigs }: AdminMC
                     {/* Built-ins */}
                     <div style={{ marginBottom: '0.75rem' }}>
                         <div style={{ fontSize: '0.85rem', opacity: 0.85, marginBottom: '0.3rem' }}>
-                            Built-in tools ({status.builtins.length})
+                            {t('admMcpBuiltins').replace('{n}', String(status.builtins.length))}
                         </div>
                         <ToolList tools={status.builtins} />
                     </div>
 
                     {/* Remote servers */}
                     {status.servers.length === 0 ? (
-                        <div style={{ opacity: 0.65, fontSize: '0.85rem' }}>No remote servers configured.</div>
+                        <div style={{ opacity: 0.65, fontSize: '0.85rem' }}>{t('admMcpNoServers')}</div>
                     ) : (
                         <div>
                             <div style={{ fontSize: '0.85rem', opacity: 0.85, marginBottom: '0.3rem' }}>
-                                Remote servers ({status.servers.length})
+                                {t('admMcpRemoteServers').replace('{n}', String(status.servers.length))}
                             </div>
                             {status.servers.map(s => <ServerCard key={s.name} s={s} />)}
                         </div>

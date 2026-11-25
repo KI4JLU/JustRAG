@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
 import { API_BASE_URL } from '../../api';
-import { getApiErrorMessage } from '../../utils/apiError';
+import { userErrorMessage } from '../../utils/userErrors';
 import {
     Alert, AlertDescription, Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader,
     DialogTitle, Input, Spinner,
@@ -59,7 +59,7 @@ export function KbTransferOwnerDialog({
                     setLoadError(null);
                 }
             } catch (err: unknown) {
-                if (!cancelled) setLoadError(getApiErrorMessage(err, t('kbTransferUsersLoadError')));
+                if (!cancelled) setLoadError(userErrorMessage(err, t, { fallbackKey: 'kbTransferUsersLoadError' }));
             } finally {
                 if (!cancelled) setLoading(false);
             }
