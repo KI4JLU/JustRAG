@@ -44,7 +44,7 @@ Body cap 1 MiB. `Content-Type: application/json`.
 | `messages` | **only the newest `role: "user"` message with non-blank text** | `content` may be a string or an array of parts; only `{"type":"text","text":"..."}` parts are read. Every other message, including earlier turns and any `assistant`/`tool` message, is ignored: the server builds history from its own store. Sending only the new message is enough |
 | `resume` | yes | answers an interrupt (see "Resume") |
 | `forwardedProps.reasoning` | yes | `"low"`, `"medium"` or `"high"` turns model reasoning on at that effort (then `REASONING_*` events stream before the text). Anything else, or absent: off |
-| `forwardedProps.language` | yes | `"de"` or `"en"`: language of the retrieval prompt. Anything else, or absent: `"de"` |
+| `forwardedProps.language` | yes | `"de"` or `"en"`: language of the retrieval prompt and of the fixed texts the server writes (dead-end messages, action labels, outcome texts; see "Dead end with an interrupt" and "Resume"). Anything else, or absent: `"de"`. Send it on a resume too: a resume is its own request and its outcome text follows the resume's `language`, not the paused turn's |
 | `tools`, `context`, `state`, `parentRunId` | **ignored** | Client-side tools are not offered to the model in this phase. The frontend "tools" of a dead end (below) are run by the client before it resumes, not declared here |
 
 **Message validation** (new messages only, before anything is written or sent to a model): the same checks as the legacy chat.
@@ -153,7 +153,7 @@ The `RUN_FINISHED` in full:
     "interrupts": [{
       "id": "suggest-44544675-864c-4e50-a90d-76e7152116d3",
       "reason": "no_files",
-      "message": "Diese Wissensbasis enthält noch keine Dateien. Was möchtest du tun?",
+      "message": "Dieses Thema enthält noch keine Quellen. Was möchtest du tun?",
       "expiresAt": "2026-10-09T14:51:05Z",
       "metadata": {
         "reason": "no_files",
@@ -178,7 +178,7 @@ Shapes:
 Interrupt = {
   id: string,              // "suggest-<uuid>"; echo it in the resume
   reason: "no_files" | "no_evidence",
-  message: string,         // German; show it as the assistant's text for this turn
+  message: string,         // in the request's language; show it as the assistant's text for this turn
   expiresAt: string,       // RFC 3339 UTC; 24 h after the pause
   metadata: { reason: string, query: string, actions: Action[] }
 }
@@ -187,7 +187,7 @@ Action = {
   tool: string,            // informational; the server resolves the action by id, never by tool
   frontendTool?: "pick_library_file" | "upload_file" | "choose_confluence_space",
                            // present = the client must run this UI step before resuming
-  label: string,           // German button label
+  label: string,           // button label in the request's language
   sideEffect: "external_read" | "kb_write",
   requiresRole: "view" | "edit",
   requiresCapability?: "addSources",   // present on the KB-writing actions
@@ -195,7 +195,9 @@ Action = {
 }
 ```
 
-Messages: `no_files`: "Diese Wissensbasis enthält noch keine Dateien. Was möchtest du tun?"; `no_evidence`: "Dazu habe ich in der Wissensbasis nichts gefunden. Was möchtest du tun?".
+Messages (`de` / `en`): `no_files`: "Dieses Thema enthält noch keine Quellen. Was möchtest du tun?" / "This topic has no sources yet. What would you like to do?"; `no_evidence`: "Dazu habe ich in den Quellen dieses Themas nichts gefunden. Was möchtest du tun?" / "I found nothing about this in the sources of this topic. What would you like to do?".
+
+Action labels (`de` / `en`): `web` "Im Web suchen" / "Search the web"; `library` "Datei aus meiner Bibliothek hinzufügen" / "Add a file from my library"; `upload` "Datei hochladen" / "Upload a file"; `confluence` "Confluence-Bereich importieren" / "Import a Confluence space".
 
 Which actions are offered (display them in this order):
 
@@ -205,7 +207,7 @@ Which actions are offered (display them in this order):
 | `library`, `upload` | yes | yes | KB role `edit` and up holding `addSources` (they write to the KB; for an editor the KB's `editorAddSources` and `editorSeeSources`, KB admin and above always, a viewer never — see API.md § Source permissions) |
 | `confluence` | yes | yes | KB role `edit` and up holding `addSources`, only if Confluence is switched on (`confluence_enabled`) **and** the user has a Confluence connection |
 
-The server checks availability when it pauses and again when the resume arrives. If an action stopped being available in between (web search switched off, connection deleted), choosing it answers "Diese Aktion kann ich hier leider nicht ausführen." like any action that was not offered.
+The server checks availability when it pauses and again when the resume arrives. If an action stopped being available in between (web search switched off, connection deleted), choosing it answers "Diese Aktion kann ich hier leider nicht ausführen." ("Sorry, I can't run this action here.") like any action that was not offered.
 
 When nothing is left to offer, there is **no pause**: the turn completes with the plain dead-end text. Recorded for a `view` member on an empty KB:
 
@@ -218,13 +220,13 @@ data: {"type":"STEP_FINISHED","stepName":"agentchat/suggest"}
 data: {"type":"STEP_STARTED","stepName":"agentchat/dead_end"}
 data: {"type":"STEP_FINISHED","stepName":"agentchat/dead_end"}
 data: {"type":"TEXT_MESSAGE_START","messageId":"13dbba3b-…","role":"assistant"}
-data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"13dbba3b-…","delta":"Diese Wissensbasis enthält noch keine Dateien."}
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"13dbba3b-…","delta":"Dieses Thema enthält noch keine Quellen."}
 data: {"type":"TEXT_MESSAGE_END","messageId":"13dbba3b-…"}
 data: {"type":"CUSTOM","name":"justrag.message.v1","value":{"aiMessageId":"5b13d048-3ca5-44d2-809c-06c9333ee23b","chatId":"91d9c823-8d13-4d4d-96a1-7a940df8875e"}}
 data: {"type":"RUN_FINISHED","threadId":"91d9c823-…","runId":"6e99d9bd-…","outcome":{"type":"success"}}
 ```
 
-So a `view` user gets: on `no_files` this plain text, on `no_evidence` only `web` (or plain "Dazu habe ich in der Wissensbasis nichts gefunden." when web search is not available).
+So a `view` user gets: on `no_files` this plain text, on `no_evidence` only `web` (or plain "Dazu habe ich in den Quellen dieses Themas nichts gefunden." when web search is not available).
 
 ### 3. Resume
 
@@ -243,9 +245,9 @@ A resume is a new POST on the same thread with `resume` and no new message:
 ```
 
 - `status: "resolved"` + `payload: {actionId, args?}` runs the chosen action. **The click is the approval**: there is no second confirmation step.
-- `status: "cancelled"` (or a payload `{"cancelled": true}`, or a payload without `actionId`) cancels: the turn ends with "Okay, ich habe nichts unternommen."
+- `status: "cancelled"` (or a payload `{"cancelled": true}`, or a payload without `actionId`) cancels: the turn ends with "Okay, ich habe nichts unternommen." ("Okay, I haven't done anything.")
 - Only these `args` keys are read; everything else is dropped: `library_add_to_kb`: `userFileIds` (array of library file ids); `confluence_import`: `spaceKey`, `rootPageId`; `web`: none.
-- The server re-derives the offered actions from its own state and re-checks the caller's role at execution. An `actionId` that was not offered answers "Diese Aktion kann ich hier leider nicht ausführen." as a normal completed turn.
+- The server re-derives the offered actions from its own state and re-checks the caller's role at execution. An `actionId` that was not offered answers "Diese Aktion kann ich hier leider nicht ausführen." ("Sorry, I can't run this action here.") as a normal completed turn.
 - A resume stores no user message and is not counted in the usage ledger again (the turn was counted when the question came in). The outcome text is stored as the turn's AI message.
 
 Per action, what the client does first and what it sends:
@@ -257,21 +259,21 @@ Per action, what the client does first and what it sends:
 | `upload` | `upload_file`: upload the file into the library with `POST /api/library/files` (see `docs/api-contracts/user-file-library.md`; a `200` deduplicated answer is fine), take the returned `id` | `{"actionId":"upload","args":{"userFileIds":["<id>"]}}` |
 | `confluence` | `choose_confluence_space`: let the user pick a space (the existing Confluence UI/API of the KB settings) | `{"actionId":"confluence","args":{"spaceKey":"HRZ"}}` (`rootPageId` optional) |
 
-Outcome texts (one `TEXT_MESSAGE` in the `act` step; the turn then completes):
+Outcome texts (one `TEXT_MESSAGE` in the `act` step; the turn then completes), in the resume's `forwardedProps.language` (`de` / `en`):
 
 | Action | Outcome | Text |
 |---|---|---|
-| `library` / `upload` | added | "Datei hinzugefügt – sie wird gerade verarbeitet. Frag gleich noch einmal." |
-| | some added, some not | "N von M Dateien hinzugefügt – sie werden gerade verarbeitet. Die übrigen konnten nicht hinzugefügt werden. Frag gleich noch einmal." |
-| | already in the KB | "Die Datei ist bereits in dieser Wissensbasis." |
-| | none added: some already in the KB, the others failed | "Keine Datei hinzugefügt: N von M Dateien sind bereits in dieser Wissensbasis, die übrigen konnten nicht hinzugefügt werden." |
-| | not added (not in the caller's library, KB full) | "Die Datei konnte nicht hinzugefügt werden." |
-| | empty `userFileIds` | "Keine Datei ausgewählt – es wurde nichts hinzugefügt." |
-| `confluence` | import started | "Import gestartet – die Confluence-Seiten werden im Hintergrund importiert. Frag gleich noch einmal." |
-| | source created, first sync not queued | "Der Confluence-Import wurde angelegt, aber noch nicht gestartet. Bitte starte die Synchronisierung in den Einstellungen der Wissensbasis." |
-| | user has no Confluence connection | "Keine Confluence-Verbindung — bitte zuerst in den Einstellungen verbinden" |
-| | empty `spaceKey` | "Kein Confluence-Bereich ausgewählt – es wurde nichts importiert." |
-| any | failure | "Das hat leider nicht geklappt. Bitte versuche es später noch einmal." |
+| `library` / `upload` | added | "Datei hinzugefügt – sie wird gerade verarbeitet. Frag gleich noch einmal." / "File added – it is being processed. Ask again in a moment." |
+| | some added, some not | "N von M Dateien hinzugefügt – sie werden gerade verarbeitet. Die übrigen konnten nicht hinzugefügt werden. Frag gleich noch einmal." / "N of M files added – they are being processed. The others could not be added. Ask again in a moment." |
+| | already in the KB | "Die Datei ist bereits eine Quelle dieses Themas." / "The file is already a source in this topic." |
+| | none added: some already in the KB, the others failed | "Keine Datei hinzugefügt: N von M Dateien sind bereits Quellen dieses Themas, die übrigen konnten nicht hinzugefügt werden." / "No file added: N of M files are already sources in this topic, the others could not be added." |
+| | not added (not in the caller's library, KB full) | "Die Datei konnte nicht hinzugefügt werden." / "The file could not be added." |
+| | empty `userFileIds` | "Keine Datei ausgewählt – es wurde nichts hinzugefügt." / "No file selected – nothing was added." |
+| `confluence` | import started | "Import gestartet – die Confluence-Seiten werden im Hintergrund importiert. Frag gleich noch einmal." / "Import started – the Confluence pages are being imported in the background. Ask again in a moment." |
+| | source created, first sync not queued | "Der Confluence-Import wurde angelegt, aber noch nicht gestartet. Bitte starte die Synchronisierung in den Einstellungen des Themas." / "The Confluence import was created but has not started yet. Please start the sync in the topic settings." |
+| | user has no Confluence connection | "Keine Confluence-Verbindung — bitte zuerst in den Einstellungen verbinden" / "No Confluence connection — please connect in the settings first" |
+| | empty `spaceKey` | "Kein Confluence-Bereich ausgewählt – es wurde nichts importiert." / "No Confluence space selected – nothing was imported." |
+| any | failure | "Das hat leider nicht geklappt. Bitte versuche es später noch einmal." / "Sorry, that didn't work. Please try again later." |
 
 The added files are ingested in the background. The question is **not** re-run automatically: the user asks again once the file is processed (poll `GET /api/kb/{id}/files` for `status` if you want to show progress).
 
