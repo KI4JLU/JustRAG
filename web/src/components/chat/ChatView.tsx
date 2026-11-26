@@ -29,7 +29,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { STORAGE_NAMESPACE } from '../../hooks/useStoredFlag';
 import {
   InputGroupAddon,
-  ChatStage, Skeleton, SkeletonText, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
+  ChatStage, ChatStageColumn, Skeleton, SkeletonText, PromptInput, PromptInputAdaptiveTextarea, PromptSuggestions, PromptInputButton, PromptInputSubmit,
   PromptInputActionMenu, PromptInputActionMenuTrigger, PromptInputActionMenuContent, PromptInputActionMenuItem, PromptInputActionAddAttachments,
   PromptInputAttachments, PromptInputAttachment, usePromptInputAttachments, Badge, Notice,
   DropdownMenuLabel, DropdownMenuSeparator, Tooltip, TooltipTrigger, TooltipContent,
@@ -432,22 +432,15 @@ const ChatViewComp = () => {
 
   return (
     <SourcePanelContext.Provider value={sourcePanelApi}>
-    <div className="chat-area">
-      {/* Ein <div>, kein <main>: `AppShell` rendert das `main`-Landmark der
-          Seite selbst, und zwei davon wären kein Detail, sondern ein zweites
-          „Hauptinhalt"-Sprungziel für Screenreader. Die eigene Höhenrechnung
-          (`calc(100dvh - 60px)` auf Mobil) ist mit der `MobileTabBar` gegangen,
-          die sie freihielt — die Shell reserviert die Höhe ihrer Leiste jetzt
-          selbst, ein zweiter Abzug hier ließe unten 60px leer. */}
-      {/* Kein Zwischen-<div> mehr: `.chat-area` ist selbst die Flex-Spalte mit
-          `min-height: 0; overflow: hidden`, die den Scroller unten einsperrt. */}
-              <div className="chat-row">
+    {/* ChatStage straight in the shell's <main>: the side panel renders into
+        the shell's own column (AppShellSidePanel), the settings dialog into a portal. */}
+    <>
                 {/* DS ChatStage: an empty chat centres the empty state and the composer
                     together; with messages the composer docks and the disclaimer stays
                     pinned to the bottom either way. */}
                 <ChatStage
                   // relative isolate: the start page's glow fills the stage, behind the content.
-                  className="chat-column relative isolate"
+                  className="relative isolate"
                   width={chatWidth}
                   empty={chat.messages.length === 0}
                   footerId="chat-disclaimer"
@@ -471,10 +464,10 @@ const ChatViewComp = () => {
                     </>
                   ) : undefined}
                   composer={(
-                  // An empty chat (the start page) is as wide as the title card —
+                  // The stage sizes it: on the start page as wide as the title card —
                   // composer, role cards and dropzone alike; with messages the
-                  // composer takes the transcript's column.
-                  <div className={chat.messages.length === 0 ? 'input-container input-container--start' : 'input-container'} aria-busy={startPending || undefined}>
+                  // transcript's column.
+                  <div className="input-container" aria-busy={startPending || undefined}>
                     {(rolesGate || taskGate) && startPage && (
                       <div>
                       <RoleStartCards
@@ -773,12 +766,8 @@ const ChatViewComp = () => {
                     <StartGlow category={startPage.category} />
                   )}
                   {chat.messages.length === 0 ? (
-                    <div
-                      className="messages-container"
-                      style={{ position: 'relative' }}
-                    >
-                      {/* No entrance animation: the start page stands from the first paint. */}
-                      <div className="empty-state" aria-busy={startPending || undefined}>
+                    // No entrance animation: the start page stands from the first paint.
+                    <ChatStageColumn className="empty-state" aria-busy={startPending || undefined}>
                         {startPending && pendingEmpty && sourceRights.addSources ? (
                           // The first-source prompt that will load, as bars of its text.
                           <SkeletonText shimmer delay={START_SKELETON_DELAY} align="center" className="px-12">
@@ -838,18 +827,16 @@ const ChatViewComp = () => {
                             />
                           </div>
                         )}
-                      </div>
-                    </div>
+                    </ChatStageColumn>
                   ) : (
                     // Remounts when another chat's messages are loaded (transcriptKey),
                     // so it opens at that chat's last user turn. A new chat getting
                     // its id mid-stream does not change the key.
                     <MessageScrollerProvider key={chat.transcriptKey} autoScroll={autoScrollEnabled} defaultScrollPosition="last-anchor">
                       <MessageScroller>
-                        <MessageScrollerViewport
-                          className="messages-container"
-                        >
-                          <MessageScrollerContent className="transcript" aria-busy={chat.loading}>
+                        <MessageScrollerViewport>
+                          <ChatStageColumn asChild>
+                          <MessageScrollerContent className="transcript gap-0" aria-busy={chat.loading}>
                             {chat.messages.map((msg: Message, index: number) => {
                               const questionText = msg.role === 'ai' && msg.parentMessageId
                                 ? (chat.messages.find((m: Message) => m.id === msg.parentMessageId)?.content ?? '')
@@ -930,6 +917,7 @@ const ChatViewComp = () => {
                               );
                             })()}
                           </MessageScrollerContent>
+                          </ChatStageColumn>
                         </MessageScrollerViewport>
                         <MessageScrollerButton />
                       </MessageScroller>
@@ -1007,7 +995,6 @@ const ChatViewComp = () => {
                     </AppShellSidePanel>
                   );
                 })()}
-              </div>
       {showSystemPrompt && currentKb && canEditSystemPrompt && (
         // Modal over the chat: the chat stays where it was underneath and the
         // rest of the app is inert until the dialog closes.
@@ -1033,7 +1020,7 @@ const ChatViewComp = () => {
           }}
         />
       )}
-    </div>
+    </>
     </SourcePanelContext.Provider>
   );
 };

@@ -125,7 +125,7 @@ export default function AdminCategoriesSection() {
     };
 
     return (
-        <section className="admin-content flex flex-col gap-4">
+        <section className="flex w-full flex-col gap-4">
             {loading ? (
                 <p className="m-0 text-on-surface-variant">{t('loading')}</p>
             ) : categories.length === 0 ? (

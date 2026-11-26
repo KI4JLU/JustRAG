@@ -106,6 +106,7 @@ All eval flags: `docs/eval-cli.md`. PGO-ready: drop a prod CPU profile at `go-ba
 
 - `npm run web` (from root), `cd web && npm run build | test | lint`
 - Type-check with `tsc -b` (`tsc --noEmit` is a no-op here).
+- Layout comes from the design system (`AppShellLayout`, `ChatStage` + `ChatStageColumn`, `GridLayout`, …): no layout geometry in app CSS, no selectors on DS `data-slot`s, no `--chat-*`/`--app-shell-*` arithmetic. Enforced by `src/test/layoutGuard.test.ts` (its baseline only shrinks); a missing layout is built in the DS.
 - Design-system dev loop: `cd web && npm run dev:ds` (sibling `../../JLU-Design-System`) or `DS_LOCAL=<path> npm run dev` — resolves the DS source in the dev server only; builds still use the pinned tag, so bump the pin before merging DS-dependent work.
 
 ### Root workspace / Docker
