@@ -98,7 +98,7 @@ func ExtractSalientFacts(ctx context.Context, resolver *ConfigResolver, userMess
 	sys := prompts.ExtractSalientFactsSystemPrompt(lang)
 	user := prompts.ExtractSalientFactsUserPrompt(userMessage, assistantAnswer)
 
-	res, err := resolver.structuredCompletionFn(ctx, user, sys, kbID, modelOverride, salientFactsSpec)
+	res, err := resolver.structuredCompletionFn(WithoutThinking(ctx), user, sys, kbID, modelOverride, salientFactsSpec)
 	if err != nil {
 		observability.RecordLongmemExtract("error")
 		logctx.From(ctx).Warn("longmem_extract: completion failed", "error", err)

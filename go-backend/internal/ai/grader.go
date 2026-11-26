@@ -66,7 +66,7 @@ func GradeRelevance(ctx context.Context, resolver *ConfigResolver, query string,
 	// Structured + deterministic: temperature 0 so identical chunks always
 	// get the same verdict (CRAG decisions must not flap), and a strict
 	// json_schema contract so the grade enum can't come back malformed.
-	result, err := GenerateCompletionStructured(ctx, resolver, userPrompt, prompts.RelevanceGraderSystem(), kbID, modelOverride, graderSpec)
+	result, err := GenerateCompletionStructured(WithoutThinking(ctx), resolver, userPrompt, prompts.RelevanceGraderSystem(), kbID, modelOverride, graderSpec)
 	if err != nil {
 		logctx.From(ctx).Warn("ai.grader.llm_failed",
 			"error", err,

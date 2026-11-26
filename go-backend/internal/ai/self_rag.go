@@ -113,7 +113,7 @@ func VerifySelfRAG(ctx context.Context, resolver *ConfigResolver, question, answ
 	sys := prompts.SelfRAGSystemPrompt(lang)
 	user := prompts.SelfRAGUserPrompt(question, answer, sourcesBlock)
 
-	res, err := resolver.structuredCompletionFn(ctx, user, sys, kbID, modelOverride, selfRAGSpec)
+	res, err := resolver.structuredCompletionFn(WithoutThinking(ctx), user, sys, kbID, modelOverride, selfRAGSpec)
 	if err != nil {
 		observability.RecordSelfRAG("error")
 		logctx.From(ctx).Warn("self_rag: completion failed", "error", err)

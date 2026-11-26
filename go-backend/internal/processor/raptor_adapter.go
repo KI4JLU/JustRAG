@@ -97,7 +97,7 @@ func (a *raptorSummariserAdapter) Summarise(ctx context.Context, kbID, model, fi
 	// BuildSummaryMessages always returns exactly [system, user];
 	// pulling them out positionally is safe.
 	system, user := msgs[0].Content, msgs[1].Content
-	res, err := ai.GenerateCompletionWithModelDeterministic(ctx, a.resolver, user, system, kbID, false, model)
+	res, err := ai.GenerateCompletionWithModelDeterministic(ai.WithoutThinking(ctx), a.resolver, user, system, kbID, false, model)
 	if err != nil {
 		return "", err
 	}

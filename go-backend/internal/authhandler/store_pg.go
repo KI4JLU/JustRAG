@@ -3,9 +3,11 @@ package authhandler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/justrag/go-backend/internal/adminproviders"
@@ -207,15 +209,30 @@ func toAuthProviderRow(r authProviderDBRow) adminproviders.AuthProviderRow {
 const authProviderSelectCols = `id, type, name, config, is_active, created_at`
 
 // ApplyPendingInvites promotes any pending_kb_invites matching this username
-// into real kb_members rows for userID, then deletes the promoted invites — all
-// in one statement so it fires exactly once per invite. Idempotent: a re-run
-// finds nothing to move. Called on every successful OIDC login (the username
-// lookup is indexed and empty in the common case).
+// into real kb_members rows for userID and any glossary_pending_invites into
+// glossary_members rows (migration 0109), deleting the promoted invites. Each
+// kind is ONE statement (a data-modifying CTE), so it fires exactly once per
+// invite; the two kinds are two statements, not one transaction. Best-effort:
+// the glossary statement is attempted even when the KB statement failed, and a
+// failure of either is returned, both joined when both failed (the caller logs
+// it and lets the login go on). Idempotent: a re-run finds nothing to move.
+// Called on every successful login, whatever the method — local password,
+// LDAP (authhandler.respondWithToken) and OIDC (oidc.go) — since the username
+// lookup is indexed and empty in the common case.
 // The owner row wins: DO UPDATE skips rows that already carry ownership, so a
 // pending invite (view/edit/admin only — kbaccess.Assignable) can never
 // demote an owner.
 func (s *PGStore) ApplyPendingInvites(ctx context.Context, userID, username string) error {
-	_, err := s.pool.Exec(ctx, `
+	return applyPendingInvites(ctx, s.pool, userID, username)
+}
+
+// pendingInviteExec is the one pool method the invite statements use.
+type pendingInviteExec interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+func applyPendingInvites(ctx context.Context, db pendingInviteExec, userID, username string) error {
+	_, kbErr := db.Exec(ctx, `
 		WITH moved AS (
 			DELETE FROM pending_kb_invites
 			WHERE LOWER(username) = LOWER($2)
@@ -227,7 +244,28 @@ func (s *PGStore) ApplyPendingInvites(ctx context.Context, userID, username stri
 		    SET role = EXCLUDED.role
 		    WHERE kb_members.role <> 'owner'`,
 		userID, username)
-	return err
+	if kbErr != nil {
+		kbErr = fmt.Errorf("apply pending kb invites: %w", kbErr)
+	}
+	// The same for glossary invites: the username was stored lower-cased, a
+	// role is never owner (the table's CHECK). Attempted whatever became of
+	// the KB statement.
+	_, glossaryErr := db.Exec(ctx, `
+		WITH moved AS (
+			DELETE FROM glossary_pending_invites
+			WHERE username = LOWER($2)
+			RETURNING glossary_id, role
+		)
+		INSERT INTO glossary_members (glossary_id, user_id, role)
+		SELECT glossary_id, $1, role FROM moved
+		ON CONFLICT (glossary_id, user_id) DO UPDATE
+		    SET role = EXCLUDED.role
+		    WHERE glossary_members.role <> 'owner'`,
+		userID, username)
+	if glossaryErr != nil {
+		glossaryErr = fmt.Errorf("apply pending glossary invites: %w", glossaryErr)
+	}
+	return errors.Join(kbErr, glossaryErr)
 }
 
 // GetActiveAuthProviders returns all active auth provider rows ordered by created_at DESC.

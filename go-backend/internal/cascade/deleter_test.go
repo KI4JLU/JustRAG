@@ -593,3 +593,81 @@ func assertCountOne(t *testing.T, pool *pgxpool.Pool, query string, args ...any)
 		t.Errorf("expected 1 row for %q, got %d", query, n)
 	}
 }
+
+// Deleting a user removes the glossaries they own with their members, pending
+// invites, invite links and redemptions, and their own memberships in other
+// people's glossaries, which stay (migration 0109).
+func TestDeleteUser_GlossaryCleanup(t *testing.T) {
+	mainPool, vectorPool := openTestPools(t)
+	ctx := context.Background()
+	fixtureUser, kbID, _ := seedFixture(t, mainPool, false)
+
+	newUser := func(suffix string) string {
+		var id string
+		if err := mainPool.QueryRow(ctx, `
+			INSERT INTO users (username, password_hash) VALUES ($1, 'x') RETURNING id::text`,
+			fmt.Sprintf("cascade-gl-%s-%d-%d", suffix, os.Getpid(), nextSerial())).Scan(&id); err != nil {
+			t.Fatalf("insert user: %v", err)
+		}
+		t.Cleanup(func() { mainPool.Exec(ctx, `DELETE FROM users WHERE id = $1::uuid`, id) }) //nolint:errcheck
+		return id
+	}
+	gone, member := newUser("gone"), newUser("member")
+	newGlossary := func(owner string) string {
+		var id string
+		if err := mainPool.QueryRow(ctx, `INSERT INTO glossaries (name) VALUES ('cascade') RETURNING id::text`).Scan(&id); err != nil {
+			t.Fatalf("insert glossary: %v", err)
+		}
+		t.Cleanup(func() { mainPool.Exec(ctx, `DELETE FROM glossaries WHERE id = $1::uuid`, id) }) //nolint:errcheck
+		if _, err := mainPool.Exec(ctx, `INSERT INTO glossary_members (glossary_id, user_id, role) VALUES ($1::uuid, $2::uuid, 'owner')`, id, owner); err != nil {
+			t.Fatalf("owner row: %v", err)
+		}
+		return id
+	}
+	owned, others := newGlossary(gone), newGlossary(fixtureUser)
+
+	var link string
+	if err := mainPool.QueryRow(ctx, `
+		INSERT INTO glossary_invite_links (glossary_id, token, role) VALUES ($1::uuid, $2, 'viewer') RETURNING id::text`,
+		owned, "cascade-token-"+owned).Scan(&link); err != nil {
+		t.Fatalf("insert link: %v", err)
+	}
+	if _, err := mainPool.Exec(ctx, `INSERT INTO glossary_members (glossary_id, user_id, role) VALUES ($1::uuid, $2::uuid, 'editor')`, owned, member); err != nil {
+		t.Fatalf("member of the owned glossary: %v", err)
+	}
+	if _, err := mainPool.Exec(ctx, `INSERT INTO glossary_invite_redemptions (link_id, user_id) VALUES ($1::uuid, $2::uuid)`, link, member); err != nil {
+		t.Fatalf("redemption of the owned glossary's link: %v", err)
+	}
+	if _, err := mainPool.Exec(ctx, `INSERT INTO glossary_pending_invites (glossary_id, username, role) VALUES ($1::uuid, 'someone', 'viewer')`, owned); err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+	// The user to delete also belongs to somebody else's glossary and used a link of it.
+	var otherLink string
+	if err := mainPool.QueryRow(ctx, `
+		INSERT INTO glossary_invite_links (glossary_id, token, role) VALUES ($1::uuid, $2, 'viewer') RETURNING id::text`,
+		others, "cascade-token-"+others).Scan(&otherLink); err != nil {
+		t.Fatalf("insert other link: %v", err)
+	}
+	if _, err := mainPool.Exec(ctx, `INSERT INTO glossary_members (glossary_id, user_id, role) VALUES ($1::uuid, $2::uuid, 'viewer')`, others, gone); err != nil {
+		t.Fatalf("membership in the other glossary: %v", err)
+	}
+	if _, err := mainPool.Exec(ctx, `INSERT INTO glossary_invite_redemptions (link_id, user_id) VALUES ($1::uuid, $2::uuid)`, otherLink, gone); err != nil {
+		t.Fatalf("redemption: %v", err)
+	}
+
+	d := cascade.New(mainPool, vectorPool, localFS(t, mainPool, kbID))
+	if err := d.DeleteUser(ctx, gone); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+
+	assertCountZero(t, mainPool, `SELECT count(*) FROM glossaries WHERE id = $1::uuid`, owned)
+	assertCountZero(t, mainPool, `SELECT count(*) FROM glossary_members WHERE glossary_id = $1::uuid`, owned)
+	assertCountZero(t, mainPool, `SELECT count(*) FROM glossary_invite_links WHERE glossary_id = $1::uuid`, owned)
+	assertCountZero(t, mainPool, `SELECT count(*) FROM glossary_pending_invites WHERE glossary_id = $1::uuid`, owned)
+	assertCountZero(t, mainPool, `SELECT count(*) FROM glossary_invite_redemptions WHERE link_id = $1::uuid`, link)
+	// What was theirs in other people's glossaries goes; the glossary stays.
+	assertCountZero(t, mainPool, `SELECT count(*) FROM glossary_members WHERE user_id = $1::uuid`, gone)
+	assertCountZero(t, mainPool, `SELECT count(*) FROM glossary_invite_redemptions WHERE user_id = $1::uuid`, gone)
+	assertCountOne(t, mainPool, `SELECT count(*) FROM glossaries WHERE id = $1::uuid`, others)
+	assertCountOne(t, mainPool, `SELECT count(*) FROM glossary_invite_links WHERE id = $1::uuid`, otherLink)
+}

@@ -9,12 +9,13 @@ one before changing a feature**:
 |---|---|
 | `docs/feature-reference.md` | Full entry per `site_config` namespace (defaults, ranges, eval history, metrics, gotchas), runtime-only knobs, env security detail, always-on behaviour (OpenAI-compat citations, usage ledger), document parsing / Docling / describe-image |
 | `docs/kb-access.md` | KB roles + resolution ladder, per-KB source capabilities, visibility/publish/subscriptions, invite links, per-user topic filters, overview UI |
+| `docs/glossary-access.md` | Translator glossary roles + resolution ladder, visibility (private / global), adding people (bulk, pending invites, invite links), ownership transfer |
 | `docs/ui-views.md` | Every view of the web app: URL, component, shell, URL dialogs and their sections, gates |
 | `docs/eval-cli.md` | Every `cmd/eval` / `cmd/eval-gen` flag and mode (judge, pairwise, production-context overlays, trajectory, multi-turn, policy) |
-| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0108**) |
+| `go-backend/migrations/README.md` | Migration conventions + index of what each migration adds (latest: **0109**) |
 | `docs/feature-recipes.md` | Enablement toggle blocks per gated feature (flag order, SQL grants, ops sequences) |
 | `docs/retrieval.md` / `docs/agent-orchestration.md` | Mechanism + rationale for the retrieval pipeline / orchestrators and chat features |
-| `docs/api-contracts/` | Frontend contracts (agent chat, SSE early open, user file library, owui compat, …) |
+| `docs/api-contracts/` | Frontend contracts (agent chat, SSE early open, user file library, owui compat, translator, …) |
 | `docs/user-error-messages.md` | Backend error `code` → translation key; mapper `web/src/utils/userErrors.ts` |
 | `docs/presentation/tuning-knobs.md` | Admin-UI knob reference (ops-oriented) |
 | `docs/observability/docling.md` | Docling sidecar (layout-aware PDF parsing, captioning) |
@@ -50,6 +51,9 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 - `mcp_server_enabled` (off) — KB as MCP server (`ask_kb`). `internal/mcpserver`.
 - `policy_acceptance_version` (global-only, empty = off) — usage-policy / AI-use notice the web app shows until the user accepted this version; bumping it asks everyone again. Stored per user and version (`user_policy_acceptances`), `GET`/`POST /api/user/policy-acceptance`. Only the web app gates on it — API keys, `/owui`, MCP are not gated. Mig 0099. `internal/policyaccept`.
 
+**Extensions**
+- `translator_enabled` (global-only, **off**), `translator_default_target_lang` (global-only, `en-gb`) — the translation extension: `POST /api/translator/{translate,rephrase,detect,suggest}` and glossaries `/api/glossaries…`. Runs on the Fast Tier model (`model_tier_fast`; the provider's default chat model while that is empty or not offered by the active provider; `config.model` reports the model that will actually serve), stores no texts, 60 requests/min per user. System permission "use translation" is fixed in code (`user`, `admin`, `superadmin`, `api-user`). Every glossary has its own roles `viewer < editor < admin < owner` in `glossary_members` (see "Glossary access" below, `docs/glossary-access.md`); visibility is `private` or `global`, there is no `organization` level. Contract `docs/api-contracts/translator.md`. Mig 0109. `internal/translator`, `internal/glossaryaccess`, `internal/glossarymembers`, `internal/translatorlang`.
+
 **Retrieval**
 - `crag_*`, `adaptive_routing_*`, `query_decompose_*`, `step_back_*`, `mmr_*`, `rerank_blend_alpha*`, `top_n_*`, `rerank_candidate_depth*`, `query_cache_*`, `hybrid_dynamic_alpha_*`, `recency_*`.
 - `bm25_simple_arm_enabled`, `bm25_scoring_mode` (`ts_rank` default | `bm25`, per-KB) + `bm25_k1`/`bm25_b`. Flipping the mode in prod needs a `queryCacheSchemaVersion` bump or query-cache clear.
@@ -82,6 +86,12 @@ Set in the admin Agent panel; most chat features default **off**. One line each 
 - Per-KB source permissions: `kbaccess.CapabilitiesFor` → `seeSources`, `addSources`, `previewSources`, `downloadSources`, `seeCitations`, `manageSources` (mig 0089, 0107). `seeCitations` is enforced on output only. `previewSources` (download includes it) only keeps the download out of the UI — the file still reaches the browser.
 - Preview as another role: header `X-KB-Preview-Role: view|edit` from a KB admin/owner makes `resolveKB` serve the request as that role (`kbaccess.PreviewedRole` only lowers); a preview only reads except on `kbUseChain` (`RequireKBUse`: chat, generate, export, research). Preview chats store `chats.preview_role` (mig 0108). New write routes a preview may use go on `kbUseChain`, nothing else.
 - `visibility` (`private`|`public`) is the truth; `is_global` is a generated column no Go code reads. Public KBs have no owner; publishing is staged (`is_published=false`).
+
+## Glossary access (summary — full model in `docs/glossary-access.md`)
+
+- Four roles `viewer < editor < admin < owner` per glossary. `glossary_members` is the **sole authority**; one owner per glossary (partial unique index). The creator is the owner.
+- Resolution: `glossaryaccess.EffectiveRole` (only ladder: member row → that role; `global` → `viewer`; else none), `glossaryaccess.RequireGlossaryRole(min)` (only route gate, 404 missing / 403 hidden or too low). **System roles have no rung**: a superadmin is a stranger to somebody else's private glossary. SQL mirror `glossaryaccess.VisibleGlossariesCTE` must change in the same commit as the Go logic (parity test `TestVisibleGlossariesAgreesWithEffectiveRole`).
+- People are added as for KBs: bulk by username (unknown names become `glossary_pending_invites`, applied at the next login by any method), invite links, ownership transfer, leave.
 
 ## Commands
 
@@ -157,6 +167,7 @@ Details: `docs/feature-reference.md` § Environment variables.
 | Tools (MCP) | `mcp`, `mcp/builtin`, `sessionmem`, `aibudget` |
 | Knowledge graph | `kg` (read path), `kggraph`, `kgevents`, `canonicalize`, `community` |
 | Storage / data | `database`, `store`, `storage`, `pgxutil`, `files`, `userfiles`, `uploadcheck`, `libpaths`, `kbaccess`, `kbvisibility`, `kbsubs`, `kbcategories`, `kbfilters`, `kbmembers`, `kbinvites`, `kbconfig`, `memory`, `policyaccept`, `cascade` |
+| Extensions | `translator` (text routes, glossary content and CSV import), `translatorlang` (leaf: languages and the site_config keys), `glossaryaccess` (glossary roles, ladder, gate, SQL mirror), `glossarymembers` (members, bulk add, pending invites, invite links, transfer) |
 | Search | `globalsearch` |
 | Admin | `adminagentmetrics`, `adminconfigs`, `adminfeedback`, `admineval`, `adminglobalkbs`, `adminkboverview`, `adminmaintenance`, `adminmcp`, `adminproviders`, `adminusers`, `kb`, `users`, `apikeys`, `auditlogs` |
 | Eval / observability | `eval`, `observability`, `logctx`, `analytics`, `health`, `systemhealth`, `apidocs`, `usage`, `ragassamples`, `feedback`, `pipeline` |
@@ -182,6 +193,7 @@ Streaming `complex_reasoning` turns dispatch through the first orchestrator whos
 ## Model tier resolution
 
 Fast-tier tasks (graders, extractors, classifiers, condense, follow-ups, verifiers, …) resolve their model as: per-task `*_model` key → `model_tier_fast` → KB chat model, via `chat.ResolveFastTierModel(ctx, reader, perTaskKey)`. Answer generation and planning use the KB chat model directly. Fast-tier JSON calls use strict `json_schema` structured outputs with auto-downgrade (`ai.GenerateCompletionStructured`). A call that decodes a JSON object goes through `ai.CompleteStructuredJSON`: it asks once more when the answer is malformed.
+A task that needs no reasoning wraps its context in `ai.WithoutThinking`: a model flagged `is_reasoning` then gets `chat_template_kwargs.enable_thinking=false` (a Qwen3-style model behind LiteLLM/vLLM thinks by default and spends most of its tokens on it); other models keep their request bytes. Only vLLM/LiteLLM-style endpoints know that field and the others answer 400/422, so a rejected request that carried it is asked once more without it, and when that succeeds the (base URL, model) is remembered in a small bounded in-process set and later calls skip the field (`ai/thinking.go`); a 400 that is not about the field (a rejected strict schema) is not blamed on it. The opted-in steps of the index (contextual enrichment, KG extraction, RAPTOR summaries) fold `ResolvedConfig.ThinkingModeWhenOptedOut` into the index fingerprint (`fingerprintVersion` 3, `prompts.KGPromptVersion` 2). Opted in: translator, CRAG grader, KG extractor, contextual enrichment, Self-RAG verifier, DAG critic, long-term memory extraction and conflict check, KB router, RAPTOR summaries, and the capped chat helpers (`ai.GenerateCompletionCapped`: condense, classifier, follow-ups, factcheck — thinking used up their small output cap, `ai.helper.truncated`). Planners, query rewriting and answer generation still think.
 
 ## Observability
 

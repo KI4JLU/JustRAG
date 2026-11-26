@@ -8,6 +8,7 @@ import (
 	"github.com/justrag/go-backend/internal/chatpolicy"
 	"github.com/justrag/go-backend/internal/kbbehavior"
 	"github.com/justrag/go-backend/internal/policyaccept"
+	"github.com/justrag/go-backend/internal/translatorlang"
 )
 
 // globalValidators maps a GLOBAL-ONLY site_config key to the validator its
@@ -43,6 +44,11 @@ var globalValidators = map[string]func(string) error{
 	"system_notice_templates":   validateSystemNoticeTemplates,
 
 	policyaccept.VersionKey: policyaccept.ValidateVersion,
+
+	// The translation extension: its switch and the target language users
+	// start with.
+	translatorlang.KeyEnabled:       validateBool,
+	translatorlang.KeyDefaultTarget: translatorlang.ValidateCode,
 
 	// The names role prompts resolve {{assistant_name}} / {{institution_name}}
 	// / {{system_name}} to; the reader falls back to the default on anything

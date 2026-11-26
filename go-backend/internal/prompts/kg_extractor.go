@@ -7,8 +7,11 @@ import (
 )
 
 // KGPromptVersion keys the per-library-file KG extraction cache. Bump it on
-// ANY change to the KG extractor prompts so stale cached extractions miss.
-const KGPromptVersion = 1
+// ANY change to the KG extractor prompts, or to how the extractor call is run
+// (a thinking model's extractions differ from a non-thinking run's), so stale
+// cached extractions miss. 2: the extractor runs without thinking on a
+// reasoning model (ai.WithoutThinking).
+const KGPromptVersion = 2
 
 // KGExtractorSystemPrompt is the AP-C1 entity + relation extractor.
 // Asks the LLM to walk one chunk and emit named entities (people,

@@ -2081,3 +2081,17 @@ func FactcheckModel(ctx context.Context, reader SiteConfigReader) string {
 func ChatEnumerationModel(ctx context.Context, reader SiteConfigReader) string {
 	return ResolveFastTierModel(ctx, reader, "chat_enumeration_model")
 }
+
+// ReadBool is the shared boolean site_config reader for consumers outside the
+// package (the translator reads its on/off switch through it): the same
+// parsing as every chat flag, def for a missing, unreadable or unparseable
+// value.
+func ReadBool(ctx context.Context, r SiteConfigReader, key string, def bool) bool {
+	return readBool(ctx, r, key, def)
+}
+
+// ReadString is the shared string site_config reader for consumers outside
+// the package: the trimmed value, "" for a missing or unreadable one.
+func ReadString(ctx context.Context, r SiteConfigReader, key string) string {
+	return readString(ctx, r, key)
+}

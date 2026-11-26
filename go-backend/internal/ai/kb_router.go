@@ -83,7 +83,7 @@ func RouteKB(ctx context.Context, resolver *ConfigResolver, query string, candid
 	sys := prompts.KBRouterSystemPrompt()
 	user := prompts.KBRouterUserPrompt(query, candidates)
 
-	res, err := resolver.structuredCompletionFn(ctx, user, sys, kbID, modelOverride, kbRouterSpec)
+	res, err := resolver.structuredCompletionFn(WithoutThinking(ctx), user, sys, kbID, modelOverride, kbRouterSpec)
 	if err != nil {
 		logctx.From(ctx).Warn("kb_router: completion failed", "error", err)
 		return nil, fmt.Errorf("kb_router: completion: %w", err)

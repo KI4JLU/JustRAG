@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/justrag/go-backend/internal/ai"
@@ -16,6 +17,8 @@ type fpConfigStore struct {
 	model      string
 	dims       int
 	chatModel  string
+	// reasoning names the chat models flagged as is_reasoning.
+	reasoning []string
 }
 
 func (s fpConfigStore) GetActiveAIProvider(context.Context) (*ai.AIProviderInfo, error) {
@@ -33,10 +36,11 @@ func (s fpConfigStore) GetAIModelsByProvider(context.Context, string) ([]ai.AIMo
 	if s.chatModel != "" {
 		first = s.chatModel
 	}
-	out := []ai.AIModelInfo{{Name: first}}
-	for _, n := range []string{"chat-m", "e1", "e2", "h1", "h2", "k1", "k2"} {
+	flagged := func(n string) bool { return slices.Contains(s.reasoning, n) }
+	out := []ai.AIModelInfo{{Name: first, IsReasoning: flagged(first)}}
+	for _, n := range []string{"chat-m", "e1", "e2", "h1", "h2", "k1", "k2", "r1"} {
 		if n != first {
-			out = append(out, ai.AIModelInfo{Name: n})
+			out = append(out, ai.AIModelInfo{Name: n, IsReasoning: flagged(n)})
 		}
 	}
 	return append(out, ai.AIModelInfo{Name: s.model, IsEmbedding: true, Dimensions: s.dims}), nil
@@ -293,5 +297,48 @@ func TestProcessFile_FingerprintOnlyOnCompleted(t *testing.T) {
 				t.Errorf("fingerprint written = %v, want %v (statuses %v)", got, tc.want, st.statuses)
 			}
 		})
+	}
+}
+
+// The thinking mode of an opted-in step is a fingerprint input: the same model
+// name flagged as reasoning (it then runs without thinking) must not match an
+// index built while it was not, for every LLM step that opted out. HyPE did
+// not opt out and stays insensitive.
+func TestIndexFingerprint_ThinkingMode(t *testing.T) {
+	plain := fpBase()
+	flagged := fpBase()
+	flagged.reasoning = []string{"e1", "k1", "r1", "h1"}
+	for name, tc := range map[string]struct {
+		cfg     map[string]string
+		changes bool
+	}{
+		"contextual enrichment": {map[string]string{"contextual_enrichment": "true", "contextual_enrichment_model": "e1"}, true},
+		"kg extraction":         {map[string]string{"contextual_enrichment": "false", "kg_extraction_enabled": "true", "kg_extraction_model": "k1"}, true},
+		"raptor summaries":      {map[string]string{"contextual_enrichment": "false", "raptor_enabled": "true", "raptor_summary_model": "r1"}, true},
+		"hype (thinks)":         {map[string]string{"contextual_enrichment": "false", "hype_enabled": "true", "hype_model": "h1"}, false},
+		"flagged model unused":  {map[string]string{"contextual_enrichment": "false"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			same := fingerprintOf(t, plain, tc.cfg, 512, 100) == fingerprintOf(t, flagged, tc.cfg, 512, 100)
+			if same == tc.changes {
+				t.Errorf("is_reasoning flag change: fingerprint equal = %v, want %v", same, !tc.changes)
+			}
+		})
+	}
+}
+
+func TestIndexFingerprint_RecordsThinkingModeAndVersion(t *testing.T) {
+	cs := fpBase()
+	cs.reasoning = []string{"k1"}
+	cfg := map[string]string{"contextual_enrichment": "false", "kg_extraction_enabled": "true", "kg_extraction_model": "k1"}
+	in, err := fpProcessor(cs, cfg, &mockStore{}).IndexFingerprintInputs(context.Background(), "kb-1", 512, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := in["kg_extraction_thinking"]; got != ai.ThinkingOff {
+		t.Errorf("kg_extraction_thinking = %q, want %q", got, ai.ThinkingOff)
+	}
+	if got := in["fingerprint_version"]; got != "3" {
+		t.Errorf("fingerprint_version = %q, want 3 (thinking mode joined the inputs)", got)
 	}
 }

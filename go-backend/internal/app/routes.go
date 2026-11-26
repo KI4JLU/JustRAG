@@ -456,6 +456,7 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 	registerFileRoutes(rc)
 	registerLibraryRoutes(rc)
 	registerContentGenRoutes(rc, generateRL)
+	wireTranslatorRoutes(rc, inviteRL)
 	registerRoleWriterRoutes(rc, generateRL)
 	registerResearchRoutes(rc, researchRL)
 	registerPublicAPIRoutes(rc, apiRL)

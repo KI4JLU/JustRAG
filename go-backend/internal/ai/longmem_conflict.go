@@ -102,7 +102,7 @@ func ClassifyLongmemConflict(ctx context.Context, resolver *ConfigResolver, newF
 	// (new fact, candidates) pair always yields the same verdict, and a
 	// strict json_schema contract so the action enum can't come back
 	// malformed.
-	result, err := GenerateCompletionStructured(ctx, resolver, string(payload), prompts.LongmemConflictPrompt(lang), kbID, modelOverride, longmemConflictSpec)
+	result, err := GenerateCompletionStructured(WithoutThinking(ctx), resolver, string(payload), prompts.LongmemConflictPrompt(lang), kbID, modelOverride, longmemConflictSpec)
 	if err != nil {
 		return LongmemConflictVerdict{Action: LongmemConflictCreateNew}, err
 	}
