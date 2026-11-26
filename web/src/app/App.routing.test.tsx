@@ -39,7 +39,7 @@ vi.mock('axios', () => ({
     delete: vi.fn(),
     isAxiosError: (e: unknown) => !!(e && typeof e === 'object' && 'isAxiosError' in e),
     defaults: { headers: { common: {} as Record<string, string> } },
-    interceptors: { response: { use: vi.fn(() => 1), eject: vi.fn() } },
+    interceptors: { request: { use: vi.fn(() => 2), eject: vi.fn() }, response: { use: vi.fn(() => 1), eject: vi.fn() } },
   },
 }));
 

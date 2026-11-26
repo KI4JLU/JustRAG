@@ -11,7 +11,8 @@ import type { Language } from '../../i18n/translations';
 import { formatRelativeCoarse } from '../../utils/dates';
 import { CategoryPill } from './CategoryPill';
 import { categoryDotColor } from '../kbSettings/assistant/startPageModel';
-import { canOpenKbTopicSettings, canRenameKb } from '../../utils/kbAccess';
+import { canOpenKbTopicSettings, canRenameKb, kbDisplayRole } from '../../utils/kbAccess';
+import { KB_ROLE_ICON, KB_ROLE_LABEL } from './kbRoleDisplay';
 import { useFittingLineClamp } from '../../hooks/useFittingLineClamp';
 import './HomeView.css';
 
@@ -169,11 +170,32 @@ function MetaLine({ icon, label, value, testId }: { icon: React.ReactNode; label
 const KB_ROW_COLUMNS =
   'grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 md:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_8rem_7.5rem_auto] [&>*:nth-child(2)]:max-md:hidden [&>*:nth-child(3)]:max-md:hidden [&>*:nth-child(4)]:max-md:hidden';
 
-/** The column labels over the list view's rows. */
-export function KbListHeader({ t }: { t: T }) {
+/**
+ * The same columns with the caller's Berechtigung after the name („Geteiltes
+ * Wissen", mockup KI-1089). The role stays on narrow screens; the counts and
+ * the date drop out as above.
+ */
+const KB_ROW_COLUMNS_WITH_ROLE =
+  'grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-4 md:grid-cols-[minmax(0,1fr)_8.5rem_4.5rem_4.5rem_8rem_7.5rem_auto] [&>*:nth-child(3)]:max-md:hidden [&>*:nth-child(4)]:max-md:hidden [&>*:nth-child(5)]:max-md:hidden';
+
+/** The caller's Berechtigung on a topic, as a badge (card band, list row). */
+export function KbRoleBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
+  const role = kbDisplayRole(kb);
+  const Icon = KB_ROLE_ICON[role];
   return (
-    <div aria-hidden="true" className={`${KB_ROW_COLUMNS} border-l-4 border-transparent pl-6 pr-3 text-xs font-medium text-on-surface-variant`}>
+    <Badge tone={role === 'view' ? 'neutral' : 'primary'} className="shrink-0">
+      <Icon size={10} aria-hidden="true" />
+      {t(KB_ROLE_LABEL[role])}
+    </Badge>
+  );
+}
+
+/** The column labels over the list view's rows. */
+export function KbListHeader({ t, showRole = false }: { t: T; showRole?: boolean }) {
+  return (
+    <div aria-hidden="true" className={`${showRole ? KB_ROW_COLUMNS_WITH_ROLE : KB_ROW_COLUMNS} border-l-4 border-transparent pl-6 pr-3 text-xs font-medium text-on-surface-variant`}>
       <span>{t('kbListColTopic')}</span>
+      {showRole && <span className="text-right md:text-left">{t('kbListColAccess')}</span>}
       <span className="text-right">{t('kbListColSources')}</span>
       <span className="text-right">{t('kbListColChats')}</span>
       <span className="text-right">{t('kbListColLastActive')}</span>
@@ -200,6 +222,8 @@ export interface PrivateKbCardProps {
   onToggleFavorite: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   /** One compact line instead of a card — the list view. */
   compact?: boolean;
+  /** Shows the caller's Berechtigung (badge on the card, column in the row) — „Geteiltes Wissen". */
+  showRole?: boolean;
   /** „Einstellungen": opens the topic with Thema-Einstellungen on Startseite. */
   onOpenSettings: (kb: KnowledgeBase, e: React.MouseEvent) => void;
   onRenameKB: (kb: KnowledgeBase, e: React.MouseEvent) => void;
@@ -309,7 +333,7 @@ const isControlClick = (e: React.MouseEvent) =>
 // same card in both, since the only difference between them is the caller's own
 // role, which the card already reads off myRole.
 export function PrivateKbCard({
-  kb, currentUserId, systemRole, removingKb, t, language, onSelectKB, onOpenShare, onToggleFavorite, onOpenSettings, onRenameKB, onDeleteKB, compact = false,
+  kb, currentUserId, systemRole, removingKb, t, language, onSelectKB, onOpenShare, onToggleFavorite, onOpenSettings, onRenameKB, onDeleteKB, compact = false, showRole = false,
 }: PrivateKbCardProps) {
   const menu = (
     <ActionMenu
@@ -369,12 +393,13 @@ export function PrivateKbCard({
         interactive
         role="presentation"
         onClick={(e) => { if (!isControlClick(e)) onSelectKB(kb); }}
-        className={`${KB_ROW_COLUMNS} group/kb-row relative cursor-pointer items-center py-3 pl-6 pr-3`}
+        className={`${showRole ? KB_ROW_COLUMNS_WITH_ROLE : KB_ROW_COLUMNS} group/kb-row relative cursor-pointer items-center py-3 pl-6 pr-3`}
       >
         <div className="flex min-w-0 flex-col items-start gap-1">
           <span className="max-w-full truncate font-semibold text-on-surface">{nameButton}</span>
           {kb.category && <CategoryPill category={kb.category} small />}
         </div>
+        {showRole && <div className="flex justify-end md:justify-start"><KbRoleBadge kb={kb} t={t} /></div>}
         <div className="flex justify-end gap-1">
           {processing > 0
             ? (
@@ -437,6 +462,7 @@ export function PrivateKbCard({
       />
       <CardBand data-testid="kb-card-band">
         <CardTitle>{nameButton}</CardTitle>
+        {showRole && <KbRoleBadge kb={kb} t={t} />}
         {/* „Make favorite" (the empty star) shows on hover and to the keyboard
             only; a favorite keeps its filled star. Without hover (touch) it
             stays visible, since nothing would ever reveal it. */}

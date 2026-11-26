@@ -6,7 +6,7 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
-import type { KbRole, KbSourceFlag, KbSourceFlags } from '../../types';
+import type { KbPreviewRole, KbRole, KbSourceFlag, KbSourceFlags } from '../../types';
 import {
     KB_ALWAYS_ALL_ROLES, KB_CONFIGURABLE_ROLES, KB_RIGHT_GROUPS, KB_ROLE_COLUMNS, previewOnlyRoles, resolveRightCell,
     type KbRight, type KbRightState,
@@ -49,7 +49,29 @@ interface KbRolesRightsTabProps {
     onFlagsChange: (next: KbSourceFlags) => void;
     /** Opens the members dialog ("Personen zuweisen"). */
     onAssignPeople: (e: React.MouseEvent) => void;
+    /** Shows the topic as this role („Ansehen", the preview of the SAVED rights). */
+    onPreview?: (role: KbPreviewRole) => void;
 }
+
+/** „Ansehen" under a configurable role: the topic as that role sees it. */
+function PreviewButton({ role, label, onPreview, t, className }: { role: KbPreviewRole; label: string; onPreview: (role: KbPreviewRole) => void; t: T; className?: string }) {
+    return (
+        <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            // eslint-disable-next-line design-system/layout-only-classname -- the compact primary „Ansehen" under the column heading, as in the KI-1089 mockup
+            className={className ?? 'h-7 gap-1 px-2 text-xs font-medium text-primary'}
+            onClick={() => onPreview(role)}
+            aria-label={t('kbPreviewOpenLabel').replace('{role}', label)}
+        >
+            <Eye className="size-3.5" aria-hidden="true" />
+            {t('kbPreviewOpen')}
+        </Button>
+    );
+}
+
+const isPreviewable = (role: KbRole): role is KbPreviewRole => role === 'view' || role === 'edit';
 
 /**
  * "Berechtigungen" tab of Thema-Einstellungen (mockup of 2026-10-16). The
@@ -65,7 +87,7 @@ interface KbRolesRightsTabProps {
  * Both are rendered and CSS shows one. `display: none` takes the other out of
  * the accessibility tree, so a screen reader meets each control once.
  */
-export function KbRolesRightsTab({ flags, onFlagsChange, onAssignPeople }: KbRolesRightsTabProps) {
+export function KbRolesRightsTab({ flags, onFlagsChange, onAssignPeople, onPreview }: KbRolesRightsTabProps) {
     const { t } = useTheme();
     const [narrowRole, setNarrowRole] = useState<KbRole>('edit');
 
@@ -125,7 +147,14 @@ export function KbRolesRightsTab({ flags, onFlagsChange, onAssignPeople }: KbRol
                                         className="h-auto py-2 text-center align-top"
                                         aria-label={roleLabel(role)}
                                     >
-                                        <RoleHeader role={role} label={roleLabel(role)} t={t} />
+                                        <RoleHeader
+                                            role={role}
+                                            label={roleLabel(role)}
+                                            t={t}
+                                            action={onPreview && isPreviewable(role) && (
+                                                <PreviewButton role={role} label={roleLabel(role)} onPreview={onPreview} t={t} />
+                                            )}
+                                        />
                                     </TableHead>
                                 );
                             })}
@@ -194,6 +223,9 @@ export function KbRolesRightsTab({ flags, onFlagsChange, onAssignPeople }: KbRol
                     className="flex w-full [&>button]:flex-1"
                 />
                 <p className="m-0 text-sm text-on-surface-variant">{t(ROLE_DESC_KEY[narrowRole] ?? '')}</p>
+                {onPreview && isPreviewable(narrowRole) && (
+                    <PreviewButton role={narrowRole} label={roleLabel(narrowRole)} onPreview={onPreview} t={t} className="w-full gap-1.5" />
+                )}
                 {KB_RIGHT_GROUPS.map(g => (
                     <PanelSection key={g.id} title={t(GROUP_LABEL_KEY[g.id])} className="gap-0">
                         {g.rights.map(right => (
@@ -226,7 +258,7 @@ export function KbRolesRightsTab({ flags, onFlagsChange, onAssignPeople }: KbRol
  * not announced by screen readers, so the same text is the button's
  * description. (The whole cell highlighting on hover waits for a DS option.)
  */
-function RoleHeader({ role, label, t }: { role: KbRole; label: string; t: T }) {
+function RoleHeader({ role, label, t, action }: { role: KbRole; label: string; t: T; action?: React.ReactNode }) {
     const Icon = ROLE_ICON[role];
     const tip = ROLE_TIP[role];
     const locked = isAlwaysAll(role);
@@ -274,6 +306,7 @@ function RoleHeader({ role, label, t }: { role: KbRole; label: string; t: T }) {
             </span>
             {/* `hidden`: still read through aria-describedby, but not part of the header's name. */}
             <span id={descId} hidden>{description}</span>
+            {action}
         </span>
     );
 }

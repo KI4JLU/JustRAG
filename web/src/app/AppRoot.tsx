@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import axios from 'axios';
+import { installKbPreviewInterceptor, setKbPreview } from '../preview/kbPreview';
 import { Loader2 } from 'lucide-react';
 import type { User as UserType } from '../types';
 import { API_BASE_URL } from '../api';
@@ -91,6 +92,9 @@ export function AppRoot() {
   }, []);
   const userRef = useRef(user);
   const applyUser = useCallback((next: UserType | null) => {
+    // A preview belongs to the session that started it: logout, an expired
+    // session or another account ends it before the next session's requests.
+    if (next?.id !== userRef.current?.id) setKbPreview(null);
     userRef.current = next;
     setUser(next);
   }, []);
@@ -282,6 +286,9 @@ export function AppRoot() {
       }
     );
 
+    // Every axios request for a previewed topic carries X-KB-Preview-Role.
+    const removePreviewHeader = installKbPreviewInterceptor();
+
     // Also handle 401 from direct fetch() calls via authFetch
     // (api.ts names the token it sent).
     const onUnauthorized = (e: Event) => {
@@ -300,6 +307,7 @@ export function AppRoot() {
 
     return () => {
       axios.interceptors.response.eject(interceptor);
+      removePreviewHeader();
       window.removeEventListener('auth:unauthorized', onUnauthorized);
       window.removeEventListener(SITE_CONFIG_UPDATED_EVENT, onSiteConfigUpdated);
     };

@@ -48,6 +48,10 @@ import { HistoryPanel, NewChatButton } from '../history/HistoryPanel';
 import type { MobileTab } from '../../utils/activeMobileTab';
 import { canOpenKbTopicSettings, kbSourceRights } from '../../utils/kbAccess';
 import { topicSection } from '../../utils/topicSection';
+import { visibilityState } from '../../utils/kbVisibility';
+import { useKbPreview } from '../../preview/kbPreview';
+import { KbAccessChip } from '../topics/KbAccessChip';
+import { KbPreviewBanner } from '../topics/KbPreviewBanner';
 // `home-view__imprint` and `home-view__grid` below. The stylesheet is shared
 // with `KbCard.tsx` and `MyTopicsView.tsx` rather than split —
 // see KbCard.tsx's header for why the `home-view__` block name outlived the
@@ -204,6 +208,9 @@ export function AppFrame({ active, contentId, topic = null, children }: AppFrame
   // The topic settings gear: owners and KB admins only (same predicate as the
   // editor it opens). Lives in the bar, not the composer.
   const canEditSystemPrompt = !!currentKb && canOpenKbTopicSettings(currentKb, user?.role, user?.id);
+  // The banner of a preview of the open topic (KbAccessChip starts it).
+  const preview = useKbPreview();
+  const previewNotice = topic && preview && currentKb?.id === preview.kbId ? <KbPreviewBanner preview={preview} /> : null;
   // Re-read whenever the settings window opens or closes, so a save or a
   // reset there shows on the gear without a reload.
   const settingsDiff = useTopicSettingsDiff(
@@ -479,8 +486,17 @@ export function AppFrame({ active, contentId, topic = null, children }: AppFrame
         // its breadcrumb and settings.
         bar={topic !== null}
         pageLabel={pageLabel}
-        headerActions={topic && canEditSystemPrompt
-          ? <TopicSettingsButton diff={settingsDiff} onClick={() => topic.layout.setSystemPromptOpen(true)} />
+        // The caller's Berechtigung (and the way into the preview), then the
+        // settings gear for those who may open it. The chip only on a topic
+        // others use too (shared or public): on a personal one there is no
+        // other role to show or preview.
+        headerActions={topic && currentKb
+          ? (
+            <div className="flex items-center gap-1">
+              {(currentKb.previewRole || visibilityState(currentKb) !== 'personal') && <KbAccessChip kb={currentKb} />}
+              {canEditSystemPrompt && <TopicSettingsButton diff={settingsDiff} onClick={() => topic.layout.setSystemPromptOpen(true)} />}
+            </div>
+          )
           : undefined}
         collapseLabel={t('collapseNavigation')}
         expandLabel={t('expandNavigation')}
@@ -488,10 +504,12 @@ export function AppFrame({ active, contentId, topic = null, children }: AppFrame
         mobileTabs={topic ? topicTabs : overviewTabs}
         activeMobileTab={topic ? topicTab : overviewTab}
         onMobileTabChange={topic ? handleTopicTabChange : setOverviewTab}
-        notice={systemNotice.notice}
+        // A preview of the open topic takes the banner slot; the system
+        // notice moves back in once the preview ends.
+        notice={previewNotice ?? systemNotice.notice}
         status={systemNotice.status}
         statusPosition={systemNotice.statusPosition}
-        noticeLabel={t('systemNotice')}
+        noticeLabel={previewNotice ? t('kbPreviewLabel') : t('systemNotice')}
       >
         {inTopic(children)}
         {/* The search is a palette, opened by „Suchen" in the nav or ⌘K: the

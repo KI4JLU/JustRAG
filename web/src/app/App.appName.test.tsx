@@ -15,7 +15,7 @@ vi.mock('axios', () => ({
     get: vi.fn(),
     post: vi.fn(),
     defaults: { headers: { common: {} as Record<string, string> } },
-    interceptors: { response: { use: vi.fn(() => 1), eject: vi.fn() } },
+    interceptors: { request: { use: vi.fn(() => 2), eject: vi.fn() }, response: { use: vi.fn(() => 1), eject: vi.fn() } },
   },
 }));
 

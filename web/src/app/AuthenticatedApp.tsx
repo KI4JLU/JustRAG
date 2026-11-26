@@ -22,6 +22,7 @@ import { useFileManagement } from '../hooks/useFileManagement';
 import { useUploadStorageNotice } from '../hooks/useUploadStorageNotice';
 import { UploadStorageNoticeDialog } from '../components/sources/UploadStorageNoticeDialog';
 import { useWebTools } from '../hooks/useWebTools';
+import { useKbPreviewSync } from '../preview/useKbPreviewSync';
 import { useKnowledgeBases } from '../hooks/useKnowledgeBases';
 import { useJoinInvite } from '../hooks/useJoinInvite';
 import { useKbSearchState } from '../hooks/useKbSearchState';
@@ -207,6 +208,9 @@ function AuthenticatedAppInner() {
     handleGoHome: goHome,
     setCurrentKb, setIsPro: kbSettings.setIsPro, navigateTo,
   });
+
+  // „Thema ansehen als": the open topic as a lower role (preview/kbPreview).
+  useKbPreviewSync({ currentKb, setCurrentKb, newChat: chat.handleNewChat });
 
   /* URL -> open topic. When the URL names a topic that is not the open one —
    * a deep link, a reload, back/forward between topics — load it and open it
