@@ -100,6 +100,14 @@ func (h *AgentChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeAgentChatError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	// A preview (kbaccess.PreviewRoleHeader) is refused rather than served:
+	// the agent chat neither stores the preview role on its chats nor keeps
+	// the run's KB-writing actions out of it. The web app chats through
+	// POST /api/kb/{id}/chat while it previews.
+	if access.PreviewRole != "" {
+		writeAgentChatError(w, http.StatusConflict, "not_available_in_preview")
+		return
+	}
 	kbID := access.KB.ID
 	ctx = logctx.Attach(logctx.WithKB(ctx, kbID))
 	reader, searcher := h.forKB(ctx, kbID)

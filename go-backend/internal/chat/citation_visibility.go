@@ -612,13 +612,20 @@ func citationFilterFrom(ctx context.Context) *CitationFilter {
 // through the same ladder (kbaccess.ResolveCapabilities). Fails closed: no
 // way to resolve, or an error, hides citations.
 func (h *Handler) citationsVisible(ctx context.Context, kbID string, user *auth.Claims) bool {
+	return h.citationsVisibleAs(ctx, kbID, user, "")
+}
+
+// citationsVisibleAs is citationsVisible for a reader served as the preview
+// role preview (a chat's chats.preview_role; "" for none), capped by
+// kbaccess.PreviewedRole.
+func (h *Handler) citationsVisibleAs(ctx context.Context, kbID string, user *auth.Claims, preview string) bool {
 	if a := kbaccess.AccessFromContext(ctx); a != nil && a.KB != nil && a.KB.ID == kbID {
-		return a.Capabilities().SeeCitations
+		return a.WithPreview(preview).Capabilities().SeeCitations
 	}
 	if h.kbAccess == nil || user == nil {
 		return false
 	}
-	caps, err := kbaccess.ResolveCapabilities(ctx, h.kbAccess, kbID, user.ID, user.Role)
+	caps, err := kbaccess.ResolvePreviewCapabilities(ctx, h.kbAccess, kbID, user.ID, user.Role, preview)
 	if err != nil {
 		logctx.From(ctx).Warn("chat: resolve citation visibility; hiding citations", "kb_id", kbID, "error", err)
 		return false

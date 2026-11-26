@@ -145,41 +145,52 @@ func (h *Handler) maybeRouteKB(ctx context.Context, r *http.Request, userID, kbI
 	return logctx.WithKB(ctx, resolvedKBID), resolvedKBID
 }
 
-// resolveOrCreateChat returns the chat ID to use for this turn. When
-// chatID is non-empty, verifies the chat belongs to userID + kbID and
-// returns a 403 otherwise. When chatID is empty, creates a new chat
-// titled from the first 50 characters of message, started in roleID when
-// that is set (checked by the caller). On error, writes the HTTP response
-// and returns ok=false.
-func (h *Handler) resolveOrCreateChat(ctx context.Context, w http.ResponseWriter, chatID, kbID, userID, message, roleID string) (string, bool) {
+// resolveOrCreateChat returns the chat ID to use for this turn and the
+// preview role the turn is served as. When chatID is non-empty, verifies the
+// chat belongs to userID + kbID and returns a 403 otherwise; the turn then
+// takes the chat's stored preview role (chats.preview_role), and a request
+// previewing a different one (preview, from kbaccess.PreviewRoleHeader) is
+// a 409 — a chat stays in the role it was started in. When chatID is empty,
+// creates a new chat titled from the first 50 characters of message, started
+// in roleID and/or the preview role when set (checked by the caller). On
+// error, writes the HTTP response and returns ok=false.
+func (h *Handler) resolveOrCreateChat(ctx context.Context, w http.ResponseWriter, chatID, kbID, userID, message, roleID, preview string) (string, string, bool) {
 	if chatID != "" {
 		chat, err := h.store.GetChatByID(ctx, chatID)
 		if err != nil {
 			logctx.From(ctx).Error("chat.send: get chat", "error", err, "chat_id", chatID, "user_id", userID, "kb_id", kbID)
 			httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to fetch chat")
-			return "", false
+			return "", "", false
 		}
 		if chat == nil || chat.UserID != userID || chat.KbID != kbID {
 			httputil.WriteErrorCtx(ctx, w, http.StatusForbidden, "access denied")
-			return "", false
+			return "", "", false
 		}
-		return chatID, true
+		stored := ""
+		if chat.PreviewRole != nil {
+			stored = *chat.PreviewRole
+		}
+		if preview != "" && preview != stored {
+			httputil.WriteErrorCtx(ctx, w, http.StatusConflict, "chat was not started in this preview")
+			return "", "", false
+		}
+		return chatID, stored, true
 	}
 	var (
 		newChat *ChatRow
 		err     error
 	)
-	if roleID != "" {
-		newChat, err = h.store.CreateChatWithRole(ctx, kbID, userID, chatTitle(message), roleID)
+	if roleID != "" || preview != "" {
+		newChat, err = h.store.CreateChatWithRole(ctx, kbID, userID, chatTitle(message), roleID, preview)
 	} else {
 		newChat, err = h.store.CreateChat(ctx, kbID, userID, chatTitle(message))
 	}
 	if err != nil {
 		logctx.From(ctx).Error("chat.send: create chat", "error", err, "user_id", userID, "kb_id", kbID)
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "failed to create chat")
-		return "", false
+		return "", "", false
 	}
-	return newChat.ID, true
+	return newChat.ID, preview, true
 }
 
 // chatTitle is a new chat's title: the first 50 runes of its first message.

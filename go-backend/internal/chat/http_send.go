@@ -19,6 +19,7 @@ import (
 	"github.com/justrag/go-backend/internal/auth"
 	"github.com/justrag/go-backend/internal/chatpolicy"
 	"github.com/justrag/go-backend/internal/httputil"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/logctx"
 	"github.com/justrag/go-backend/internal/observability"
 	"github.com/justrag/go-backend/internal/usage"
@@ -281,7 +282,15 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	//
 	// Never for a chat started in a role either: roles belong to the KB the
 	// starter question was shown on, so a role chat stays there.
-	if body.RegenerateOfMessageID == "" && body.RoleID == "" {
+	//
+	// Never in a preview (kbaccess.PreviewRoleHeader) either: the previewed
+	// role belongs to this KB, and the router picks by the caller's own
+	// access, not the previewed role's.
+	preview := ""
+	if a := kbaccess.AccessFromContext(ctx); a != nil {
+		preview = a.PreviewRole
+	}
+	if body.RegenerateOfMessageID == "" && body.RoleID == "" && preview == "" {
 		ctx, kbID = h.maybeRouteKB(ctx, r, user.ID, kbID, body.Message)
 	}
 
@@ -316,9 +325,16 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	chatID, ok := h.resolveOrCreateChat(ctx, w, body.ChatID, kbID, user.ID, body.Message, body.RoleID)
+	chatID, chatPreview, ok := h.resolveOrCreateChat(ctx, w, body.ChatID, kbID, user.ID, body.Message, body.RoleID, preview)
 	if !ok {
 		return
+	}
+	// A chat started in a preview stays in it: a later turn sent without the
+	// header is served as the stored role too. Capping only ever removes
+	// rights, so re-deciding citation visibility can only add the filter.
+	if chatPreview != "" && chatPreview != preview {
+		ctx = kbaccess.WithAccess(ctx, kbaccess.AccessFromContext(ctx).WithPreview(chatPreview))
+		ctx = h.withCitationVisibility(ctx, kbID, user)
 	}
 
 	// Usage ledger: one row per accepted turn. Placed after maybeRouteKB so the

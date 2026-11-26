@@ -113,7 +113,7 @@ func (m *mockStore) KBHasRole(_ context.Context, _, _ string) (bool, error) {
 	return false, nil
 }
 
-func (m *mockStore) CreateChatWithRole(_ context.Context, _, _, _, _ string) (*chat.ChatRow, error) {
+func (m *mockStore) CreateChatWithRole(_ context.Context, _, _, _, _, _ string) (*chat.ChatRow, error) {
 	return m.chat, m.err
 }
 

@@ -150,6 +150,12 @@ type routeCtx struct {
 	superadminChain func(http.HandlerFunc) http.Handler
 	adminChain      func(http.HandlerFunc) http.Handler
 	kbViewChain     func(http.HandlerFunc) http.Handler
+	// kbUseChain: KB role view, and open to a request that previews a role
+	// (kbaccess.PreviewRoleHeader) even when it writes. For the routes that
+	// use a KB without changing it — chat, generate, export, research — so a
+	// previewing admin can ask questions as the previewed role. Every other
+	// KB chain refuses a preview anything but reads.
+	kbUseChain      func(http.HandlerFunc) http.Handler
 	kbEditChain     func(http.HandlerFunc) http.Handler
 	kbAdminChain    func(http.HandlerFunc) http.Handler
 	kbAdvancedChain func(http.HandlerFunc) http.Handler
@@ -333,6 +339,9 @@ func setupRoutes(ctx context.Context, mux *http.ServeMux, infra *serverInfra, cf
 		adminChain:         auth.RoleChain(authMiddleware, auth.RoleAdmin, auth.RoleSuperAdmin),
 		kbViewChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(kbMw.RequireKBRole(kbaccess.RoleView)(http.HandlerFunc(h)))
+		},
+		kbUseChain: func(h http.HandlerFunc) http.Handler {
+			return authMiddleware.Authenticate(kbMw.RequireKBUse()(http.HandlerFunc(h)))
 		},
 		kbEditChain: func(h http.HandlerFunc) http.Handler {
 			return authMiddleware.Authenticate(kbMw.RequireKBRole(kbaccess.RoleEdit)(http.HandlerFunc(h)))
@@ -1141,7 +1150,7 @@ func registerKBRoutes(rc *routeCtx, inviteRL *middleware.RedisRateLimiter) {
 
 	// Web search (KB view permission)
 	webSearchHandler := websearch.NewHandler(rc.chatStore)
-	rc.mux.Handle("POST /api/kb/{id}/websearch", rc.kbViewChain(webSearchHandler.WebSearch))
+	rc.mux.Handle("POST /api/kb/{id}/websearch", rc.kbUseChain(webSearchHandler.WebSearch))
 
 	// Knowledge-graph overview (frontend mind map) — KB view permission.
 	// Returns empty nodes/edges on KBs without KG extraction.
@@ -1491,14 +1500,14 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL, ge
 	// Chat — send message (KB view permission). The rate limiter wraps the
 	// auth chain from the outside so unauthenticated requests don't consume
 	// quota — matching the pattern used by registerContentGenRoutes.
-	rc.mux.Handle("POST /api/kb/{id}/chat", chatRL.Middleware(rc.kbViewChain(chatHandler.SendMessage)))
+	rc.mux.Handle("POST /api/kb/{id}/chat", chatRL.Middleware(rc.kbUseChain(chatHandler.SendMessage)))
 	// Agentic chat (AG-UI). 404 unless chat_agent_chat_enabled is on for the
 	// KB; same auth + KB-view chain and "chat" rate limiter as the route above.
-	rc.mux.Handle("POST /api/kb/{id}/agui/chat", chatRL.Middleware(rc.kbViewChain(agentChat.ServeHTTP)))
+	rc.mux.Handle("POST /api/kb/{id}/agui/chat", chatRL.Middleware(rc.kbUseChain(agentChat.ServeHTTP)))
 	// In-chat document comparison: upload a document to compare against the KB.
 	// Same auth + KB-view ACL chain and "chat" rate limiter as the chat send route —
 	// the upload triggers synchronous parsing + a Redis write, so it must be metered.
-	rc.mux.Handle("POST /api/kb/{id}/chat/attachment", chatRL.Middleware(rc.kbViewChain(chatHandler.UploadAttachment)))
+	rc.mux.Handle("POST /api/kb/{id}/chat/attachment", chatRL.Middleware(rc.kbUseChain(chatHandler.UploadAttachment)))
 	// Chat attachments as context: own budget, counted per user after
 	// authentication (the composer uploads several files at once, which would
 	// drain the per-IP chat budget the message itself needs).
@@ -1506,7 +1515,7 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL, ge
 		Max: 60, Window: time.Minute, Category: "chat_attachments", Key: userRateKey,
 	})
 	rc.mux.Handle("POST /api/kb/{id}/chat/attachments",
-		rc.kbViewChain(attachRL.Middleware(http.HandlerFunc(chatHandler.UploadChatAttachment)).ServeHTTP))
+		rc.kbUseChain(attachRL.Middleware(http.HandlerFunc(chatHandler.UploadChatAttachment)).ServeHTTP))
 
 	// KB-less library chat (owner-only; ownership checked in the handler).
 	// The send route shares the KB chat rate limiter, wrapped outside auth.
@@ -1517,7 +1526,7 @@ func registerChatRoutes(ctx context.Context, rc *routeCtx, chatRL, starterRL, ge
 	rc.mux.Handle("GET /api/library/chats/{id}", rc.authMw.Authenticate(http.HandlerFunc(chatHandler.GetLibraryChat)))
 
 	// Chat — feedback
-	rc.mux.Handle("POST /api/kb/{id}/chats/{chatId}/messages/{messageId}/feedback", rc.kbViewChain(chatHandler.SubmitFeedback))
+	rc.mux.Handle("POST /api/kb/{id}/chats/{chatId}/messages/{messageId}/feedback", rc.kbUseChain(chatHandler.SubmitFeedback))
 }
 
 // registerAgentTeamRoutes wires the user-defined-agent and agent-team CRUD
@@ -1613,19 +1622,19 @@ func registerContentGenRoutes(rc *routeCtx, generateRL *middleware.RedisRateLimi
 	contentGenHandler.SetAgentDeps(rc.agentTeamsStore, rc.searchService)
 	rc.mux.Handle("GET /api/kb/{id}/workspace/presets", rc.kbViewChain(contentGenHandler.GetWorkspacePresets))
 
-	rc.mux.Handle("POST /api/kb/{id}/generate/cards", generateRL.Middleware(rc.kbViewChain(contentGenHandler.GenerateCards)))
-	rc.mux.Handle("POST /api/kb/{id}/generate/quiz", generateRL.Middleware(rc.kbViewChain(contentGenHandler.GenerateQuiz)))
-	rc.mux.Handle("POST /api/kb/{id}/generate/presentation", generateRL.Middleware(rc.kbViewChain(contentGenHandler.GeneratePresentation)))
-	rc.mux.Handle("POST /api/kb/{id}/generate/podcast", generateRL.Middleware(rc.kbViewChain(contentGenHandler.GeneratePodcast)))
+	rc.mux.Handle("POST /api/kb/{id}/generate/cards", generateRL.Middleware(rc.kbUseChain(contentGenHandler.GenerateCards)))
+	rc.mux.Handle("POST /api/kb/{id}/generate/quiz", generateRL.Middleware(rc.kbUseChain(contentGenHandler.GenerateQuiz)))
+	rc.mux.Handle("POST /api/kb/{id}/generate/presentation", generateRL.Middleware(rc.kbUseChain(contentGenHandler.GeneratePresentation)))
+	rc.mux.Handle("POST /api/kb/{id}/generate/podcast", generateRL.Middleware(rc.kbUseChain(contentGenHandler.GeneratePodcast)))
 	rc.mux.Handle("GET /api/kb/{id}/generate/podcast/status/{jobId}", rc.kbViewChain(contentGenHandler.GetPodcastStatus))
-	rc.mux.Handle("POST /api/kb/{id}/generate/chart", generateRL.Middleware(rc.kbViewChain(contentGenHandler.GenerateChart)))
-	rc.mux.Handle("POST /api/kb/{id}/generate/analysis", generateRL.Middleware(rc.kbViewChain(contentGenHandler.GenerateAnalysis)))
-	rc.mux.Handle("POST /api/kb/{id}/generate/abstract", generateRL.Middleware(rc.kbViewChain(contentGenHandler.GenerateAbstract)))
+	rc.mux.Handle("POST /api/kb/{id}/generate/chart", generateRL.Middleware(rc.kbUseChain(contentGenHandler.GenerateChart)))
+	rc.mux.Handle("POST /api/kb/{id}/generate/analysis", generateRL.Middleware(rc.kbUseChain(contentGenHandler.GenerateAnalysis)))
+	rc.mux.Handle("POST /api/kb/{id}/generate/abstract", generateRL.Middleware(rc.kbUseChain(contentGenHandler.GenerateAbstract)))
 
 	// Markdown-text study artifacts (briefing doc, FAQ, study guide, timeline)
 	// share one generic handler; each is one ArtifactSpec in the registry.
 	for _, spec := range contentgen.TextArtifacts {
-		rc.mux.Handle("POST /api/kb/{id}/generate/"+spec.Type, generateRL.Middleware(rc.kbViewChain(contentGenHandler.GenerateArtifact(spec))))
+		rc.mux.Handle("POST /api/kb/{id}/generate/"+spec.Type, generateRL.Middleware(rc.kbUseChain(contentGenHandler.GenerateArtifact(spec))))
 	}
 }
 
@@ -1687,15 +1696,15 @@ func registerResearchRoutes(rc *routeCtx, researchRL *middleware.RedisRateLimite
 	miscHandler.SetSiteConfig(rc.chatStore)
 	rc.mux.Handle("POST /api/describe-image", rc.authMw.Authenticate(llmTimeout(http.HandlerFunc(miscHandler.DescribeImage))))
 	// Export endpoints matching the frontend contract (POST /api/kb/{id}/export/...).
-	rc.mux.Handle("POST /api/kb/{id}/export/docx", rc.kbViewChain(miscHandler.ExportDocx))
-	rc.mux.Handle("POST /api/kb/{id}/export/bibtex", rc.kbViewChain(miscHandler.ResearchBibtex))
-	rc.mux.Handle("POST /api/kb/{id}/export/academic-bibtex", rc.kbViewChain(miscHandler.AcademicBibtex))
+	rc.mux.Handle("POST /api/kb/{id}/export/docx", rc.kbUseChain(miscHandler.ExportDocx))
+	rc.mux.Handle("POST /api/kb/{id}/export/bibtex", rc.kbUseChain(miscHandler.ResearchBibtex))
+	rc.mux.Handle("POST /api/kb/{id}/export/academic-bibtex", rc.kbUseChain(miscHandler.AcademicBibtex))
 	// Legacy routes (kept for backwards compat with any direct API callers).
 	rc.mux.Handle("POST /api/research/{sessionId}/bibtex", rc.authMw.Authenticate(http.HandlerFunc(miscHandler.ResearchBibtex)))
 	rc.mux.Handle("POST /api/academic-research/{sessionId}/bibtex", rc.authMw.Authenticate(http.HandlerFunc(miscHandler.AcademicBibtex)))
 
 	// Academic research endpoints
-	rc.mux.Handle("POST /api/kb/{id}/academic-search", rc.kbViewChain(academicHandler.Search))
+	rc.mux.Handle("POST /api/kb/{id}/academic-search", rc.kbUseChain(academicHandler.Search))
 	rc.mux.Handle("POST /api/kb/{id}/academic-research", rc.kbViewChain(academicHandler.StartResearch))
 	rc.mux.Handle("POST /api/academic-research/{researchId}/papers/add", rc.authMw.Authenticate(http.HandlerFunc(academicHandler.AddPapers)))
 
@@ -1710,8 +1719,8 @@ func registerResearchRoutes(rc *routeCtx, researchRL *middleware.RedisRateLimite
 	// at request time instead. A real research session ID is a UUID, so
 	// the literal "deep" cannot collide with one in practice.
 	rc.mux.Handle("GET /api/research/{researchId}/{action}", rc.authMw.Authenticate(http.HandlerFunc(dispatchResearchAction(researchHandler))))
-	rc.mux.Handle("POST /api/kb/{id}/research", researchRL.Middleware(rc.kbViewChain(researchHandler.StartResearch)))
-	rc.mux.Handle("POST /api/kb/{id}/web-research", researchRL.Middleware(rc.kbViewChain(researchHandler.StartWebResearch)))
+	rc.mux.Handle("POST /api/kb/{id}/research", researchRL.Middleware(rc.kbUseChain(researchHandler.StartResearch)))
+	rc.mux.Handle("POST /api/kb/{id}/web-research", researchRL.Middleware(rc.kbUseChain(researchHandler.StartWebResearch)))
 	rc.mux.Handle("POST /api/research/{researchId}/abort", rc.authMw.Authenticate(http.HandlerFunc(researchHandler.Abort)))
 }
 

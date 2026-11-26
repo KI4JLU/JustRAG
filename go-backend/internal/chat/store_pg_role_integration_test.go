@@ -20,7 +20,7 @@ func TestPGStore_ChatRole(t *testing.T) {
 	seed := seedChat(t, pool, "role-src")
 	kbID, userID := chatOwner(t, pool, seed)
 
-	c, err := s.CreateChatWithRole(ctx, kbID, userID, "Elternzeit", "summary")
+	c, err := s.CreateChatWithRole(ctx, kbID, userID, "Elternzeit", "summary", "")
 	if err != nil {
 		t.Fatalf("CreateChatWithRole: %v", err)
 	}
@@ -86,5 +86,52 @@ func TestPGStore_ChatRole(t *testing.T) {
 	}
 	if has, err := s.KBHasRole(ctx, kbID, "summary"); err != nil || !has {
 		t.Errorf("KBHasRole(summary) = %v (%v)", has, err)
+	}
+}
+
+// chats.preview_role (migration 0108): a chat started in a preview stores
+// the role, the lookup and the list return it, and a branch keeps it.
+func TestPGStore_ChatPreviewRole(t *testing.T) {
+	pool := conflictTestPool(t)
+	s := NewStore(pool)
+	ctx := context.Background()
+
+	seed := seedChat(t, pool, "preview-src")
+	kbID, userID := chatOwner(t, pool, seed)
+
+	c, err := s.CreateChatWithRole(ctx, kbID, userID, "Vorschau", "", "view")
+	if err != nil {
+		t.Fatalf("CreateChatWithRole: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM chats WHERE id = $1::uuid`, c.ID) }) //nolint:errcheck
+	if c.PreviewRole == nil || *c.PreviewRole != "view" || c.RoleID != nil {
+		t.Fatalf("created PreviewRole = %v RoleID = %v", c.PreviewRole, c.RoleID)
+	}
+	if got, err := s.GetChatByID(ctx, c.ID); err != nil || got.PreviewRole == nil || *got.PreviewRole != "view" {
+		t.Fatalf("GetChatByID PreviewRole = %v (%v)", got, err)
+	}
+	list, err := s.GetChats(ctx, kbID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range list {
+		if row.ID == c.ID && (row.PreviewRole == nil || *row.PreviewRole != "view") {
+			t.Errorf("list PreviewRole = %v", row.PreviewRole)
+		}
+		if row.ID == seed && row.PreviewRole != nil {
+			t.Errorf("ordinary chat lists PreviewRole %q", *row.PreviewRole)
+		}
+	}
+	branch, err := s.BranchChat(ctx, c.ID, "", userID)
+	if err != nil {
+		t.Fatalf("BranchChat: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(ctx, `DELETE FROM chats WHERE id = $1::uuid`, branch.ID) }) //nolint:errcheck
+	if b, _ := s.GetChatByID(ctx, branch.ID); b == nil || b.PreviewRole == nil || *b.PreviewRole != "view" {
+		t.Errorf("branch must keep the preview role: %+v", b)
+	}
+	// The CHECK constraint is the database side of kbaccess.ParsePreviewRole.
+	if _, err := s.CreateChatWithRole(ctx, kbID, userID, "x", "", "owner"); err == nil {
+		t.Error("preview role owner accepted")
 	}
 }

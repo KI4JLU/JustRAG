@@ -50,9 +50,14 @@ type SourcePermissions struct {
 
 // KBAccessResult holds the resolved access information for a request.
 type KBAccessResult struct {
-	KB      *KnowledgeBase
+	KB *KnowledgeBase
+	// Role is the role the request is served as: the caller's effective
+	// role, or the previewed role when the request previews one.
 	Role    string
 	IsOwner bool
+	// PreviewRole is the role the caller previews (PreviewRoleHeader), ""
+	// outside a preview. When set, Role equals it.
+	PreviewRole string
 }
 
 // Capabilities resolves the request's source capabilities from the role the
@@ -108,21 +113,39 @@ func NewMiddleware(store KBStore) *Middleware {
 // in the same commit; TestVisibilityAgreesWithEffectiveRole in
 // internal/globalsearch checks that they agree.
 func EffectiveRole(kb *KnowledgeBase, sysRole, memberRole string) string {
+	role, _ := ResolveRole(kb, sysRole, memberRole)
+	return role
+}
+
+// Where an effective role comes from, one value per rung of the ladder in
+// EffectiveRole. The UI shows it next to the role ("öffentlich",
+// "Systemadmin"), so the JSON values are a contract.
+const (
+	OriginSuperadmin  = "superadmin"
+	OriginMember      = "member"
+	OriginSystemAdmin = "systemAdmin"
+	OriginPublic      = "public"
+)
+
+// ResolveRole is EffectiveRole plus the rung that decided it (Origin*
+// constants; "" when the caller has no role). EffectiveRole is this
+// function's first result — the ladder exists once.
+func ResolveRole(kb *KnowledgeBase, sysRole, memberRole string) (role, origin string) {
 	if sysRole == auth.RoleSuperAdmin {
-		return RoleOwner
+		return RoleOwner, OriginSuperadmin
 	}
 	if Valid(memberRole) {
-		return memberRole
+		return memberRole, OriginMember
 	}
 	if kb.IsGlobal {
 		if sysRole == auth.RoleAdmin {
-			return RoleAdmin
+			return RoleAdmin, OriginSystemAdmin
 		}
 		if kb.IsPublished {
-			return RoleView
+			return RoleView, OriginPublic
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // Capabilities is what a caller may do with a KB's sources, resolved from
@@ -270,6 +293,19 @@ func CapabilitiesFor(kb *KnowledgeBase, role string) Capabilities {
 // EffectiveRole, then CapabilitiesFor; no ladder of its own. A KB that does
 // not exist, or one the user has no role on, grants nothing.
 func ResolveCapabilities(ctx context.Context, store KBStore, kbID, userID, sysRole string) (Capabilities, error) {
+	return ResolvePreviewCapabilities(ctx, store, kbID, userID, sysRole, "")
+}
+
+// ResolvePreviewCapabilities is ResolveCapabilities for a chat started in a
+// preview ("" for none) (chats.preview_role): the capabilities of the lower
+// of the user's current role and the stored preview (StoredPreviewRole), so
+// the chat never shows more than it did when it was started, nor more than
+// the user holds now. An invalid preview fails closed (no capability).
+func ResolvePreviewCapabilities(ctx context.Context, store KBStore, kbID, userID, sysRole, preview string) (Capabilities, error) {
+	preview, err := ParsePreviewRole(preview)
+	if err != nil {
+		return Capabilities{}, err
+	}
 	kb, err := store.GetKBByID(ctx, kbID)
 	if err != nil {
 		return Capabilities{}, fmt.Errorf("kbaccess: load kb: %w", err)
@@ -281,7 +317,7 @@ func ResolveCapabilities(ctx context.Context, store KBStore, kbID, userID, sysRo
 	if err != nil {
 		return Capabilities{}, fmt.Errorf("kbaccess: load kb role: %w", err)
 	}
-	return CapabilitiesFor(kb, EffectiveRole(kb, sysRole, memberRole)), nil
+	return CapabilitiesFor(kb, StoredPreviewRole(EffectiveRole(kb, sysRole, memberRole), preview)), nil
 }
 
 // HasCapability reports whether the KBAccessResult in ctx grants c. False
@@ -313,9 +349,25 @@ func isSystemAdmin(role string) bool {
 // RequireKBRole returns middleware that resolves the caller's effective role on
 // the KB named by {id} and rejects the request unless it meets required.
 // Stores a KBAccessResult in the request context via WithAccess.
+//
+// A request that previews a role (PreviewRoleHeader) is checked against the
+// previewed role and may only read: any other method is refused with 403.
+// RequireKBUse is the gate for the routes a preview may write through.
 func (m *Middleware) RequireKBRole(required string) func(http.Handler) http.Handler {
-	return m.resolveKB(func(_ string, _ *KnowledgeBase, _, role string) bool {
+	return m.resolveKB(false, func(_ string, _ *KnowledgeBase, _, role string) bool {
 		return AtLeast(role, required)
+	})
+}
+
+// RequireKBUse is RequireKBRole(RoleView) for the routes that use a KB rather
+// than change it — sending a chat message, generating content, exporting,
+// research — and therefore stay open in a preview: the previewing admin asks
+// questions as the previewed role, and those create real chats (stored with
+// the preview role, see internal/chat). Nothing on such a route may change
+// the KB, its settings, or the caller's membership, subscription or filters.
+func (m *Middleware) RequireKBUse() func(http.Handler) http.Handler {
+	return m.resolveKB(true, func(_ string, _ *KnowledgeBase, _, role string) bool {
+		return AtLeast(role, RoleView)
 	})
 }
 
@@ -324,7 +376,7 @@ func (m *Middleware) RequireKBRole(required string) func(http.Handler) http.Hand
 // kbAdvancedChain. 404 for a missing KB, 403 otherwise; the access result is
 // stored as RequireKBRole stores it.
 func (m *Middleware) RequireOperableKB() func(http.Handler) http.Handler {
-	return m.resolveKB(func(sysRole string, kb *KnowledgeBase, memberRole, _ string) bool {
+	return m.resolveKB(false, func(sysRole string, kb *KnowledgeBase, memberRole, _ string) bool {
 		return isSystemAdmin(sysRole) && SystemAdminMayOperate(kb, memberRole)
 	})
 }
@@ -332,7 +384,7 @@ func (m *Middleware) RequireOperableKB() func(http.Handler) http.Handler {
 // RequireKBRoleOrOperable is RequireKBRole(required) that also admits a system
 // admin to a KB they may operate (RequireOperableKB).
 func (m *Middleware) RequireKBRoleOrOperable(required string) func(http.Handler) http.Handler {
-	return m.resolveKB(func(sysRole string, kb *KnowledgeBase, memberRole, role string) bool {
+	return m.resolveKB(false, func(sysRole string, kb *KnowledgeBase, memberRole, role string) bool {
 		return AtLeast(role, required) || (isSystemAdmin(sysRole) && SystemAdminMayOperate(kb, memberRole))
 	})
 }
@@ -340,7 +392,14 @@ func (m *Middleware) RequireKBRoleOrOperable(required string) func(http.Handler)
 // resolveKB loads the KB named by {id} (404 when missing), resolves the
 // caller's effective role and serves next when allow says so (403 otherwise).
 // allow sees the caller's raw kb_members role and the effective one.
-func (m *Middleware) resolveKB(allow func(sysRole string, kb *KnowledgeBase, memberRole, role string) bool) func(http.Handler) http.Handler {
+//
+// A request carrying PreviewRoleHeader is resolved as the previewed role:
+// 400 for a value that is no previewable role, 403 when the caller may not
+// preview (MayPreview), and otherwise allow sees the previewed role as both
+// the kb_members role and the effective one, and no system role — so a
+// system admin's operate-any-KB pass (RequireOperableKB) does not apply in a
+// preview either. Unless previewWrites is set, the preview may only read.
+func (m *Middleware) resolveKB(previewWrites bool, allow func(sysRole string, kb *KnowledgeBase, memberRole, role string) bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -349,6 +408,15 @@ func (m *Middleware) resolveKB(allow func(sysRole string, kb *KnowledgeBase, mem
 			if user == nil {
 				httputil.WriteJSONCtx(ctx, w, http.StatusUnauthorized,
 					map[string]string{"error": "Authentication required"})
+				return
+			}
+
+			// Validated before any lookup, so a malformed header is a 400
+			// whatever the KB.
+			preview, err := ParsePreviewRole(r.Header.Get(PreviewRoleHeader))
+			if err != nil {
+				httputil.WriteJSONCtx(ctx, w, http.StatusBadRequest,
+					map[string]string{"error": "Invalid preview role"})
 				return
 			}
 
@@ -376,7 +444,22 @@ func (m *Middleware) resolveKB(allow func(sysRole string, kb *KnowledgeBase, mem
 			}
 
 			role := EffectiveRole(kb, user.Role, memberRole)
-			if !allow(user.Role, kb, memberRole, role) {
+			sysRole := user.Role
+			if preview != "" {
+				if !MayPreview(role) {
+					httputil.WriteJSONCtx(ctx, w, http.StatusForbidden,
+						map[string]string{"error": "Insufficient permissions"})
+					return
+				}
+				if !previewWrites && !previewWriteAllowed(r.Method) {
+					httputil.WriteJSONCtx(ctx, w, http.StatusForbidden,
+						map[string]string{"error": "Not available in a preview"})
+					return
+				}
+				role = PreviewedRole(role, preview)
+				sysRole, memberRole = "", role
+			}
+			if !allow(sysRole, kb, memberRole, role) {
 				// 403 und nicht 404: die Existenz der KB ist ueber die
 				// bestehenden Endpunkte ohnehin erkennbar, und ein 404 hier
 				// wuerde "nicht gefunden" von "kein Zugriff" ununterscheidbar
@@ -386,7 +469,7 @@ func (m *Middleware) resolveKB(allow func(sysRole string, kb *KnowledgeBase, mem
 				return
 			}
 
-			result := &KBAccessResult{KB: kb, Role: role, IsOwner: role == RoleOwner}
+			result := &KBAccessResult{KB: kb, Role: role, IsOwner: role == RoleOwner, PreviewRole: preview}
 			next.ServeHTTP(w, r.WithContext(WithAccess(ctx, result)))
 		})
 	}
@@ -448,6 +531,12 @@ func (m *Middleware) RequireAnalyticsAccess(next http.Handler) http.Handler {
 		}
 		if kb == nil {
 			httputil.WriteJSONCtx(r.Context(), w, http.StatusNotFound, map[string]string{"error": "Knowledge base not found"})
+			return
+		}
+
+		// Analytics are a system admin's view, which no previewed role has.
+		if r.Header.Get(PreviewRoleHeader) != "" {
+			httputil.WriteJSONCtx(r.Context(), w, http.StatusForbidden, map[string]string{"error": "Not available in a preview"})
 			return
 		}
 

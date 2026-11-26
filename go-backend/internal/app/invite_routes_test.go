@@ -93,6 +93,9 @@ func TestRedeemRouteIsNotKBGated(t *testing.T) {
 		kbViewChain: func(h http.HandlerFunc) http.Handler {
 			return authMw.Authenticate(kbMw.RequireKBRole(kbaccess.RoleView)(http.HandlerFunc(h)))
 		},
+		kbUseChain: func(h http.HandlerFunc) http.Handler {
+			return authMw.Authenticate(kbMw.RequireKBUse()(http.HandlerFunc(h)))
+		},
 		kbEditChain: func(h http.HandlerFunc) http.Handler {
 			return authMw.Authenticate(kbMw.RequireKBRole(kbaccess.RoleEdit)(http.HandlerFunc(h)))
 		},

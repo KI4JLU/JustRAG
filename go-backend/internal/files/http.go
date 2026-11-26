@@ -351,22 +351,54 @@ func SanitizeFilename(name string) string {
 // under the KB's flags (kbaccess.CapabilitiesFor). The handlers behind the
 // file-id routes (/api/files/{id}…) have no {id} KB in the path, so the
 // kbaccess middleware cannot gate them; this is their second check, built
-// from the same two functions rather than a copy of either.
-func (h *Handler) sourceAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (string, kbaccess.Capabilities, error) {
+// from the same two functions rather than a copy of either. preview is the
+// request's preview role (requestPreview, "" for none); like the middleware,
+// kbaccess.PreviewedRole applies it only for a caller who may preview, and
+// only ever lowers the role.
+func (h *Handler) sourceAccess(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims, preview string) (string, kbaccess.Capabilities, error) {
 	memberRole, err := h.store.GetKBRole(ctx, kb.ID, user.ID)
 	if err != nil {
 		return "", kbaccess.Capabilities{}, fmt.Errorf("get kb role: %w", err)
 	}
-	role := kbaccess.EffectiveRole(kb, user.Role, memberRole)
+	role := kbaccess.PreviewedRole(kbaccess.EffectiveRole(kb, user.Role, memberRole), preview)
 	return role, kbaccess.CapabilitiesFor(kb, role), nil
+}
+
+// requestPreview reads kbaccess.PreviewRoleHeader, which the web app sends
+// on the file routes of the topic it previews: the role to serve the request
+// as ("" for none). It writes a 400 and returns false for a value that is
+// not a previewable role.
+func requestPreview(w http.ResponseWriter, r *http.Request) (string, bool) {
+	preview, err := kbaccess.ParsePreviewRole(r.Header.Get(kbaccess.PreviewRoleHeader))
+	if err != nil {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "Invalid "+kbaccess.PreviewRoleHeader+" header")
+		return "", false
+	}
+	return preview, true
+}
+
+// refusePreviewWrite writes the refusal for a file write (delete, retry)
+// that arrives in a preview, which only reads, and reports whether it did:
+// 400 for a malformed header, 403 for any preview. It runs before the file
+// is looked up, so a refused write has no side effect.
+func refusePreviewWrite(w http.ResponseWriter, r *http.Request) bool {
+	preview, ok := requestPreview(w, r)
+	if !ok {
+		return true
+	}
+	if preview != "" {
+		httputil.WriteErrorCtx(r.Context(), w, http.StatusForbidden, "Not available in a preview")
+		return true
+	}
+	return false
 }
 
 // canRead reports whether the caller may read kb's source files the way
 // capability allows: at least view, plus the capability —
 // kbaccess.CapDownloadSources for a download, kbaccess.CapPreviewSources for
 // the in-app preview (which the download flag grants too).
-func (h *Handler) canRead(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims, capability kbaccess.Capability) (bool, error) {
-	role, caps, err := h.sourceAccess(ctx, kb, user)
+func (h *Handler) canRead(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims, capability kbaccess.Capability, preview string) (bool, error) {
+	role, caps, err := h.sourceAccess(ctx, kb, user, preview)
 	if err != nil {
 		return false, err
 	}
@@ -377,7 +409,7 @@ func (h *Handler) canRead(ctx context.Context, kb *kbaccess.KnowledgeBase, user 
 // manageSources capability — edit and above, never a viewer, and below KB
 // admin only together with seeSources (kbaccess.CapabilitiesFor decides).
 func (h *Handler) canManage(ctx context.Context, kb *kbaccess.KnowledgeBase, user *auth.Claims) (bool, error) {
-	_, caps, err := h.sourceAccess(ctx, kb, user)
+	_, caps, err := h.sourceAccess(ctx, kb, user, "")
 	if err != nil {
 		return false, err
 	}
@@ -393,9 +425,13 @@ func (h *Handler) canManage(ctx context.Context, kb *kbaccess.KnowledgeBase, use
 // 404 for a missing file, KB or blob, 403 without the capability. The caller
 // has checked authentication. Shared by Download (downloadSources), Preview
 // and Text (previewSources), so no route reads a file through a gate of its
-// own.
+// own. A preview (requestPreview) reads as the previewed role.
 func (h *Handler) readableFile(w http.ResponseWriter, r *http.Request, fileID string, capability kbaccess.Capability) (*FileInfo, bool) {
 	ctx := r.Context()
+	preview, ok := requestPreview(w, r)
+	if !ok {
+		return nil, false
+	}
 	file, err := h.store.GetFileByID(ctx, fileID)
 	if err != nil {
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
@@ -416,7 +452,7 @@ func (h *Handler) readableFile(w http.ResponseWriter, r *http.Request, fileID st
 		return nil, false
 	}
 
-	ok, err := h.canRead(ctx, kb, auth.UserFromContext(ctx), capability)
+	ok, err = h.canRead(ctx, kb, auth.UserFromContext(ctx), capability, preview)
 	if err != nil {
 		httputil.WriteErrorCtx(ctx, w, http.StatusInternalServerError, "Internal Server Error")
 		return nil, false
@@ -517,6 +553,10 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	if refusePreviewWrite(w, r) {
 		return
 	}
 

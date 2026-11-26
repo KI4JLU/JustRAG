@@ -152,8 +152,12 @@ const kbSelectColsNoAlias = `id, name, user_id, description,
        editor_preview_sources, editor_download_sources, editor_see_citations,
        NULL::text AS owner_first_name, NULL::text AS owner_last_name, NULL::text AS owner_username`
 
-// kbMembershipCols surfaces the caller's own role (my_role) and the KB's
-// total member count (member_count) for list endpoints, so the frontend can
+// kbMembershipCols surfaces the caller's own role (my_role), who granted it
+// (my_role_granted_by: kb_members.created_by as {firstName, lastName,
+// username, role} — role is the granter's own role on the KB now, null when
+// they are no member any more — NULL when nobody else did — the creator's own owner row, an
+// invite link, a backfilled row) and the KB's total member count
+// (member_count) for list endpoints, so the frontend can
 // decide delete-vs-leave and render a "shared with N" badge without an extra
 // per-KB round trip. Kept separate from kbSelectCols/kbSelectColsNoAlias
 // (rather than baked in, the way those constants are) because
@@ -166,7 +170,12 @@ const kbSelectColsNoAlias = `id, name, user_id, description,
 func kbMembershipCols(userIDParam string) string {
 	return `,
        (SELECT role FROM kb_members WHERE kb_id = kb.id AND user_id = ` + userIDParam + `) AS my_role,
-       (SELECT COUNT(*)::int FROM kb_members WHERE kb_id = kb.id)         AS member_count`
+       (SELECT COUNT(*)::int FROM kb_members WHERE kb_id = kb.id)         AS member_count,
+       (SELECT json_build_object('firstName', g.first_name, 'lastName', g.last_name, 'username', g.username, 'role', gr.role)
+          FROM kb_members gm
+          JOIN users g ON g.id = gm.created_by
+          LEFT JOIN kb_members gr ON gr.kb_id = gm.kb_id AND gr.user_id = gm.created_by
+         WHERE gm.kb_id = kb.id AND gm.user_id = ` + userIDParam + ` AND gm.created_by <> gm.user_id) AS my_role_granted_by`
 }
 
 // kbUserFilterCols surfaces the caller's own per-user topic filters
@@ -254,6 +263,7 @@ type kbListRow struct {
 	TurnCount           int                 `db:"turn_count"`
 	LastActivityAt      *time.Time          `db:"last_activity_at"`
 	MyRole              *string             `db:"my_role"`
+	MyRoleGrantedBy     []byte              `db:"my_role_granted_by"`
 	MemberCount         int                 `db:"member_count"`
 	Category            []byte              `db:"category"`
 	StartConfigured     bool                `db:"start_configured"`
@@ -274,6 +284,9 @@ func toKBRowWithStats(r kbListRow) KBRow {
 	row.TurnCount = r.TurnCount
 	row.LastActivityAt = r.LastActivityAt
 	row.MyRole = r.MyRole
+	if len(r.MyRoleGrantedBy) > 0 {
+		row.RoleGrantedBy = json.RawMessage(r.MyRoleGrantedBy)
+	}
 	row.MemberCount = r.MemberCount
 	if len(r.Category) > 0 {
 		row.Category = json.RawMessage(r.Category)

@@ -62,6 +62,31 @@ Consequences:
 - `internal/files`, `internal/openaicompat` and `internal/academic` call `EffectiveRole` directly
   for their handler-internal second check.
 
+**Role origin**
+
+- `kbaccess.ResolveRole` is `EffectiveRole` plus the rung that decided it (`superadmin`, `member`,
+  `systemAdmin`, `public`); `EffectiveRole` is its first result, so the ladder exists once.
+- The KB rows carry it as `effectiveRole` / `roleOrigin`, plus `roleGrantedBy` from
+  `kb_members.created_by` (`internal/kb`), for the "Deine Berechtigung" chip.
+
+**Preview as another role** (`kbaccess.PreviewRoleHeader`, `internal/kbaccess/preview.go`)
+
+- A request with `X-KB-Preview-Role: view|edit` from a caller whose effective role is admin or
+  owner is resolved by `resolveKB` as the previewed role: `allow` sees it as both the member and
+  the effective role and no system role, so the operable pass (`RequireOperableKB`) does not apply
+  either. `KBAccessResult.Role` is the previewed role and `PreviewRole` names it; everything
+  downstream (`CapabilitiesFor`, the citation filters, the source gates) needs no preview logic.
+- `kbaccess.PreviewedRole` only ever lowers a role; an invalid value is a 400, a caller below
+  admin a 403.
+- A preview may only read, except through `RequireKBUse` (`kbUseChain`: chat, generate, export,
+  research), so it changes neither the KB nor the caller's membership, subscription or filters.
+- Chats started in a preview store the role (`chats.preview_role`, mig 0108); their later turns
+  (`WithPreview`) and message reads (`kbaccess.ResolvePreviewCapabilities`) apply it again,
+  capped by `StoredPreviewRole` (the lower of the stored role and the caller's current one, so a
+  demoted admin keeps the cap). The agent chat refuses a preview.
+- The file-id routes (`/api/files/{id}/…`, no KB in the path) read the header themselves: reads
+  are served as `PreviewedRole`, delete and retry in a preview are a 403.
+
 **SQL mirror**
 
 - `kbaccess.VisibleKBsCTE` (`internal/kbaccess/visible_sql.go`) is the only SQL copy of the

@@ -207,7 +207,7 @@ func (a chatStoreAdapter) KBHasRole(_ context.Context, _, _ string) (bool, error
 	return false, fmt.Errorf("KBHasRole: %w", errChatStoreUnsupported)
 }
 
-func (a chatStoreAdapter) CreateChatWithRole(_ context.Context, _, _, _, _ string) (*chat.ChatRow, error) {
+func (a chatStoreAdapter) CreateChatWithRole(_ context.Context, _, _, _, _, _ string) (*chat.ChatRow, error) {
 	return nil, fmt.Errorf("CreateChatWithRole: %w", errChatStoreUnsupported)
 }
 
