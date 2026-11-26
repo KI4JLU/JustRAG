@@ -80,6 +80,7 @@ export const HistoryRow = memo(function HistoryRow({
     }];
     const row = (
         <SidebarCard
+            className="history-row"
             icon={emoji ?? <Icon />}
             title={text}
             titleTestId="history-item-title"

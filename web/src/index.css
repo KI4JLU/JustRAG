@@ -440,28 +440,6 @@ body {
  * that an `lg:` breakpoint now actually applies — is asserted in a real
  * browser by src/components/shell/ResponsiveCascade.stories.tsx. */
 
-/* Sidebar Styling */
-.sidebar {
-  width: clamp(280px, 20vw, 350px);
-  max-width: 85vw;
-  background-color: var(--sidebar-bg);
-  border-right: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
-}
-
-.sidebar h2 {
-  font-size: 0.875rem;
-  color: var(--accent-primary);
-  text-transform: none;
-  letter-spacing: normal;
-  font-weight: 600;
-  margin-bottom: 1.5rem;
-}
-
 .source-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -508,180 +486,19 @@ button.source-card {
   color: var(--text-secondary);
 }
 
-/* Main Chat Area */
-.chat-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  /* Die Spalte sperrt ihren Scroller ein: ohne min-height:0 wächst ein flex:1
-     in `<main>` (selbst ein Scroller) mit dem Inhalt mit, und dann scrollt
-     `<main>`, nicht `.messages-container`. Ersetzt das Zwischen-<div>, das
-     genau diese Regeln als Inline-Style trug. */
-  min-height: 0;
-  overflow: hidden;
-  /* No background of its own (21.09.2026). `AppShell` paints its `<main>`
-     `bg-surface` and the two columns + bar `bg-surface-container-lowest` —
-     the HomeView pattern. This rule used to set `var(--bg-secondary)`, which
-     IS `--color-surface-container-lowest`, so the chat painted the sidebar
-     tone over the main area and the three regions read as one slab with two
-     1px lines through it. Letting the shell's surface show is the fix; the
-     shell is the source of truth for which region has which tone. */
-  position: relative;
-  /* min-width:0 is the keystone of the action-bar overflow fix: a flex:1 item
-     defaults to min-width:auto, so this panel otherwise refuses to shrink below
-     its widest child (a wide code fence/table/URL), growing the whole column
-     past the viewport. The per-message min-width:0 chain below only takes effect
-     once this ancestor can shrink. The action bar now lives in flow inside the
-     answer-footer flex row (it wraps, never clips), so no overflow-x:clip
-     workaround is needed here. */
-  min-width: 0;
-}
-
-/* Chat-Zeile (Nachrichtenspalte + Quellen-Panel) und Nachrichtenspalte. Der
-   Scroller darunter ist die VOLLE Spaltenbreite; die 80%-Lesespalte liegt auf
-   seinen Kindern (`> *`). Vorher trug der Scroller selbst `max-width: 80%;
-   margin: 0 auto` — das Mausrad über den seitlichen Rändern traf dann nur den
-   nicht scrollenden Elternkasten, und die Seite scrollte nur, wenn der Zeiger
-   über der Nachrichtenspalte stand. */
-.chat-row {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-}
-
-.chat-column {
-  /* One width for the transcript and the composer (`.input-container`): an
-     answer spans exactly the composer's box. cqw keeps both relative to this
-     column, whatever the scroller's scrollbar takes. */
-  /* The design system's ChatStage is the size container and publishes the
-     column's width from the user's chat width setting (`width`):
-     `--chat-column-width`, `--chat-room` beside the open sources card and
-     `--chat-clear`, what that card covers. */
-  /* The centred box the shift below is worked out for. */
-  --chat-box: var(--chat-column-width);
-  /* The column's centre axis, handed to the design system's ChatStage: its
-     header row and the scroll-to-end button move by this length, as the
-     transcript and the composer do below, and the header row wraps within
-     `--chat-axis-width`. `--chat-axis-box` is the box the axis belongs to —
-     the column, or the start page's narrower one. */
-  --chat-axis-box: var(--chat-column-width);
-  --chat-axis-shift: clamp(0px, var(--chat-clear) - (100cqw - var(--chat-axis-box)) / 2, (100cqw - var(--chat-axis-box)) / 2);
-  --chat-axis-width: var(--chat-axis-box);
-  --chat-column-inset: 2rem;
-  --chat-message-max: 700px;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-
-.chat-column[data-empty] {
-  --chat-axis-box: min(42rem, var(--chat-room));
-}
-
-/* Inside the DS ChatStage (centring and the pinned disclaimer live there):
-   while empty, the empty-state scroller sizes to its content, and the
-   composer's bottom padding shrinks because the disclaimer follows it. */
-[data-slot="chat-stage"][data-empty] .messages-container {
-  flex: 0 0 auto;
-  overflow: visible;
-}
-
-[data-slot="chat-stage"][data-empty] .messages-container > .empty-state {
-  height: auto;
-}
-
-[data-slot="chat-stage-composer"] > .input-container {
-  padding-bottom: 1rem;
-}
-
-/* Under a transcript the composer sits close to it: the transcript fades out
-   over its lower edge, and a 2rem gap below that fade read as dead space
-   above the field. The start page (`--start`) keeps its 2rem — there the gap
-   separates the composer from the title card. */
-[data-slot="chat-stage-composer"] > .input-container:not(.input-container--start) {
-  padding-top: 0.5rem;
-}
-
-.messages-container {
-  flex: 1;
-  overflow-y: auto;
-  /* Symmetric gutters keep the transcript centred on the column, as the
-     composer is, when the scrollbar takes space. */
-  scrollbar-gutter: stable both-edges;
-  /* The scroller spans the FULL column width (the wheel works everywhere) and
-     carries no horizontal padding; the reading column is one level down
-     (`.transcript`), centred with `margin: 0 auto`. */
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  min-width: 0;
-}
-
-/* The centred reading column: the transcript (MessageScrollerContent) and
-   the empty state, which sits directly in the scroller. */
-.messages-container > .transcript,
-.messages-container > .empty-state {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: var(--chat-column-width, 80%);
-  margin-left: auto;
-  margin-right: auto;
-  padding-left: var(--chat-column-inset, 2rem);
-  padding-right: var(--chat-column-inset, 2rem);
-  /* The column stays centred while it fits beside the sources card, moves
-     towards the start by what is missing once it does not, and only then
-     narrows (`--chat-column-width`). It never moves further than its own
-     margin, so it stays inside the column. The composer (`.input-container`)
-     carries the same offset, so the two stay aligned. */
-  position: relative;
-  left: calc(-1 * clamp(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box, 100cqw)) / 2, (100cqw - var(--chat-box, 100cqw)) / 2));
-}
-
-/* The disclaimer under the composer keeps clear of the card the same way:
-   centred while its line fits beside it, then moved, then wrapped. */
-.chat-column > [data-slot="chat-stage-footer"] {
-  --chat-box: min(60rem, var(--chat-room, 100cqw));
-  box-sizing: border-box;
-  width: 100%;
-  max-width: var(--chat-box);
-  margin-inline: auto;
-  position: relative;
-  left: calc(-1 * clamp(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box)) / 2, (100cqw - var(--chat-box)) / 2));
-}
-
-/* The start page's content is the title card's width (max-w-2xl), whatever
-   the column's: that box is what has to clear the card. It narrows with the
-   column like every other box here — a box wider than the room beside the
-   card would be moved past the column's start edge, under the navigation. */
-[data-slot="chat-stage"][data-empty] .messages-container > .empty-state {
-  --chat-box: min(42rem, var(--chat-column-width, 100cqw));
-}
-
-.input-container.input-container--start {
-  --chat-box: min(42rem, var(--chat-room, 100cqw));
-}
-
 /* One row = one flex column so the bubble's `align-self` applies: user on
    the right, answer on the left. The spacing between messages is row
    PADDING, not the content's gap: rows carry `content-visibility: auto`,
    whose paint containment clips at the row's border box, so focus rings on
    controls at a row edge need the padding to stay visible. */
-.messages-container > .transcript {
-  gap: 0;
-}
-
-.messages-container .transcript-row {
+.transcript-row {
   display: flex;
   flex-direction: column;
   padding: 1rem 0;
 }
 
 .message-bubble {
-  max-width: min(var(--chat-message-max, 700px), 100%);
+  max-width: min(700px, 100%);
   width: fit-content;
   /* min-width:0 breaks the flex overflow chain: flex children default to
      min-width:auto, which lets an unbreakable wide block (code fence, wide
@@ -1168,23 +985,6 @@ button.source-card {
   text-decoration: underline;
 }
 
-/* Input Bar */
-.input-container {
-  padding: 2rem var(--chat-column-inset, 2rem);
-  max-width: var(--chat-column-width, 80%);
-  margin: 0 auto;
-  width: 100%;
-  position: relative;
-  left: calc(-1 * clamp(0px, var(--chat-clear, 0px) - (100cqw - var(--chat-box, 100cqw)) / 2, (100cqw - var(--chat-box, 100cqw)) / 2));
-}
-
-/* An empty chat — the start page: the composer, role cards and dropzone as
-   wide as the title card above them (max-w-2xl, px-4 in ChatView). */
-.input-container.input-container--start {
-  max-width: var(--chat-box, 42rem);
-  padding-inline: 1rem;
-}
-
 .chat-input {
   flex: 1;
   border: none;
@@ -1211,7 +1011,6 @@ button.source-card {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
   text-align: center;
   color: var(--text-secondary);
   position: relative;
@@ -1397,28 +1196,12 @@ button.source-card {
   box-shadow: var(--shadow-sm);
 }
 
-.admin-content {
-  width: 100%;
-}
-
 /* ========================================
    Mobile Layout (< 768px)
    ======================================== */
 @media (max-width: 767px) {
-  .chat-column {
-    --chat-column-inset: 0.75rem;
-  }
-
-  .messages-container {
-    scrollbar-gutter: auto;
-  }
-
-  .messages-container .transcript-row {
+  .transcript-row {
     padding: 0.5rem 0;
-  }
-
-  .input-container {
-    padding: 0.75rem var(--chat-column-inset, 0.75rem);
   }
 
   .message-user {
@@ -1450,13 +1233,6 @@ button.source-card {
   .empty-state > div > p {
     font-size: 0.9rem;
     padding: 0 0.5rem;
-  }
-
-  .sidebar {
-    max-width: 100%;
-    width: 100% !important;
-    height: calc(100vh - 60px);
-    height: calc(100dvh - 60px);
   }
 }
 

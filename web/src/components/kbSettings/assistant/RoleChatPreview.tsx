@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowLeft, FileText } from 'lucide-react';
-import { Badge, Button, ChatBubble, ChatStage, PromptSuggestions, Shimmer } from '@ki4jlu/design-system';
+import { Badge, Button, ChatBubble, ChatStage, ChatStageColumn, PromptSuggestions, Shimmer } from '@ki4jlu/design-system';
 import { useTheme } from '../../../contexts/ThemeContext';
 import type { RoleEntry } from './api';
 import { ComposerPreview } from './ComposerPreview';
@@ -37,10 +37,9 @@ export function RoleChatPreview({ entry, role, fileCount, dynamicSample, onBack 
     return (
         <div className="flex flex-1 flex-col">
             <ChatStage
-                className="chat-column"
                 empty={!started}
                 composer={(
-                    <div className={started ? 'input-container' : 'input-container input-container--start'}>
+                    <div>
                         {isFile && !uploaded ? (
                             <div>
                                 <UploadStart
@@ -68,7 +67,7 @@ export function RoleChatPreview({ entry, role, fileCount, dynamicSample, onBack 
                 )}
             >
                 {started ? (
-                    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 px-6 py-6">
+                    <ChatStageColumn className="flex flex-1 flex-col gap-3 py-6">
                         <ChatBubble from="user">
                             {isFile ? (
                                 <span className="flex flex-col gap-2">
@@ -81,9 +80,9 @@ export function RoleChatPreview({ entry, role, fileCount, dynamicSample, onBack 
                         </ChatBubble>
                         {/* The chat's own status line: no role name (developer, 05.11.2026). */}
                         <Shimmer className="m-0 text-sm">{t('preparingAnswer')}</Shimmer>
-                    </div>
+                    </ChatStageColumn>
                 ) : (
-                    <div className="mx-auto max-w-2xl px-6 pb-4 pt-8 text-center">
+                    <ChatStageColumn className="pb-4 pt-8 text-center">
                         <p className="m-0 text-on-surface-variant">
                             {isFile
                                 ? t('asstFileStartHint')
@@ -91,7 +90,7 @@ export function RoleChatPreview({ entry, role, fileCount, dynamicSample, onBack 
                                     ? t('asstTaskPrefilledHint')
                                     : t('asstNewChatInRole').replace('{role}', name)}
                         </p>
-                    </div>
+                    </ChatStageColumn>
                 )}
             </ChatStage>
         </div>
