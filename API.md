@@ -247,6 +247,47 @@ applied, so a client never re-derives the role ladder (an implicit viewer's
 }
 ```
 
+The same responses carry the caller's role on the KB, for the UI's
+"Deine Berechtigung" display — set wherever `capabilities` is set by the
+session routes:
+
+- `effectiveRole`: `view` | `edit` | `admin` | `owner`, as the role ladder
+  resolves it — unlike `myRole` also for an implicit role.
+- `roleOrigin`: where that role comes from — `member` (a `kb_members` row),
+  `public` (a published public KB, no row), `systemAdmin` (a system admin on a
+  public KB), `superadmin`.
+- `roleGrantedBy`: `{firstName, lastName, username, role}` of whoever added
+  the caller's `kb_members` row (`role`: their own role on the KB now, `null`
+  once they are no member); absent when nobody else did (the creator's own
+  owner row, an invite link, rows from before invitations were tracked).
+
+#### Previewing a KB as another role
+
+A KB admin or owner (effective role `admin` or `owner`, which includes a
+superadmin and a system admin on a public KB) can see a KB the way a viewer
+or editor sees it by sending the header **`X-KB-Preview-Role: view`** or
+**`edit`** on any `/kb/{id}/…` request. The request is then served as that
+role: role gates, `capabilities`, source lists and citation stripping are
+the previewed role's, and `GET /kb/{id}` returns them with
+`effectiveRole` = the previewed role and `previewRole` set. The preview
+never grants more than the caller has.
+
+- Another value is `400 {"error": "Invalid preview role"}`; a caller below
+  KB admin gets `403`.
+- A preview only reads. A `POST` / `PUT` / `PATCH` / `DELETE` is
+  `403 {"error": "Not available in a preview"}`, except on the routes that
+  use a KB without changing it: `POST /kb/{id}/chat`, `/chat/attachment(s)`,
+  message feedback, `generate/*`, `export/*`, `websearch`, `research`,
+  `web-research` and `academic-search`.
+- A chat sent in a preview is a real chat of the caller, stored with
+  `previewRole` (§ Chat). `POST /kb/{id}/agui/chat` refuses a preview with
+  `409 {"error": "not_available_in_preview"}`.
+- The KB analytics routes refuse a preview with `403`.
+- The source-file routes, which name no KB (`GET /files/{id}/download`,
+  `/preview`, `/text`), honour the header too and read as the previewed
+  role; `DELETE /files/{id}` and `POST /files/{id}/retry` with the header are
+  `403 {"error": "Not available in a preview"}`.
+
 #### Citations
 
 A caller without `seeCitations` on a KB gets that KB's answers **without
@@ -898,7 +939,7 @@ Every user's personal file library; a KB's indexed copy references a library fil
 | POST | `/kb/{id}/chat/attachment` |
 | POST | `/kb/{id}/chat/attachments` |
 
-- `GET /kb/{id}/chats` lists the caller's chats in the KB, newest first. A chat made by branching carries `branchedFromChatId` (the chat it was copied from, which may have been deleted since). A chat whose messages fork inside it — two messages under one parent, as edits, regenerations and forks made before branching opened a new chat left them; prompt-enhancement rows do not count — carries `hasBranches: true`. A chat started in a role (`roleId` on `POST /kb/{id}/chat`, see "Behavior: roles and rules") carries `roleId`. These keys are omitted when they do not apply.
+- `GET /kb/{id}/chats` lists the caller's chats in the KB, newest first. A chat made by branching carries `branchedFromChatId` (the chat it was copied from, which may have been deleted since). A chat whose messages fork inside it — two messages under one parent, as edits, regenerations and forks made before branching opened a new chat left them; prompt-enhancement rows do not count — carries `hasBranches: true`. A chat started in a role (`roleId` on `POST /kb/{id}/chat`, see "Behavior: roles and rules") carries `roleId`. A chat started in a preview (`X-KB-Preview-Role`, § "Previewing a KB as another role") carries `previewRole` (`view` | `edit`): its later turns and every read of its messages (`GET /chats/{id}/messages`) are served as that role, with or without the header, capped at the caller's current role; a turn previewing another role, or a preview turn in an ordinary chat, is `409 {"error": "chat was not started in this preview"}`. Branches keep `previewRole`; the agent chat does not continue such a chat. These keys are omitted when they do not apply.
 - `GET /chats` (authenticated) lists the caller's chats across every topic they can still open, newest activity first: every chat the caller keeps at hand (pinned or filed in a section; at most 500), and of the others the 200 most recently active. Each row is a row of `GET /kb/{id}/chats` plus the topic it belongs to: `kbName`, `kbVisibility` (`private` or `public`) and `kbRole`, the caller's effective role on the topic (`view`, `edit`, `admin`, `owner`). A chat in a topic the caller can no longer open (membership removed, topic unpublished) is not listed, and neither are library chats (`GET /library/chats`). The web UI's sidebar history reads it.
 - `PUT /chats/{id}/pin` (authenticated, owner) keeps a chat at hand in the caller's history: in the built-in "Angepinnt", or with the optional body `{"sectionId"}` in one of the caller's own sections (`/chat-sections`); a chat kept already moves there. `DELETE /chats/{id}/pin` lets it go back to the plain history. Both answer `204` and are idempotent, and neither changes `updatedAt`. Keeping a kept chat leaves its first `pinnedAt`; it keeps its place in the order below only while it stays in the same section. The chat lists (`GET /chats`, `GET /kb/{id}/chats`) carry `pinnedAt` on a kept chat, and `sectionId` when it is in a section; both are omitted otherwise. `400` for a malformed `sectionId`; `404` when the chat or the section is not the caller's, does not exist, or the chat id is malformed.
 - `PUT /chats/pin-order` (authenticated) with `{"chatIds": [...], "sectionId"}` saves the caller's own order of the chats of one section, front to back (the web UI sends it after a drag); without `sectionId` it is the order of "Angepinnt". The body is that section's whole order: a chat of it that is left out loses its place, and ids that are not the caller's chats in that section are ignored. The chat lists then carry `pinPosition` (1 = first) on those chats. A kept chat without `pinPosition` — added since the last save — sorts before the ordered ones, newest first. `204`; `400` for more than 500 ids or a malformed id.

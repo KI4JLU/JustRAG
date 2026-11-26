@@ -124,12 +124,17 @@ func (m *mockStore) KBHasRole(_ context.Context, _, roleID string) (bool, error)
 	return m.roles[roleID], nil
 }
 
-func (m *mockStore) CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID string) (*ChatRow, error) {
+func (m *mockStore) CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID, previewRole string) (*ChatRow, error) {
 	c, err := m.CreateChat(ctx, kbID, userID, title)
 	if err != nil {
 		return nil, err
 	}
-	c.RoleID = &roleID
+	if roleID != "" {
+		c.RoleID = &roleID
+	}
+	if previewRole != "" {
+		c.PreviewRole = &previewRole
+	}
 	return c, nil
 }
 

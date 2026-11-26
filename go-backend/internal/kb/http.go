@@ -113,6 +113,21 @@ type KBRow struct {
 	MyRole      *string `json:"myRole"`
 	MemberCount int     `json:"memberCount"`
 
+	// EffectiveRole is the caller's role on this KB as kbaccess.EffectiveRole
+	// resolves it — unlike MyRole also for an implicit role — and RoleOrigin
+	// the rung that granted it (kbaccess.Origin*: member, public,
+	// systemAdmin, superadmin). RoleGrantedBy is {firstName, lastName,
+	// username, role} of whoever added the caller's kb_members row, absent when
+	// nobody else did. Set with Capabilities by ResolveCapabilities; absent
+	// where Capabilities is.
+	EffectiveRole string          `json:"effectiveRole,omitempty"`
+	RoleOrigin    string          `json:"roleOrigin,omitempty"`
+	RoleGrantedBy json.RawMessage `json:"roleGrantedBy,omitempty"`
+	// PreviewRole is the role GET /api/kb/{id} was previewed as
+	// (kbaccess.PreviewRoleHeader); EffectiveRole and Capabilities are then
+	// that role's. Absent outside a preview.
+	PreviewRole string `json:"previewRole,omitempty"`
+
 	// Capabilities is what the caller may do with this KB's sources, resolved
 	// server-side by kbaccess.CapabilitiesFor from the caller's effective role
 	// (kbaccess.EffectiveRole) and the flags above, so the UI reads the
@@ -167,13 +182,29 @@ func (r *KBRow) accessKB() *kbaccess.KnowledgeBase {
 // Requires a row read with kbMembershipCols (the list queries and
 // GetKnowledgeBase), since a nil MyRole is read as "no kb_members row".
 func (r *KBRow) ResolveCapabilities(sysRole string) {
+	r.resolveRole(sysRole, "")
+}
+
+// ResolvePreview is ResolveCapabilities for a request that previews the KB
+// as preview (a role kbaccess.ParsePreviewRole accepted): the role is capped
+// by kbaccess.PreviewedRole, which keeps it when the caller may not preview.
+func (r *KBRow) ResolvePreview(sysRole, preview string) {
+	r.resolveRole(sysRole, preview)
+}
+
+func (r *KBRow) resolveRole(sysRole, preview string) {
 	memberRole := ""
 	if r.MyRole != nil {
 		memberRole = *r.MyRole
 	}
 	kb := r.accessKB()
-	caps := kbaccess.CapabilitiesFor(kb, kbaccess.EffectiveRole(kb, sysRole, memberRole))
+	role, origin := kbaccess.ResolveRole(kb, sysRole, memberRole)
+	if previewed := kbaccess.PreviewedRole(role, preview); previewed != role {
+		role, r.PreviewRole = previewed, preview
+	}
+	caps := kbaccess.CapabilitiesFor(kb, role)
 	r.Capabilities = &caps
+	r.EffectiveRole, r.RoleOrigin = role, origin
 }
 
 // ResolveAllCapabilities runs ResolveCapabilities over a list response.
@@ -372,7 +403,13 @@ func (h *Handler) GetKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusNotFound, "knowledge base not found")
 		return
 	}
-	row.ResolveCapabilities(user.Role)
+	// RequireKBRole already validated and authorised a preview; the access
+	// result carries it.
+	preview := ""
+	if a := kbaccess.AccessFromContext(r.Context()); a != nil {
+		preview = a.PreviewRole
+	}
+	row.ResolvePreview(user.Role, preview)
 	httputil.WriteJSONCtx(r.Context(), w, http.StatusOK, row)
 }
 

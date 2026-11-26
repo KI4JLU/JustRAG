@@ -170,7 +170,7 @@ func (s *wiringStore) GetChatSystemPrompt(context.Context, string, string) (*str
 	return nil, nil
 }
 func (s *wiringStore) KBHasRole(context.Context, string, string) (bool, error) { return false, nil }
-func (s *wiringStore) CreateChatWithRole(context.Context, string, string, string, string) (*ChatRow, error) {
+func (s *wiringStore) CreateChatWithRole(context.Context, string, string, string, string, string) (*ChatRow, error) {
 	return nil, nil
 }
 func (s *wiringStore) UpdateChatAgentSelection(context.Context, string, *string, *string) error {

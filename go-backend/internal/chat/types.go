@@ -131,6 +131,12 @@ type ChatRow struct {
 	// chat answers in it; a role the KB has since deleted falls back to the
 	// active role (kbbehavior.SystemPrompt). Branches keep it.
 	RoleID *string `json:"roleId,omitempty" db:"role_id"`
+	// PreviewRole is the role a KB admin or owner previewed the KB as when
+	// they started the chat (kbaccess.PreviewRoleHeader, migration 0108), nil
+	// for an ordinary chat. Every turn and every read of the chat's messages
+	// is served as that role, capped by kbaccess.PreviewedRole; the history
+	// marks the chat. Branches keep it.
+	PreviewRole *string `json:"previewRole,omitempty" db:"preview_role"`
 	// HasBranches is set by GetChats only (the chat list): true when the chat
 	// holds at least two sibling messages — an edited question, a regenerated
 	// answer, or a fork made inside the chat before branching opened a new
@@ -340,8 +346,9 @@ type Store interface {
 	// KBHasRole reports whether the KB can answer in roleID: a catalog
 	// template or one of its own roles.
 	KBHasRole(ctx context.Context, kbID, roleID string) (bool, error)
-	// CreateChatWithRole is CreateChat for a chat started in roleID.
-	CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID string) (*ChatRow, error)
+	// CreateChatWithRole is CreateChat for a chat started in roleID and/or
+	// in a preview as previewRole ("" for neither).
+	CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID, previewRole string) (*ChatRow, error)
 	UpdateChatAgentSelection(ctx context.Context, chatID string, teamID, agentID *string) error
 	// StarterContext returns what the starter questions of an empty chat
 	// are generated from: the KB's name and up to limit of its documents.

@@ -564,8 +564,13 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	h.fillMessageAttachments(r.Context(), messages)
 	// Stored messages keep their sources; they are stripped here, for this
 	// reader and the KB's current flags (a library chat has no KB and keeps
-	// them — they are the reader's own files).
-	if chat.KbID != "" && !h.citationsVisible(r.Context(), chat.KbID, user) {
+	// them — they are the reader's own files). A chat started in a preview
+	// is read as the previewed role, after the preview as during it.
+	preview := ""
+	if chat.PreviewRole != nil {
+		preview = *chat.PreviewRole
+	}
+	if chat.KbID != "" && !h.citationsVisibleAs(r.Context(), chat.KbID, user, preview) {
 		RedactMessagesForReader(messages)
 	}
 

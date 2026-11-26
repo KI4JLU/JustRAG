@@ -58,6 +58,10 @@ func (h *Handler) Retry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if refusePreviewWrite(w, r) {
+		return
+	}
+
 	fileID := r.PathValue("id")
 	if fileID == "" {
 		httputil.WriteErrorCtx(r.Context(), w, http.StatusBadRequest, "Missing file ID")

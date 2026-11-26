@@ -15,9 +15,9 @@ func TestAgentChatRouteChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read routes.go: %v", err)
 	}
-	want := regexp.MustCompile(`rc\.mux\.Handle\("POST /api/kb/\{id\}/agui/chat",\s*chatRL\.Middleware\(rc\.kbViewChain\(agentChat\.ServeHTTP\)\)\)`)
+	want := regexp.MustCompile(`rc\.mux\.Handle\("POST /api/kb/\{id\}/agui/chat",\s*chatRL\.Middleware\(rc\.kbUseChain\(agentChat\.ServeHTTP\)\)\)`)
 	if n := len(want.FindAll(src, -1)); n != 1 {
-		t.Fatalf("POST /api/kb/{id}/agui/chat registered %d times as chatRL.Middleware(rc.kbViewChain(agentChat.ServeHTTP)), want 1", n)
+		t.Fatalf("POST /api/kb/{id}/agui/chat registered %d times as chatRL.Middleware(rc.kbUseChain(agentChat.ServeHTTP)), want 1", n)
 	}
 	mentions := regexp.MustCompile(`"POST /api/kb/\{id\}/agui/chat"`)
 	if n := len(mentions.FindAll(src, -1)); n != 1 {

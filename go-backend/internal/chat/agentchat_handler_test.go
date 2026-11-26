@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +13,9 @@ import (
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 
 	"github.com/justrag/go-backend/internal/adkbridge"
+	"github.com/justrag/go-backend/internal/agui"
 	"github.com/justrag/go-backend/internal/confluence"
+	"github.com/justrag/go-backend/internal/kbaccess"
 	"github.com/justrag/go-backend/internal/mcp"
 	"github.com/justrag/go-backend/internal/sessionmem"
 )
@@ -134,10 +138,37 @@ func TestHooksRememberHistoryAnchor(t *testing.T) {
 	}
 }
 
-type hooksStore struct{ last string }
+// The agent chat serves no preview: a request previewing a role is a 409
+// before anything else, and a chat started in a preview is no thread it
+// continues. Oracle: the refusals documented on ServeHTTP and ResolveThread.
+func TestAgentChatRefusesPreview(t *testing.T) {
+	ctx := kbaccess.WithAccess(context.Background(), &kbaccess.KBAccessResult{
+		KB: &kbaccess.KnowledgeBase{ID: "kb1"}, Role: kbaccess.RoleView, PreviewRole: kbaccess.RoleView,
+	})
+	w := httptest.NewRecorder()
+	NewAgentChatHandler(AgentChatDeps{}).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/kb/kb1/agui/chat", nil).WithContext(ctx))
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "not_available_in_preview") {
+		t.Errorf("preview request: status %d body %s, want 409 not_available_in_preview", w.Code, w.Body)
+	}
+
+	h := &agentChatHooks{store: &hooksStore{previewRole: kbaccess.RoleView}}
+	_, err := h.ResolveThread(context.Background(), adkbridge.Scope{UserID: "u1", KBID: "kb1"}, "8d1c4b3e-0f5a-4d7e-9a61-2b7c3d4e5f60", "")
+	if !errors.Is(err, agui.ErrThreadNotFound) {
+		t.Errorf("preview chat as thread: err = %v, want agui.ErrThreadNotFound", err)
+	}
+}
+
+type hooksStore struct {
+	last        string
+	previewRole string
+}
 
 func (s *hooksStore) GetChatByID(_ context.Context, id string) (*ChatRow, error) {
-	return &ChatRow{ID: id, UserID: "u1", KbID: "kb1"}, nil
+	c := &ChatRow{ID: id, UserID: "u1", KbID: "kb1"}
+	if s.previewRole != "" {
+		c.PreviewRole = &s.previewRole
+	}
+	return c, nil
 }
 func (s *hooksStore) CreateChatWithID(context.Context, string, string, string, string) (*ChatRow, error) {
 	return &ChatRow{}, nil

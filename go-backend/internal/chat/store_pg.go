@@ -80,6 +80,8 @@ type chatDBRow struct {
 	BranchedFromChatID *string `db:"branched_from_chat_id"`
 	// RoleID: see ChatRow.
 	RoleID *string `db:"role_id"`
+	// PreviewRole: see ChatRow.
+	PreviewRole *string `db:"preview_role"`
 }
 
 // messageDBRow is an internal struct with db tags for scanning the messages
@@ -124,6 +126,7 @@ func toChatRow(r chatDBRow) ChatRow {
 		UpdatedAt:          r.UpdatedAt,
 		BranchedFromChatID: r.BranchedFromChatID,
 		RoleID:             r.RoleID,
+		PreviewRole:        r.PreviewRole,
 	}
 }
 
@@ -217,7 +220,7 @@ func isJSONNull(raw json.RawMessage) bool {
 func (s *PGStore) GetChats(ctx context.Context, kbID, userID string) ([]ChatRow, error) {
 	const sql = `
 		SELECT c.id, COALESCE(c.kb_id::text, '') AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
-		       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id, c.pinned_at, c.pin_position,
+		       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id, c.preview_role, c.pinned_at, c.pin_position,
 		       c.section_id::text AS section_id,
 		       EXISTS (
 		           SELECT 1 FROM messages m
@@ -268,7 +271,7 @@ func (s *PGStore) GetAllChats(ctx context.Context, userID, sysRole string, limit
 		WITH ` + kbaccess.VisibleKBsCTE + `,
 		mine AS (
 			SELECT c.id, c.kb_id::text AS kb_id, c.user_id, c.title, c.type, c.team_id, c.agent_id,
-			       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id, c.pinned_at, c.pin_position,
+			       c.created_at, c.updated_at, c.branched_from_chat_id, c.role_id, c.preview_role, c.pinned_at, c.pin_position,
 			       c.section_id::text AS section_id,
 			       v.name AS kb_name, v.visibility AS kb_visibility, v.role AS kb_role
 			FROM chats c
@@ -314,7 +317,7 @@ func (s *PGStore) GetAllChats(ctx context.Context, userID, sysRole string, limit
 // GetChatByID returns the chat with the given ID, or nil if not found.
 func (s *PGStore) GetChatByID(ctx context.Context, chatID string) (*ChatRow, error) {
 	const sql = `
-		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id
+		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id, preview_role
 		FROM chats WHERE id = $1`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, chatID)
@@ -333,7 +336,7 @@ func (s *PGStore) CreateChat(ctx context.Context, kbID, userID, title string) (*
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title)
 		VALUES ($1, $2, $3)
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id, preview_role`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, title)
 	if err != nil {
@@ -346,15 +349,17 @@ func (s *PGStore) CreateChat(ctx context.Context, kbID, userID, title string) (*
 	return &r, nil
 }
 
-// CreateChatWithRole inserts a new chat started in roleID (chats.role_id).
-// The caller checked the role with KBHasRole.
-func (s *PGStore) CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID string) (*ChatRow, error) {
+// CreateChatWithRole inserts a new chat started in roleID (chats.role_id)
+// and/or in a preview as previewRole (chats.preview_role); "" leaves either
+// NULL. The caller checked the role with KBHasRole and the preview role with
+// kbaccess.ParsePreviewRole.
+func (s *PGStore) CreateChatWithRole(ctx context.Context, kbID, userID, title, roleID, previewRole string) (*ChatRow, error) {
 	const sql = `
-		INSERT INTO chats (kb_id, user_id, title, role_id)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		INSERT INTO chats (kb_id, user_id, title, role_id, preview_role)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''))
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id, preview_role`
 
-	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, title, roleID)
+	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, title, roleID, previewRole)
 	if err != nil {
 		return nil, fmt.Errorf("CreateChatWithRole: %w", err)
 	}
@@ -371,7 +376,7 @@ func (s *PGStore) CreateChatWithID(ctx context.Context, id, kbID, userID, title 
 	const sql = `
 		INSERT INTO chats (id, kb_id, user_id, title)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		RETURNING id, kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id, preview_role`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, id, kbID, userID, title)
 	if err != nil {
@@ -390,7 +395,7 @@ func (s *PGStore) CreateLibraryChat(ctx context.Context, userID, title string) (
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title, type)
 		VALUES (NULL, $1, $2, 'library')
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id, preview_role`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, userID, title)
 	if err != nil {
@@ -421,7 +426,7 @@ func (s *PGStore) LastMessageID(ctx context.Context, chatID string) (*string, er
 // GetLibraryChats returns the user's library chats, newest activity first.
 func (s *PGStore) GetLibraryChats(ctx context.Context, userID string) ([]ChatRow, error) {
 	const sql = `
-		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id
+		SELECT id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id, preview_role
 		FROM chats
 		WHERE type = 'library' AND kb_id IS NULL AND user_id = $1
 		ORDER BY updated_at DESC`
@@ -671,10 +676,10 @@ func (s *PGStore) BranchChat(ctx context.Context, chatID, messageID, userID stri
 		}
 
 		row, err := pgxutil.QueryOne[chatDBRow](ctx, tx, `
-			INSERT INTO chats (kb_id, user_id, title, type, team_id, agent_id, branched_from_chat_id, role_id)
-			SELECT kb_id, user_id, title, type, team_id, agent_id, id, role_id
+			INSERT INTO chats (kb_id, user_id, title, type, team_id, agent_id, branched_from_chat_id, role_id, preview_role)
+			SELECT kb_id, user_id, title, type, team_id, agent_id, id, role_id, preview_role
 			FROM chats WHERE id = $1
-			RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`,
+			RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id, preview_role`,
 			chatID)
 		if err != nil {
 			return fmt.Errorf("create chat: %w", err)
@@ -1105,7 +1110,7 @@ func (s *PGStore) CreateResearchSession(ctx context.Context, kbID, userID, goal,
 	const sql = `
 		INSERT INTO chats (kb_id, user_id, title, type)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id`
+		RETURNING id, COALESCE(kb_id::text, '') AS kb_id, user_id, title, type, team_id, agent_id, created_at, updated_at, branched_from_chat_id, role_id, preview_role`
 
 	row, err := pgxutil.QueryOne[chatDBRow](ctx, s.pool, sql, kbID, userID, goal, sessionType)
 	if err != nil {

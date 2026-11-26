@@ -68,7 +68,9 @@ func (h *agentChatHooks) ResolveThread(ctx context.Context, sc adkbridge.Scope, 
 	if err != nil {
 		return "", err
 	}
-	if c == nil || c.UserID != sc.UserID || c.KbID != sc.KBID {
+	// A chat started in a preview (chats.preview_role) is not continued
+	// here: the agent chat would answer it with the caller's own rights.
+	if c == nil || c.UserID != sc.UserID || c.KbID != sc.KBID || c.PreviewRole != nil {
 		return "", agui.ErrThreadNotFound
 	}
 	h.threadID = id

@@ -244,3 +244,77 @@ func TestRetryNeedsManageSources(t *testing.T) {
 		})
 	}
 }
+
+// The file-id routes honour a preview like the KB routes do. Oracle: the
+// preview contract on kbaccess.PreviewRoleHeader — reads are served as the
+// previewed role (an owner previewing a viewer without viewer_preview_sources
+// is refused the in-app preview), a preview never writes (delete and retry
+// are refused before anything changes), and a malformed value is a 400.
+func TestFileRoutesHonourPreview(t *testing.T) {
+	noViewerPreview := kbaccess.SourcePermissions{ViewerSeeSources: true}
+	cases := []struct {
+		name, method, preview string
+		want                  int
+	}{
+		{"owner previews viewer, preview refused", http.MethodGet, kbaccess.RoleView, http.StatusForbidden},
+		{"owner without preview, preview served", http.MethodGet, "", http.StatusOK},
+		{"malformed preview", http.MethodGet, "owner", http.StatusBadRequest},
+		{"delete in a preview", http.MethodDelete, kbaccess.RoleEdit, http.StatusForbidden},
+		{"delete malformed preview", http.MethodDelete, "x", http.StatusBadRequest},
+		{"delete without preview", http.MethodDelete, "", http.StatusNoContent},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := sourcePermFile()
+			file.ID = textPreviewFileID
+			store := &mockStore{
+				file: file,
+				kb:   &kbaccess.KnowledgeBase{ID: "kb-1", UserID: strPtr("owner"), Sources: noViewerPreview},
+				role: kbaccess.RoleOwner,
+			}
+			stor := &mockStorage{stream: io.NopCloser(strings.NewReader("PDF content"))}
+			h := files.NewHandler(store, stor, noopChunks())
+
+			path := "/api/files/" + textPreviewFileID
+			if tc.method == http.MethodGet {
+				path += "/preview"
+			}
+			req := newRequest(tc.method, path)
+			req.SetPathValue("id", textPreviewFileID)
+			if tc.preview != "" {
+				req.Header.Set(kbaccess.PreviewRoleHeader, tc.preview)
+			}
+			req = withUser(req, ownerUser())
+			rr := httptest.NewRecorder()
+			if tc.method == http.MethodGet {
+				h.Preview(rr, req)
+			} else {
+				h.Delete(rr, req)
+			}
+			if rr.Code != tc.want {
+				t.Fatalf("status %d, want %d (body %s)", rr.Code, tc.want, rr.Body)
+			}
+			if deleted := len(store.deletedIDs) > 0; deleted != (tc.want == http.StatusNoContent) {
+				t.Fatalf("file row deleted = %v with status %d", deleted, rr.Code)
+			}
+		})
+	}
+}
+
+// Retry in a preview is refused before the reset. Oracle: as above.
+func TestRetryRefusedInPreview(t *testing.T) {
+	store := retryFixtureStore()
+	store.kb = &kbaccess.KnowledgeBase{ID: "kb-1", UserID: strPtr("owner")}
+	store.role = kbaccess.RoleOwner
+	enq := &recordingEnqueuer{}
+	h := files.NewHandlerWithEnqueuer(store, &mockStorage{}, &mockChunkDeleter{}, enq)
+	req := newRequest(http.MethodPost, "/api/files/file-1/retry")
+	req.SetPathValue("id", "file-1")
+	req.Header.Set(kbaccess.PreviewRoleHeader, kbaccess.RoleEdit)
+	req = withUser(req, ownerUser())
+	rr := httptest.NewRecorder()
+	h.Retry(rr, req)
+	if rr.Code != http.StatusForbidden || store.resetCalled || len(enq.tasks) > 0 {
+		t.Fatalf("status %d, reset %v, tasks %d; want 403 and nothing changed", rr.Code, store.resetCalled, len(enq.tasks))
+	}
+}
