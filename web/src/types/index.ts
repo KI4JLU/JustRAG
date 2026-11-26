@@ -361,7 +361,21 @@ export interface KnowledgeBase {
     // The caller's own resolved permissions on this KB, computed by the
     // backend from role + flags so the client never re-derives the ladder.
     capabilities?: KbCapabilities;
+    // The caller's resolved role (API.md "Source permissions"): unlike
+    // myRole also for an implicit role. Set wherever capabilities is.
+    effectiveRole?: KbRole;
+    /** Where effectiveRole comes from: a kb_members row, a published public KB, the system role. */
+    roleOrigin?: KbRoleOrigin;
+    /** Who added the caller's kb_members row; absent when nobody else did. */
+    roleGrantedBy?: { firstName?: string | null; lastName?: string | null; username: string; role?: KbRole | null } | null;
+    /** GET /api/kb/{id} answered with X-KB-Preview-Role: the role effectiveRole and capabilities were resolved as. */
+    previewRole?: KbPreviewRole;
 }
+
+export type KbRoleOrigin = 'member' | 'public' | 'systemAdmin' | 'superadmin';
+
+/** The roles a KB admin or owner can preview a KB as (X-KB-Preview-Role). */
+export type KbPreviewRole = 'view' | 'edit';
 
 /** The per-KB source flags a KB admin can switch (PATCH /api/kb/{id}). */
 export type KbSourceFlag =
@@ -565,6 +579,9 @@ export interface ChatEntry {
      *  API.md "Behavior: roles and rules"); absent for a chat in the KB's
      *  active role. */
     roleId?: string | null;
+    /** The role a KB admin previewed the topic as when they started the chat
+     *  (X-KB-Preview-Role); the chat is always shown as that role. */
+    previewRole?: KbPreviewRole | null;
     /** Set on a chat made by branching (Verzweigen, a new answer, an edited
      *  question): the chat it was copied from, which may have been deleted
      *  since. Absent on an ordinary chat. */

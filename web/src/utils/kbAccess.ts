@@ -1,4 +1,4 @@
-import type { FileEntry, KbCapabilities, KnowledgeBase } from '../types';
+import type { FileEntry, KbCapabilities, KbRole, KnowledgeBase } from '../types';
 
 /**
  * Whether the caller's EFFECTIVE role on `kb` is admin or better.
@@ -20,7 +20,9 @@ import type { FileEntry, KbCapabilities, KnowledgeBase } from '../types';
  * system admin curating a public KB they never joined arrives here with no
  * myRole at all while the server grants them admin.
  */
-export function hasKbAdminRole(kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility'>, systemRole?: string): boolean {
+export function hasKbAdminRole(kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'previewRole'>, systemRole?: string): boolean {
+  // A preview row is the previewed role's (view or edit), whoever looks.
+  if (kb.previewRole) return false;
   if (systemRole === 'superadmin') return true;
   if (kb.myRole) return kb.myRole === 'admin' || kb.myRole === 'owner';
   if (kb.isGlobal || kb.visibility === 'public') return systemRole === 'admin';
@@ -36,10 +38,11 @@ export function hasKbAdminRole(kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | '
  * the legacy owner column for a row that arrives without myRole.
  */
 export function canOpenKbTopicSettings(
-  kb: Pick<KnowledgeBase, 'userId' | 'myRole' | 'isGlobal' | 'visibility'>,
+  kb: Pick<KnowledgeBase, 'userId' | 'myRole' | 'isGlobal' | 'visibility' | 'previewRole'>,
   systemRole?: string,
   userId?: string,
 ): boolean {
+  if (kb.previewRole) return false;
   return (!!userId && kb.userId === userId) || hasKbAdminRole(kb, systemRole);
 }
 
@@ -61,10 +64,11 @@ export function canOpenKbTopicSettings(
  * owner check ChatView makes next to hasKbAdminRole.
  */
 function hasKbEditRole(
-  kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'userId'>,
+  kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'userId' | 'previewRole'>,
   systemRole?: string,
   userId?: string,
 ): boolean {
+  if (kb.previewRole) return kb.previewRole === 'edit';
   if (systemRole === 'superadmin') return true;
   if (userId != null && kb.userId === userId) return true;
   if (kb.myRole) return kb.myRole !== 'view';
@@ -96,7 +100,7 @@ function hasKbEditRole(
  * a control; the server enforces it.
  */
 export function kbSourceRights(
-  kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'userId' | 'capabilities'> | null | undefined,
+  kb: Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility' | 'userId' | 'capabilities' | 'previewRole'> | null | undefined,
   systemRole?: string,
   userId?: string,
 ): KbCapabilities {
@@ -225,4 +229,14 @@ export function splitKbsByOwnership<K extends Pick<KnowledgeBase, 'myRole'>>(
     (kb.myRole === 'owner' ? ownedKbs : sharedKbs).push(kb);
   }
   return { ownedKbs, sharedKbs };
+}
+
+/**
+ * The role to show for the caller on `kb` („Deine Berechtigung"): the
+ * previewed role in a preview, else the server's resolution (effectiveRole,
+ * implicit roles included), else the raw kb_members row, else an implicit
+ * viewer — the only role a KB row without either can mean.
+ */
+export function kbDisplayRole(kb: Pick<KnowledgeBase, 'effectiveRole' | 'myRole' | 'previewRole'>): KbRole {
+  return kb.previewRole ?? kb.effectiveRole ?? kb.myRole ?? 'view';
 }

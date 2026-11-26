@@ -8,6 +8,7 @@ import {
 } from '../utils/messageTree';
 import { parseSseStream, SseIdleTimeoutError } from '../utils/sseParser';
 import { errorInfoFromBody, isFileErrorCode, userErrorMessage } from '../utils/userErrors';
+import { getKbPreview } from '../preview/kbPreview';
 
 interface UseChatStreamParams {
   currentKb: KnowledgeBase | null;
@@ -329,7 +330,11 @@ export function useChatStream({
             setChats(prev => {
               if (prev.some(c => c.id === event.chatId)) return prev;
               const now = new Date().toISOString();
-              return [{ id: event.chatId as string, kbId: currentKb.id, userId: '', title: userMessage.substring(0, 50), createdAt: now, updatedAt: now, ...(opts?.roleId ? { roleId: opts.roleId } : {}) }, ...prev];
+              // A chat started in a preview keeps it (chats.preview_role); the
+              // row says so, or opening it again would end the preview.
+              const preview = getKbPreview();
+              const previewRole = preview?.kbId === currentKb.id ? preview.role : null;
+              return [{ id: event.chatId as string, kbId: currentKb.id, userId: '', title: userMessage.substring(0, 50), createdAt: now, updatedAt: now, ...(opts?.roleId ? { roleId: opts.roleId } : {}), ...(previewRole ? { previewRole } : {}) }, ...prev];
             });
           }
 

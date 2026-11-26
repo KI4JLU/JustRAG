@@ -6,6 +6,8 @@ import { Check, History, House, Info, Loader2, Shield, SlidersHorizontal, Trash2
 import { Button, Notice, SettingsDialog } from '@ki4jlu/design-system';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useModalContext } from '../../contexts/ModalContext';
+import { setKbPreview } from '../../preview/kbPreview';
+import { kbDisplayRole } from '../../utils/kbAccess';
 import type { KbAssignableRole, KbSettingsSection, KbSourceFlags, KnowledgeBase } from '../../types';
 import { KbRolesRightsTab } from '../kbSettings/KbRolesRightsTab';
 import { kbSettingsKeywords } from '../kbSettings/kbSettingsSearchKeywords';
@@ -256,7 +258,14 @@ export function KbSettingsDialog({
                         keywords: kbSettingsKeywords('roles', t),
                         content: (
                             <div className="pt-6">
-                                <KbRolesRightsTab flags={flags} onFlagsChange={onFlagsChange} onAssignPeople={() => setSection('members')} />
+                                <KbRolesRightsTab
+                                    flags={flags}
+                                    onFlagsChange={onFlagsChange}
+                                    onAssignPeople={() => setSection('members')}
+                                    // The preview shows the SAVED rights: closing asks about
+                                    // unsaved changes first, as any close does.
+                                    onPreview={(role) => { void requestClose().then((closed) => { if (closed) setKbPreview({ kbId: kb.id, role, ownRole: kbDisplayRole(kb) }); }); }}
+                                />
                             </div>
                         ),
                     },

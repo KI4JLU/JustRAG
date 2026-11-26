@@ -1,3 +1,5 @@
+import { PREVIEW_ROLE_HEADER, previewHeaderFor } from './preview/kbPreview';
+
 const getBaseUrl = () => {
     // If a VITE_API_URL is provided, use it.
     if (import.meta.env.VITE_API_URL) {
@@ -28,6 +30,13 @@ export const authFetch: typeof fetch = async (input, init) => {
     const headers = new Headers(init?.headers);
     if (token && !headers.has('Authorization')) {
         headers.set('Authorization', `Bearer ${token}`);
+    }
+    const previewRole = previewHeaderFor(
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        init?.method ?? (input instanceof Request ? input.method : 'GET'),
+    );
+    if (previewRole && !headers.has(PREVIEW_ROLE_HEADER)) {
+        headers.set(PREVIEW_ROLE_HEADER, previewRole);
     }
     const response = await fetch(input, { ...init, headers });
     if (response.status === 401) {

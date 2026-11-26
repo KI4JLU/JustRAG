@@ -10,6 +10,7 @@ import { chatSourceSelection } from '../utils/kbAccess';
 import { buildMessageMap, findDefaultLeaf, isTempMessageId, nearestPersistedAncestorId } from '../utils/messageTree';
 import { useMessageTree } from './useMessageTree';
 import { useChatStream } from './useChatStream';
+import { alignKbPreviewWithChat } from '../preview/kbPreview';
 
 /** The role card a new chat starts from (the start page's „Rollenauswahl"). */
 export interface RoleStart {
@@ -175,6 +176,7 @@ export function useChat({
   }, []);
 
   const handleSelectChat = useCallback(async (chat: ChatEntry) => {
+    alignKbPreviewWithChat(chat);
     if (chat.type === 'research') {
       try {
         const res = await axios.get(`${API_BASE_URL}/api/chats/${chat.id}/messages`);

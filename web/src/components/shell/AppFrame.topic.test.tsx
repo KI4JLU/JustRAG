@@ -252,6 +252,7 @@ describe('AppFrame, topic open Reiter-Ableitung', () => {
 
 describe('AppFrame, topic open Chrome-Leiste', () => {
   it('trägt den Pfad „Bereich / Thema" — der Bereich als Weg zurück, das Thema als aktuelle Seite', () => {
+    kbExtra = { memberCount: 3 };
     renderLayout();
     render(<div data-testid="page-label">{shellProps.pageLabel}</div>);
     const label = within(screen.getByTestId('page-label'));
@@ -272,14 +273,17 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     // ein fremder Nutzer ohne KB-Rolle sieht dort nichts.
     expect(screen.queryByRole('button', { name: 'mindMap' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'shareKb' })).not.toBeInTheDocument();
-    // Rechts steht nur das Zahnrad, und das nicht für diesen Nutzer (KI-844:
-    // die Suche sitzt wieder im `search`-Slot, nicht in `headerActions`).
-    expect(shellProps.headerActions).toBeUndefined();
+    // Rechts steht auf diesem geteilten Thema nur der Berechtigungs-Chip; das
+    // Zahnrad nicht für diesen Nutzer (KI-844: die Suche sitzt im
+    // `search`-Slot, nicht in `headerActions`).
+    render(<div data-testid="actions">{shellProps.headerActions}</div>);
+    const actions = screen.getByTestId('actions');
+    expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: /kbAccessChipLabel/ })]);
   });
 
-  it('gibt die Leiste ohne Suchfeld weiter — die Themensuche ist eine Palette; `headerActions` hält nur das Zahnrad', () => {
+  it('gibt die Leiste ohne Suchfeld weiter — die Themensuche ist eine Palette; `headerActions` hält den Berechtigungs-Chip und das Zahnrad', () => {
     authUser = { id: 'u1', role: 'user' };
-    kbExtra = { userId: 'u1' };
+    kbExtra = { userId: 'u1', memberCount: 2 };
     renderLayout();
     // The bar has no search field any more: „Suchen" in the history column
     // (HistoryPanel) or ⌘K opens the palette, which is closed at rest.
@@ -287,12 +291,29 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     expect(screen.queryByTestId('topic-search')).toBeNull();
     render(<div data-testid="actions">{shellProps.headerActions}</div>);
     const actions = screen.getByTestId('actions');
-    // ORACLE: the DOM of the slot — exactly one control, the gear, and no search.
-    expect(within(actions).getAllByRole('button')).toEqual([within(actions).getByRole('button', { name: 'topicSettingsButton' })]);
+    // ORACLE: the DOM of the slot — the Berechtigung chip, then the gear, and no search.
+    expect(within(actions).getAllByRole('button')).toEqual([
+      within(actions).getByRole('button', { name: /kbAccessChipLabel/ }),
+      within(actions).getByRole('button', { name: 'topicSettingsButton' }),
+    ]);
     expect(within(actions).queryByTestId('topic-search')).toBeNull();
     // The way back stayed in `pageLabel`.
     render(<div>{shellProps.pageLabel}</div>);
     expect(screen.getByRole('link', { name: 'sharedTopics' })).toBeInTheDocument();
+  });
+
+  // ORACLE: the developer ruling of 2026-11-26 — the Berechtigung chip only on
+  // a topic others use (shared or public); a personal one has no other role.
+  it.each([
+    ['persönlich', { userId: 'u1', memberCount: 1 }, false],
+    ['geteilt', { userId: 'u1', memberCount: 2 }, true],
+    ['öffentlich', { visibility: 'public' as const }, true],
+  ])('zeigt den Berechtigungs-Chip nur auf geteilten und öffentlichen Themen (%s)', (_name, extra, shown) => {
+    authUser = { id: 'u1', role: 'user' };
+    kbExtra = extra;
+    renderLayout();
+    render(<div>{shellProps.headerActions}</div>);
+    expect(screen.queryByRole('button', { name: /kbAccessChipLabel/ }) !== null).toBe(shown);
   });
 
   it('zeigt dem Eigentümer das System-Prompt-Zahnrad und schaltet damit den Editor', async () => {
@@ -314,7 +335,7 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     settingsDiff = { isCustomized: true, changedKeys: ['role'], labels: ['asstTabRole'], count: 1 };
     renderLayout();
     render(<div data-testid="actions">{shellProps.headerActions}</div>);
-    const gear = within(screen.getByTestId('actions')).getByRole('button');
+    const gear = within(screen.getByTestId('actions')).getByRole('button', { name: /topicSettingsButton/ });
     expect(gear).not.toHaveAttribute('aria-pressed');
     expect(gear.querySelector('[data-slot="topic-settings-dot"]')).not.toBeNull();
     // The diff is read for this topic, and again when the settings window closes.
@@ -333,7 +354,8 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     authUser = { role: 'user' };
     kbExtra = { userId: undefined };
     renderLayout();
-    expect(shellProps.headerActions).toBeUndefined();
+    render(<div>{shellProps.headerActions}</div>);
+    expect(screen.queryByRole('button', { name: /topicSettingsButton/ })).toBeNull();
   });
 
   it('führt mit einem Klick auf das Logo zur Übersicht', async () => {
