@@ -228,6 +228,24 @@ describe('PrivateKbCard role meta line', () => {
     expect(line.parentElement?.firstElementChild).toBe(line);
   });
 
+  // ORACLE: kbaccess.ResolveRole resolves a superadmin to owner everywhere;
+  // the line names the role they hold, or „Superadmin" where they hold none.
+  it.each([
+    ['holding the viewer role', { myRole: 'view' as const }, 'kbRoleView'],
+    ['holding no role', { myRole: undefined }, 'kbRoleSuperadmin'],
+  ])('names a superadmin %s by that role, never Besitzer', (_name, extra, key) => {
+    const t = tFor('de');
+    render(
+      <PrivateKbCard
+        kb={kb({ ...extra, effectiveRole: 'owner', roleOrigin: 'superadmin', userId: 'other' })}
+        currentUserId="user-1" systemRole="superadmin" removingKb={false} t={t} language="de" showRole
+        onSelectKB={vi.fn()} onOpenShare={vi.fn()} onToggleFavorite={vi.fn()} onOpenSettings={vi.fn()} onRenameKB={vi.fn()} onDeleteKB={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('kb-meta-role')).toHaveTextContent(`${t('kbCardRole')} ${t(key)}`);
+    expect(screen.getByTestId('kb-meta-role')).not.toHaveTextContent(t('kbRoleOwner'));
+  });
+
   it('has no role line where the view does not ask for it', () => {
     renderCard(kb({ myRole: 'edit', effectiveRole: 'edit', userId: 'other' }));
     expect(screen.queryByTestId('kb-meta-role')).toBeNull();

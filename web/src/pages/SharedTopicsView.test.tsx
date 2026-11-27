@@ -446,3 +446,21 @@ describe('SharedTopicsView subscribed global topics', () => {
     expect(menu.queryByRole('menuitem', { name: `${translations.removeFromMyView.en}…` })).toBeNull();
   });
 });
+
+// ORACLE: the developer ruling of 2026-11-27 — „Geteiltes Wissen" has no
+// access filter; every shared topic shows, its role on the card's first meta
+// line (translations.ts kbCardRole + the role's name).
+describe('SharedTopicsView without an access filter', () => {
+  it('lists viewer and editor topics side by side, each with its role line, and offers no filter', () => {
+    const viewer: KnowledgeBase = { ...baseKb, id: 'kb-view', name: 'Lesethema', myRole: 'view', effectiveRole: 'view' };
+    const editor: KnowledgeBase = { ...baseKb, id: 'kb-edit', name: 'Bearbeitungsthema', myRole: 'edit', effectiveRole: 'edit' };
+    renderView(<SharedTopicsView {...noopProps} kbs={[viewer, editor]} globalKbs={[]} />);
+    const lines = screen.getAllByTestId('kb-meta-role').map((el) => el.textContent);
+    expect(lines).toEqual(expect.arrayContaining([
+      `${translations.kbCardRole.en} ${translations.kbRoleView.en}`,
+      `${translations.kbCardRole.en} ${translations.kbRoleEdit.en}`,
+    ]));
+    expect(screen.queryByLabelText('Filter by access')).toBeNull();
+    expect(screen.queryByText('I edit')).toBeNull();
+  });
+});
