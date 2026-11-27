@@ -20,7 +20,7 @@ import { translations, type Language } from '../i18n/translations';
  *
  * So this file asserts the wiring rather than the page. It renders the real
  * `App` — the real `ErrorBoundary`/`ThemeProvider`/`MobileProvider`/
- * `Suspense`/`ToastProvider`/`ToastContainer` composition, the real lazy
+ * `Suspense`/`ToastProvider`/`ToastStack` composition, the real lazy
  * `Login`, the real `Footer`, the real `LegalPage` and the real `useToast` —
  * and drives it the way a visitor does: click a footer link on the login
  * screen, expect the document. A required provider missing anywhere above
@@ -139,8 +139,9 @@ describe('App — legal pages on the unauthenticated route', () => {
     // App.tsx's decision and is argued there; this test asserts only that a
     // toast raised here becomes visible.)
     //
-    // ORACLE: translations.ts for `pageLoadError`, and WAI-ARIA for the
-    // container's accessible name ("Notifications", set by ToastContainer).
+    // ORACLE: translations.ts for `pageLoadError` and for the stack's region
+    // name (`toastRegionLabel`, followed by Sonner's hotkey, alt+T), found
+    // by role the way an assistive technology would.
     localStorage.setItem('language', 'de');
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
 
@@ -149,7 +150,7 @@ describe('App — legal pages on the unauthenticated route', () => {
     await userEvent.click(await screen.findByRole('button', { name: tr('termsOfUse', 'de') }));
 
     const message = await screen.findByText(tr('pageLoadError', 'de'));
-    expect(screen.getByLabelText('Notifications')).toContainElement(message);
+    expect(screen.getByRole('region', { name: `${tr('toastRegionLabel', 'de')} alt+T` })).toContainElement(message);
   });
 
   it('returns to the login screen from a legal page', async () => {

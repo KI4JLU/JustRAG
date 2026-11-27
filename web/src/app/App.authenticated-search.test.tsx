@@ -222,9 +222,10 @@ describe('App — the header global search on the authenticated route', () => {
       const line = await screen.findByText(translations.globalSearchRateLimited.de, {}, { timeout: 2000 });
       expect(line).toHaveAttribute('role', 'status');
       expect(screen.queryByText(translations.globalSearchError.de)).toBeNull();
-      // The container is always mounted (ToastContainer.tsx), so an empty one
-      // is a real observation, not an absent element.
-      const toastRegion = document.querySelector('.toast-container');
+      // The stack's region is always mounted (ToastStack.tsx), so an empty
+      // one is a real observation, not an absent element.
+      // `hidden`: the open search popup hides the rest of the page from assistive tech.
+      const toastRegion = screen.getByRole('region', { name: `${translations.toastRegionLabel.de} alt+T`, hidden: true });
       expect(toastRegion).not.toBeNull();
       expect(toastRegion!.textContent).toBe('');
 

@@ -12,7 +12,7 @@ import { MobileProvider } from '../contexts/MobileContext';
 import { ToastProvider } from '../contexts/ToastContext';
 import { viewportHeight } from '../utils/viewport';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
-import { ToastContainer } from '../components/ui/ToastContainer';
+import { ToastStack } from '../components/ui/ToastStack';
 import { AppUpdateProvider } from '../contexts/AppUpdateContext';
 import { useVersionCheck } from '../hooks/useVersionCheck';
 import { goToSsoLogin, reloadPage, startSsoReauth } from '../routing/sessionExpiry';
@@ -367,11 +367,11 @@ export function AppRoot() {
             * inside this boundary would make the toast queue's survival
             * depend on it, so don't.
             *
-            * The container is outside for a reason that IS established: it
-            * has to survive the very route switch that raised the toast,
-            * which it cannot do from inside the subtree being swapped. It is
-            * `pointer-events: none` and renders an empty <div> when there is
-            * nothing to show (Toast.css), so mounting it on the login screen
+            * The stack is outside for a reason that IS established: it has to
+            * survive the very route switch that raised the toast, which it
+            * cannot do from inside the subtree being swapped. With nothing to
+            * show it is an empty box that lets every click through (the
+            * design system's toast stack), so mounting it on the login screen
             * costs nothing.
             * --------------------------------------------------------------- */}
           <ToastProvider muteErrors={areErrorToastsMuted}>
@@ -395,7 +395,7 @@ export function AppRoot() {
                 </AuthProvider>
               )}
             </Suspense>
-            <ToastContainer />
+            <ToastStack />
           </ToastProvider>
         </MobileProvider>
         </AppUpdateProvider>

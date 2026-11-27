@@ -10,8 +10,9 @@ export type SystemNoticeTone = (typeof SYSTEM_NOTICE_TONES)[number];
 /**
  * Where the shell shows a notice (site_config `system_notice_placement`):
  * `banner` — the full-width bar above the whole app; `inline` — the small
- * message floating at the top of the content area; `toast` — a card in the
- * content area's bottom-right corner that stays until it is closed.
+ * message floating at the top of the content area; `toast` — a card at the
+ * top of the toast stack, top right under the bar, that stays until it is
+ * closed.
  */
 export const SYSTEM_NOTICE_PLACEMENTS = ['banner', 'inline', 'toast'] as const;
 export type SystemNoticePlacement = (typeof SYSTEM_NOTICE_PLACEMENTS)[number];

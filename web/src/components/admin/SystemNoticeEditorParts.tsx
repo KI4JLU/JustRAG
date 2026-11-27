@@ -36,7 +36,7 @@ export function ToneDot({ tone, className }: { tone: SystemNoticeTone; className
 /**
  * A placement drawn small: a window with the notice where it will sit, in the
  * tone's colour — a bar across the top, a short bar at the top of the content,
- * or a block in the bottom-right corner.
+ * or a block in the top-right corner.
  */
 export function PlacementThumb({ placement, tone }: { placement: SystemNoticePlacement; tone: SystemNoticeTone }) {
     const fill = TONE_FILL[tone];
@@ -47,7 +47,7 @@ export function PlacementThumb({ placement, tone }: { placement: SystemNoticePla
         >
             {placement === 'banner' && <span className={cn('absolute inset-x-0 top-0 h-2', fill)} />}
             {placement === 'inline' && <span className={cn('absolute top-2 left-1/2 h-1.5 w-8 -translate-x-1/2 rounded-full', fill)} />}
-            {placement === 'toast' && <span className={cn('absolute right-1.5 bottom-1.5 h-2.5 w-5 rounded-sm', fill)} />}
+            {placement === 'toast' && <span className={cn('absolute top-1.5 right-1.5 h-2.5 w-5 rounded-sm', fill)} />}
         </span>
     );
 }
@@ -60,7 +60,7 @@ function Line({ className }: { className: string }) {
 /**
  * The notice inside a small drawing of the app — side column and page — at the
  * place it will take: the banner across the top of everything, the small
- * message at the top of the page, or the card in the page's bottom-right
+ * message at the top of the page, or the card in the page's top-right
  * corner. The notice itself is the shell's own component, so its look is the
  * real one. Its close button is shown when the notice is closable, and does
  * nothing here.
@@ -81,12 +81,12 @@ export function NoticePreviewFrame({ notice }: { notice: SystemNotice }) {
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-3 p-4">
                     {notice.placement === 'inline' && <div className="flex justify-center">{alert}</div>}
+                    {notice.placement === 'toast' && <div className="w-full max-w-sm self-end">{alert}</div>}
                     <div aria-hidden="true" className="flex flex-col gap-2.5">
                         <Line className="w-2/5" />
                         <Line className="w-4/5" />
                         <Line className="w-3/5" />
                     </div>
-                    {notice.placement === 'toast' && <div className="mt-auto w-full max-w-sm self-end pt-3">{alert}</div>}
                 </div>
             </div>
         </div>

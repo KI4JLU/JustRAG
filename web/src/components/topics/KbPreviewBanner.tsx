@@ -2,7 +2,6 @@ import { Alert, AlertAction, AlertDescription, AlertTitle, Button } from '@ki4jl
 import { SquareDashedMousePointer } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { setKbPreview, type KbPreview } from '../../preview/kbPreview';
-import { NoticeHeight } from '../shell/SystemNotice';
 import { KB_ROLE_LABEL } from './kbRoleDisplay';
 
 /**
@@ -18,23 +17,21 @@ export function KbPreviewBanner({ preview }: { preview: KbPreview }) {
   const other = preview.role === 'edit' ? 'view' : 'edit';
   const link = 'h-auto p-0 font-semibold text-current underline';
   return (
-    <NoticeHeight>
-      <Alert tone="info" layout="banner" live="polite" icon={<SquareDashedMousePointer aria-hidden="true" />}>
-        <AlertTitle>{t('kbPreviewBannerTitle').replace('{role}', role)}</AlertTitle>
-        <AlertDescription>
-          {t('kbPreviewBannerText').replace('{roles}', roles).replace('{role}', t(KB_ROLE_LABEL[preview.ownRole]))}
-        </AlertDescription>
-        <AlertAction>
-          <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <Button type="button" variant="link" size="sm" className={link} onClick={() => setKbPreview({ ...preview, role: other })}>
-              {t('kbPreviewSwitch').replace('{role}', t(KB_ROLE_LABEL[other]))}
-            </Button>
-            <Button type="button" variant="link" size="sm" className={link} onClick={() => setKbPreview(null)}>
-              {t('kbPreviewEnd')}
-            </Button>
-          </span>
-        </AlertAction>
-      </Alert>
-    </NoticeHeight>
+    <Alert tone="info" layout="banner" live="polite" icon={<SquareDashedMousePointer aria-hidden="true" />}>
+      <AlertTitle>{t('kbPreviewBannerTitle').replace('{role}', role)}</AlertTitle>
+      <AlertDescription>
+        {t('kbPreviewBannerText').replace('{roles}', roles).replace('{role}', t(KB_ROLE_LABEL[preview.ownRole]))}
+      </AlertDescription>
+      <AlertAction>
+        <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <Button type="button" variant="link" size="sm" className={link} onClick={() => setKbPreview({ ...preview, role: other })}>
+            {t('kbPreviewSwitch').replace('{role}', t(KB_ROLE_LABEL[other]))}
+          </Button>
+          <Button type="button" variant="link" size="sm" className={link} onClick={() => setKbPreview(null)}>
+            {t('kbPreviewEnd')}
+          </Button>
+        </span>
+      </AlertAction>
+    </Alert>
   );
 }

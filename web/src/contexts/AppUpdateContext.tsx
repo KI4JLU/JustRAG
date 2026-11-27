@@ -14,12 +14,14 @@ const POLICY_TICK_INTERVAL = 30_000;
 export interface AppUpdate {
     /** A newer build's service worker is installed and waiting. */
     available: boolean;
+    /** When this tab first saw it waiting; null while there is none. */
+    since: Date | null;
     /** Switches to it: the waiting worker takes over and the page reloads. */
     apply: () => void;
 }
 
 // Without a provider (tests, Storybook) there is never an update.
-const AppUpdateContext = createContext<AppUpdate>({ available: false, apply: () => {} });
+const AppUpdateContext = createContext<AppUpdate>({ available: false, since: null, apply: () => {} });
 
 /**
  * Registers the service worker — once, for the whole app — and tells the
@@ -31,10 +33,16 @@ const AppUpdateContext = createContext<AppUpdate>({ available: false, apply: () 
  * all, and when the version may change: utils/updatePolicy.ts.
  */
 export function AppUpdateProvider({ children }: { children: ReactNode }) {
+    // When the waiting worker was reported: the update card's creation time.
+    const [since, setSince] = useState<Date | null>(null);
     const {
         needRefresh: [needRefresh],
         updateServiceWorker,
     } = useRegisterSW({
+        // Stamped as it is reported, so the card never renders without it.
+        onNeedRefresh() {
+            setSince((at) => at ?? new Date());
+        },
         onRegisteredSW(_swUrl, registration) {
             if (!registration) return;
             setInterval(() => {
@@ -59,9 +67,9 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (needRefresh && pendingSince.current === null) {
-            pendingSince.current = Date.now();
+            pendingSince.current = since?.getTime() ?? Date.now();
         }
-    }, [needRefresh]);
+    }, [needRefresh, since]);
 
     // Re-evaluate on a timer and whenever the tab is shown or hidden — the
     // latter is what makes the deadline actionable, since auto-apply only
@@ -87,7 +95,7 @@ export function AppUpdateProvider({ children }: { children: ReactNode }) {
     }, [needRefresh, now]);
 
     const apply = useCallback(() => { void updateRef.current(true); }, []);
-    const value = useMemo(() => ({ available: needRefresh, apply }), [needRefresh, apply]);
+    const value = useMemo(() => ({ available: needRefresh, since, apply }), [needRefresh, since, apply]);
     return <AppUpdateContext.Provider value={value}>{children}</AppUpdateContext.Provider>;
 }
 
