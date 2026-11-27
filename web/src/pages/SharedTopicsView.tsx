@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { KnowledgeBase } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppNav } from '../contexts/AppNavContext';
-import { kbDisplayRole, splitKbsByOwnership } from '../utils/kbAccess';
+import { splitKbsByOwnership } from '../utils/kbAccess';
 import { AppChrome } from '../components/shell/AppChrome';
 import { KbListHeader, PrivateKbCard } from '../components/topics/KbCard';
-import { Button, SegmentedControl } from '@ki4jlu/design-system';
+import { Button } from '@ki4jlu/design-system';
 import { Plus, Users } from 'lucide-react';
 import { TopicGridPage } from '../components/topics/TopicGridPage';
 import { TopicFilterBar } from '../components/topics/TopicFilterBar';
@@ -132,14 +132,7 @@ export function SharedTopicsView({
   // The user's own order (dragged in card or list view), then the chip filter.
   const order = useKbOrder('shared');
   const ordered = useMemo(() => order.apply(sharedKbs), [order, sharedKbs]);
-  // The Berechtigung filter (mockup KI-1089): topics I edit (edit and up)
-  // or only read. Not remembered; it starts on „Alle".
-  const [access, setAccess] = useState<'all' | 'edit' | 'view'>('all');
-  const displayed = useMemo(() => filters.apply(ordered).filter((kb) => {
-    if (access === 'all') return true;
-    const reads = kbDisplayRole(kb) === 'view';
-    return access === 'view' ? reads : !reads;
-  }), [filters, ordered, access]);
+  const displayed = useMemo(() => filters.apply(ordered), [filters, ordered]);
   // Favorites on lines of their own above the rest.
   const all = useMemo(() => favoritesFirst(ordered), [ordered]);
   const favorites = useMemo(() => displayed.filter(kb => kb.isFavorite === true), [displayed]);
@@ -177,19 +170,6 @@ export function SharedTopicsView({
           <TopicFilterBar
             filters={filters}
             label={t('filterTopics')}
-            extra={(
-              <SegmentedControl
-                className="shrink-0"
-                aria-label={t('kbAccessFilter')}
-                value={access}
-                onValueChange={(v) => setAccess(v as 'all' | 'edit' | 'view')}
-                options={[
-                  { value: 'all', label: t('kbAccessFilterAll') },
-                  { value: 'edit', label: t('kbAccessFilterEdit') },
-                  { value: 'view', label: t('kbAccessFilterView') },
-                ]}
-              />
-            )}
             action={(
               <Button className="shrink-0" onClick={onViewDiscover}>
                 <Plus className="size-4" aria-hidden="true" /> {t('addTopic')}

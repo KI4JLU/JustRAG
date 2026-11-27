@@ -178,7 +178,21 @@ const KB_ROW_COLUMNS =
 const KB_ROW_COLUMNS_WITH_ROLE =
   'grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-x-4 md:grid-cols-[minmax(0,1fr)_8.5rem_4.5rem_4.5rem_8rem_7.5rem_auto] [&>*:nth-child(3)]:max-md:hidden [&>*:nth-child(4)]:max-md:hidden [&>*:nth-child(5)]:max-md:hidden';
 
-/** The caller's Berechtigung on a topic, as a badge (card band, list row). */
+/** The caller's Berechtigung on a topic as a card's meta line: „Du bist Admin". */
+function KbRoleMetaLine({ kb, t }: { kb: KnowledgeBase; t: T }) {
+  const role = kbHeldRole(kb);
+  const Icon = role ? KB_ROLE_ICON[role] : SUPERADMIN_ICON;
+  return (
+    <MetaLine
+      testId="kb-meta-role"
+      icon={<Icon size={16} className="text-primary" aria-hidden="true" />}
+      label={t('kbCardRole')}
+      value={<span className="text-primary">{kbHeldRoleLabel(t, role)}</span>}
+    />
+  );
+}
+
+/** The caller's Berechtigung on a topic, as a badge (list row). */
 export function KbRoleBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
   const role = kbHeldRole(kb);
   const Icon = role ? KB_ROLE_ICON[role] : SUPERADMIN_ICON;
@@ -462,7 +476,6 @@ export function PrivateKbCard({
       />
       <CardBand data-testid="kb-card-band">
         <CardTitle>{nameButton}</CardTitle>
-        {showRole && <KbRoleBadge kb={kb} t={t} />}
         {/* „Make favorite" (the empty star) shows on hover and to the keyboard
             only; a favorite keeps its filled star. Without hover (touch) it
             stays visible, since nothing would ever reveal it. */}
@@ -489,6 +502,8 @@ export function PrivateKbCard({
                 omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
                 are `formatRelativeCoarse`: „gestern", „vor 7 Tagen", „vor 3
                 Stunden" (the unit rule is written down in utils/dates.ts). */}
+            {/* On „Geteiltes Wissen": the caller's Berechtigung, as the first meta line. */}
+            {showRole && <KbRoleMetaLine kb={kb} t={t} />}
             <MetaLine
               testId="kb-meta-used"
               icon={<Clock size={16} aria-hidden="true" />}

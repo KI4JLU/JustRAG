@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { KbCapabilities, KnowledgeBase } from '../types';
-import { kbSourceRights, chatSourceSelection, canRenameKb, hasKbAdminRole, kbDisplayRole, kbEffectiveRole, kbHeldRole, kbSuperadminElevated, splitKbsByOwnership } from './kbAccess';
+import { kbSourceRights, chatSourceSelection, canRenameKb, hasKbAdminRole, kbEffectiveRole, kbHeldRole, kbSuperadminElevated, splitKbsByOwnership } from './kbAccess';
 
 type KbShape = Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility'>;
 
@@ -267,7 +267,7 @@ describe('kbHeldRole / kbEffectiveRole', () => {
     for (const kb of [{ ...privateKb, ...superadmin }, { ...publicKb, ...superadmin, isPublished: false }]) {
       expect(kbHeldRole(kb)).toBeNull();
       expect(kbSuperadminElevated(kb)).toBe(true);
-      expect(kbDisplayRole(kb)).toBe('owner');
+      expect(kbEffectiveRole(kb)).toBe('owner');
     }
   });
 

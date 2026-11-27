@@ -56,13 +56,11 @@ export interface TopicFilterBarProps {
   showFavorites?: boolean;
   /** Names the group for a screen reader — the view says what is filtered. */
   label: string;
-  /** A view's own filter, between the chips and the view toggle (the Berechtigung filter on „Geteiltes Wissen"). */
-  extra?: React.ReactNode;
   /** The view's primary action at the row's end, after the view toggle („Neues Thema"). */
   action?: React.ReactNode;
 }
 
-export function TopicFilterBar({ filters, label, showOwnership = false, showFavorites = true, extra, action }: TopicFilterBarProps) {
+export function TopicFilterBar({ filters, label, showOwnership = false, showFavorites = true, action }: TopicFilterBarProps) {
   const { t } = useTheme();
 
   const [managing, setManaging] = useState(false);
@@ -111,7 +109,6 @@ export function TopicFilterBar({ filters, label, showOwnership = false, showFavo
 
       {/* `shrink-0` so the chips scroll past it rather than squeezing it: the
           toggle is the row's fixed end, the filter strip is the elastic half. */}
-      {extra}
       <SegmentedControl
         className="ml-auto shrink-0"
         aria-label={t('viewMode')}

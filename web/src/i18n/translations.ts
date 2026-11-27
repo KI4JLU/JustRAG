@@ -1239,10 +1239,7 @@ export const translations = {
     kbPreviewOpenLabel: { de: 'Thema als {role} ansehen', en: 'View topic as {role}' },
     chatPreviewBadge: { de: 'Vorschau als {role}', en: 'Preview as {role}' },
     kbListColAccess: { de: 'Deine Berechtigung', en: 'Your access' },
-    kbAccessFilter: { de: 'Nach Berechtigung filtern', en: 'Filter by access' },
-    kbAccessFilterAll: { de: 'Alle', en: 'All' },
-    kbAccessFilterEdit: { de: 'Ich bearbeite', en: 'I edit' },
-    kbAccessFilterView: { de: 'Ich lese', en: 'I read' },
+    kbCardRole: { de: 'Du bist', en: 'You are' },
     copyUsername: { de: 'Benutzername kopieren', en: 'Copy username' },
 
     // Inline Editor

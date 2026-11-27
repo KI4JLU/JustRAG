@@ -207,3 +207,47 @@ describe('KbRoleBadge for a superadmin', () => {
     expect(screen.queryByText(t('kbRoleOwner'))).toBeNull();
   });
 });
+
+// ORACLE: the developer ruling of 2026-11-27 (canvas variant A) — on the
+// card the Berechtigung is the first meta line, „Du bist {role}", not a
+// badge in the title band or on the hairline.
+describe('PrivateKbCard role meta line', () => {
+  it('shows the role as the first meta line, outside the band and the hairline', () => {
+    const t = tFor('de');
+    render(
+      <PrivateKbCard
+        kb={kb({ myRole: 'edit', effectiveRole: 'edit', userId: 'other', category: { id: 'c1', name: 'Beschaffung', colorSlot: 1 } as KnowledgeBase['category'] })}
+        currentUserId="user-1" systemRole="user" removingKb={false} t={t} language="de" showRole
+        onSelectKB={vi.fn()} onOpenShare={vi.fn()} onToggleFavorite={vi.fn()} onOpenSettings={vi.fn()} onRenameKB={vi.fn()} onDeleteKB={vi.fn()}
+      />,
+    );
+    const line = screen.getByTestId('kb-meta-role');
+    expect(line).toHaveTextContent(`${t('kbCardRole')} ${t('kbRoleEdit')}`);
+    expect(within(screen.getByTestId('kb-card-band')).queryByText(t('kbRoleEdit'))).toBeNull();
+    expect(line.closest('[data-slot="card-hairline"]')).toBeNull();
+    expect(line.parentElement?.firstElementChild).toBe(line);
+  });
+
+  // ORACLE: kbaccess.ResolveRole resolves a superadmin to owner everywhere;
+  // the line names the role they hold, or „Superadmin" where they hold none.
+  it.each([
+    ['holding the viewer role', { myRole: 'view' as const }, 'kbRoleView'],
+    ['holding no role', { myRole: undefined }, 'kbRoleSuperadmin'],
+  ])('names a superadmin %s by that role, never Besitzer', (_name, extra, key) => {
+    const t = tFor('de');
+    render(
+      <PrivateKbCard
+        kb={kb({ ...extra, effectiveRole: 'owner', roleOrigin: 'superadmin', userId: 'other' })}
+        currentUserId="user-1" systemRole="superadmin" removingKb={false} t={t} language="de" showRole
+        onSelectKB={vi.fn()} onOpenShare={vi.fn()} onToggleFavorite={vi.fn()} onOpenSettings={vi.fn()} onRenameKB={vi.fn()} onDeleteKB={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('kb-meta-role')).toHaveTextContent(`${t('kbCardRole')} ${t(key)}`);
+    expect(screen.getByTestId('kb-meta-role')).not.toHaveTextContent(t('kbRoleOwner'));
+  });
+
+  it('has no role line where the view does not ask for it', () => {
+    renderCard(kb({ myRole: 'edit', effectiveRole: 'edit', userId: 'other' }));
+    expect(screen.queryByTestId('kb-meta-role')).toBeNull();
+  });
+});
