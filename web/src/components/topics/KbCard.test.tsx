@@ -207,3 +207,29 @@ describe('KbRoleBadge for a superadmin', () => {
     expect(screen.queryByText(t('kbRoleOwner'))).toBeNull();
   });
 });
+
+// ORACLE: the developer ruling of 2026-11-27 (canvas variant A) — on the
+// card the Berechtigung is the first meta line, „Du bist {role}", not a
+// badge in the title band or on the hairline.
+describe('PrivateKbCard role meta line', () => {
+  it('shows the role as the first meta line, outside the band and the hairline', () => {
+    const t = tFor('de');
+    render(
+      <PrivateKbCard
+        kb={kb({ myRole: 'edit', effectiveRole: 'edit', userId: 'other', category: { id: 'c1', name: 'Beschaffung', colorSlot: 1 } as KnowledgeBase['category'] })}
+        currentUserId="user-1" systemRole="user" removingKb={false} t={t} language="de" showRole
+        onSelectKB={vi.fn()} onOpenShare={vi.fn()} onToggleFavorite={vi.fn()} onOpenSettings={vi.fn()} onRenameKB={vi.fn()} onDeleteKB={vi.fn()}
+      />,
+    );
+    const line = screen.getByTestId('kb-meta-role');
+    expect(line).toHaveTextContent(`${t('kbCardRole')} ${t('kbRoleEdit')}`);
+    expect(within(screen.getByTestId('kb-card-band')).queryByText(t('kbRoleEdit'))).toBeNull();
+    expect(line.closest('[data-slot="card-hairline"]')).toBeNull();
+    expect(line.parentElement?.firstElementChild).toBe(line);
+  });
+
+  it('has no role line where the view does not ask for it', () => {
+    renderCard(kb({ myRole: 'edit', effectiveRole: 'edit', userId: 'other' }));
+    expect(screen.queryByTestId('kb-meta-role')).toBeNull();
+  });
+});

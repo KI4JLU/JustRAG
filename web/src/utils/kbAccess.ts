@@ -261,15 +261,6 @@ export function kbSuperadminElevated(kb: KbRoleShape): boolean {
 }
 
 /**
- * The role a topic counts as for the caller where a single role is needed
- * (the „Ich bearbeite / Ich lese" filter): the held role, else — a superadmin
- * holding none — the acting one.
- */
-export function kbDisplayRole(kb: KbRoleShape): KbRole {
-  return kbHeldRole(kb) ?? kbEffectiveRole(kb);
-}
-
-/**
  * The role the caller acts with on `kb`: the previewed role in a preview,
  * else the server's resolution (effectiveRole, implicit roles and the
  * superadmin elevation included), else the raw kb_members row, else an
