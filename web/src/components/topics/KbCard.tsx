@@ -2,7 +2,8 @@ import {
   Trash2, UserPlus, Globe, Pencil, FileText, MessageSquare, Loader2, User, Users, Lock, Settings, Star, Clock, RefreshCw,
 } from 'lucide-react';
 import {
-  ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardTitle, ScrollingText,
+  ActionMenu, Badge, Button, Card, cardNeutralAccent, CardBand, CardContent, CardFooter, CardHairline, CardMetaItem, CardMetaLabel,
+  CardMetaList, CardMetaValue, CardTitle, ScrollingText,
   SortableItemHandle, Tooltip, TooltipContent, TooltipTrigger, type ActionMenuItem,
 } from '@ki4jlu/design-system';
 import { visibilityState } from '../../utils/kbVisibility';
@@ -133,24 +134,21 @@ function KbCardChips({ kb, t }: { kb: KnowledgeBase; t: T }) {
 }
 
 /**
- * One line of the card's meta block (card KI-848, developer mockup): a muted
- * 16px icon, a muted label and a BOLD value — „🕒 Genutzt **gestern**".
- *
- * Utilities only, and none of the legacy `.source-meta` / `.home-view__kb-meta`
- * / `.home-view__owner-meta` rules: those are unlayered and carry stacked-card
- * margins a flex column does not want (see `KbCardChips`). The line truncates
- * rather than wrapping, so every card's meta block has the same height per
- * line count — the equal-height grid (KI-843) then only has to absorb the
- * number of lines, not their wrapping.
+ * One line of the card's meta block: the design system's `CardMetaItem` — a
+ * 16px icon, a muted label and a bold value, „Genutzt **gestern**". The value
+ * is one line cut with an ellipsis, so every card's meta block has the same
+ * height per line count and the equal-height grid only absorbs the number of
+ * lines.
  */
-function MetaLine({ icon, label, value, testId }: { icon: React.ReactNode; label: string; value: React.ReactNode; testId: string }) {
+function MetaLine({ icon, label, value, testId, tone }: { icon: React.ReactNode; label: string; value: React.ReactNode; testId: string; tone?: 'neutral' | 'primary' }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 font-label-sm text-label-sm text-on-surface-variant" data-testid={testId}>
-      <span className="flex shrink-0">{icon}</span>
-      <span className="truncate">
-        {label}{' '}<span className="font-semibold text-on-surface">{value}</span>
-      </span>
-    </div>
+    <CardMetaItem data-testid={testId} tone={tone}>
+      {icon}
+      <CardMetaLabel>{label}</CardMetaLabel>
+      {/* A real space for the text (copy, screen readers); flex ignores it in the layout. */}
+      {' '}
+      <CardMetaValue>{value}</CardMetaValue>
+    </CardMetaItem>
   );
 }
 
@@ -185,9 +183,10 @@ function KbRoleMetaLine({ kb, t }: { kb: KnowledgeBase; t: T }) {
   return (
     <MetaLine
       testId="kb-meta-role"
-      icon={<Icon size={16} className="text-primary" aria-hidden="true" />}
+      icon={<Icon aria-hidden="true" />}
       label={t('kbCardRole')}
-      value={<span className="text-primary">{kbHeldRoleLabel(t, role)}</span>}
+      value={kbHeldRoleLabel(t, role)}
+      tone="primary"
     />
   );
 }
@@ -496,7 +495,7 @@ export function PrivateKbCard({
       <div className="relative flex min-h-0 flex-1 flex-col">
         <CardDescription text={kb.description?.trim() || t('kbHeaderDefault')} />
         <CardContent className={`flex flex-col pb-0 ${AT_REST_FADE}`}>
-          <div className="mb-3 flex min-h-11 min-w-0 flex-col gap-1">
+          <CardMetaList className="mb-3 min-h-11">
             {/* The meta block (KI-848, developer mockup): „Genutzt" (last use),
                 „Aktualisiert" (`lastIngestedAt`, the last successful ingest —
                 omitted while nothing has been ingested) and, for a topic somebody else owns, who shared it. Values
@@ -506,14 +505,14 @@ export function PrivateKbCard({
             {showRole && <KbRoleMetaLine kb={kb} t={t} />}
             <MetaLine
               testId="kb-meta-used"
-              icon={<Clock size={16} aria-hidden="true" />}
+              icon={<Clock aria-hidden="true" />}
               label={t('kbCardUsed')}
               value={formatRelativeCoarse(kb.lastActivityAt || kb.createdAt, language)}
             />
             {kb.lastIngestedAt && (
               <MetaLine
                 testId="kb-meta-updated"
-                icon={<RefreshCw size={16} aria-hidden="true" />}
+                icon={<RefreshCw aria-hidden="true" />}
                 label={t('kbCardUpdated')}
                 value={formatRelativeCoarse(kb.lastIngestedAt, language)}
               />
@@ -529,13 +528,13 @@ export function PrivateKbCard({
               return (
                 <MetaLine
                   testId="kb-meta-owner"
-                  icon={<User size={16} aria-hidden="true" />}
+                  icon={<User aria-hidden="true" />}
                   label={before.trim()}
                   value={<>{displayName}{after}</>}
                 />
               );
             })()}
-          </div>
+          </CardMetaList>
         </CardContent>
         {/* Footer: scent chips left (wrapping when they do not fit), the
             visibility badge right — both inside the card at every width the
