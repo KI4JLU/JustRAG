@@ -231,12 +231,50 @@ export function splitKbsByOwnership<K extends Pick<KnowledgeBase, 'myRole'>>(
   return { ownedKbs, sharedKbs };
 }
 
+type KbRoleShape = Pick<KnowledgeBase, 'effectiveRole' | 'roleOrigin' | 'myRole' | 'previewRole' | 'isGlobal' | 'visibility' | 'isPublished'>;
+
 /**
- * The role to show for the caller on `kb` („Deine Berechtigung"): the
- * previewed role in a preview, else the server's resolution (effectiveRole,
- * implicit roles included), else the raw kb_members row, else an implicit
- * viewer — the only role a KB row without either can mean.
+ * The role the caller holds on `kb` („Deine Berechtigung"): the previewed
+ * role in a preview, else their kb_members row, else the implicit role the
+ * server resolved (a published public topic's viewer, a system admin's admin
+ * on a public topic), else an implicit viewer.
+ *
+ * A superadmin's elevation is not a role they hold: the server resolves a
+ * superadmin to owner on every topic (roleOrigin 'superadmin'), which would
+ * label every topic „Besitzer". For them this is their kb_members row, else
+ * the viewer role of a published public topic, else null — they hold none and
+ * act on the system role alone. Their access stays elevated: rights,
+ * settings and the preview read kbEffectiveRole or the system role.
  */
-export function kbDisplayRole(kb: Pick<KnowledgeBase, 'effectiveRole' | 'myRole' | 'previewRole'>): KbRole {
+export function kbHeldRole(kb: KbRoleShape): KbRole | null {
+  if (kb.previewRole) return kb.previewRole;
+  if (kb.roleOrigin === 'superadmin') {
+    if (kb.myRole) return kb.myRole;
+    return (kb.isGlobal || kb.visibility === 'public') && kb.isPublished ? 'view' : null;
+  }
+  return kbEffectiveRole(kb);
+}
+
+/** Whether the superadmin elevation lifts the caller above the role they hold. */
+export function kbSuperadminElevated(kb: KbRoleShape): boolean {
+  return !kb.previewRole && kb.roleOrigin === 'superadmin' && kbHeldRole(kb) !== 'owner';
+}
+
+/**
+ * The role a topic counts as for the caller where a single role is needed
+ * (the „Ich bearbeite / Ich lese" filter): the held role, else — a superadmin
+ * holding none — the acting one.
+ */
+export function kbDisplayRole(kb: KbRoleShape): KbRole {
+  return kbHeldRole(kb) ?? kbEffectiveRole(kb);
+}
+
+/**
+ * The role the caller acts with on `kb`: the previewed role in a preview,
+ * else the server's resolution (effectiveRole, implicit roles and the
+ * superadmin elevation included), else the raw kb_members row, else an
+ * implicit viewer.
+ */
+export function kbEffectiveRole(kb: Pick<KnowledgeBase, 'effectiveRole' | 'myRole' | 'previewRole'>): KbRole {
   return kb.previewRole ?? kb.effectiveRole ?? kb.myRole ?? 'view';
 }

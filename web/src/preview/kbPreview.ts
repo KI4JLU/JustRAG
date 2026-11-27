@@ -15,8 +15,13 @@ import type { KbPreviewRole, KbRole } from '../types';
 export interface KbPreview {
   kbId: string;
   role: KbPreviewRole;
-  /** The caller's own role on the topic, which the banner names („Du bleibst Besitzer"). */
-  ownRole: KbRole;
+  /**
+   * The role the caller holds on the topic (kbHeldRole), which the banner
+   * names („Du bleibst Besitzer"); null for a superadmin holding none.
+   */
+  ownRole: KbRole | null;
+  /** The superadmin elevation lifts the caller above ownRole (kbSuperadminElevated). */
+  superadmin?: boolean;
 }
 
 export const PREVIEW_ROLE_HEADER = 'X-KB-Preview-Role';

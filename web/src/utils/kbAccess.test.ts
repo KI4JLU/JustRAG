@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { KbCapabilities, KnowledgeBase } from '../types';
-import { kbSourceRights, chatSourceSelection, canRenameKb, hasKbAdminRole, splitKbsByOwnership } from './kbAccess';
+import { kbSourceRights, chatSourceSelection, canRenameKb, hasKbAdminRole, kbDisplayRole, kbEffectiveRole, kbHeldRole, kbSuperadminElevated, splitKbsByOwnership } from './kbAccess';
 
 type KbShape = Pick<KnowledgeBase, 'myRole' | 'isGlobal' | 'visibility'>;
 
@@ -234,5 +234,59 @@ describe('chatSourceSelection', () => {
   it('sends no ids, but can send, without the source list — even with no list at all', () => {
     expect(chatSourceSelection({ capabilities: caps(false) }, files)).toEqual({ canSend: true });
     expect(chatSourceSelection({ capabilities: caps(false) }, [])).toEqual({ canSend: true });
+  });
+});
+
+// Oracle: the server's resolution (kbaccess.ResolveRole) — a superadmin
+// resolves to owner with origin 'superadmin' on every topic, so the label must
+// come from the role they hold, while the acting role keeps the elevation.
+describe('kbHeldRole / kbEffectiveRole', () => {
+  const superadmin = { effectiveRole: 'owner', roleOrigin: 'superadmin' } as const;
+
+  it.each(['view', 'edit', 'admin'] as const)('holds a superadmin\'s %s row, elevated, acting as owner', (role) => {
+    const kb = { ...privateKb, ...superadmin, myRole: role };
+    expect(kbHeldRole(kb)).toBe(role);
+    expect(kbSuperadminElevated(kb)).toBe(true);
+    expect(kbEffectiveRole(kb)).toBe('owner');
+  });
+
+  it('holds a superadmin\'s own topic as owner, not elevated', () => {
+    const kb = { ...privateKb, ...superadmin, myRole: 'owner' as const };
+    expect(kbHeldRole(kb)).toBe('owner');
+    expect(kbSuperadminElevated(kb)).toBe(false);
+  });
+
+  it('holds the viewer role of a published public topic for a superadmin without a row', () => {
+    const kb = { ...publicKb, ...superadmin, isPublished: true };
+    expect(kbHeldRole(kb)).toBe('view');
+    expect(kbSuperadminElevated(kb)).toBe(true);
+    expect(kbEffectiveRole(kb)).toBe('owner');
+  });
+
+  it('holds no role for a superadmin without a row on a private or staged public topic', () => {
+    for (const kb of [{ ...privateKb, ...superadmin }, { ...publicKb, ...superadmin, isPublished: false }]) {
+      expect(kbHeldRole(kb)).toBeNull();
+      expect(kbSuperadminElevated(kb)).toBe(true);
+      expect(kbDisplayRole(kb)).toBe('owner');
+    }
+  });
+
+  it('holds the server resolution for everyone else, never elevated', () => {
+    const cases = [
+      [{ ...publicKb, effectiveRole: 'admin', roleOrigin: 'systemAdmin' }, 'admin'],
+      [{ ...publicKb, effectiveRole: 'view', roleOrigin: 'public', isPublished: true }, 'view'],
+      [{ ...privateKb, effectiveRole: 'edit', roleOrigin: 'member', myRole: 'edit' }, 'edit'],
+    ] as const;
+    for (const [kb, role] of cases) {
+      expect(kbHeldRole(kb)).toBe(role);
+      expect(kbSuperadminElevated(kb)).toBe(false);
+    }
+  });
+
+  it('holds the previewed role in a preview, whoever looks', () => {
+    const kb = { ...privateKb, ...superadmin, myRole: 'owner' as const, previewRole: 'view' as const };
+    expect(kbHeldRole(kb)).toBe('view');
+    expect(kbSuperadminElevated(kb)).toBe(false);
+    expect(kbEffectiveRole(kb)).toBe('view');
   });
 });

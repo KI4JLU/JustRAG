@@ -11,8 +11,8 @@ import type { Language } from '../../i18n/translations';
 import { formatRelativeCoarse } from '../../utils/dates';
 import { CategoryPill } from './CategoryPill';
 import { categoryDotColor } from '../kbSettings/assistant/startPageModel';
-import { canOpenKbTopicSettings, canRenameKb, kbDisplayRole } from '../../utils/kbAccess';
-import { KB_ROLE_ICON, KB_ROLE_LABEL } from './kbRoleDisplay';
+import { canOpenKbTopicSettings, canRenameKb, kbHeldRole } from '../../utils/kbAccess';
+import { KB_ROLE_ICON, SUPERADMIN_ICON, kbHeldRoleLabel } from './kbRoleDisplay';
 import { useFittingLineClamp } from '../../hooks/useFittingLineClamp';
 import './HomeView.css';
 
@@ -180,12 +180,12 @@ const KB_ROW_COLUMNS_WITH_ROLE =
 
 /** The caller's Berechtigung on a topic, as a badge (card band, list row). */
 export function KbRoleBadge({ kb, t }: { kb: KnowledgeBase; t: T }) {
-  const role = kbDisplayRole(kb);
-  const Icon = KB_ROLE_ICON[role];
+  const role = kbHeldRole(kb);
+  const Icon = role ? KB_ROLE_ICON[role] : SUPERADMIN_ICON;
   return (
     <Badge tone={role === 'view' ? 'neutral' : 'primary'} className="shrink-0">
       <Icon size={10} aria-hidden="true" />
-      {t(KB_ROLE_LABEL[role])}
+      {kbHeldRoleLabel(t, role)}
     </Badge>
   );
 }

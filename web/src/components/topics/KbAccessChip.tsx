@@ -3,8 +3,8 @@ import { Check, ChevronDown, Eye, Minus, Pencil, SquareDashedMousePointer } from
 import { useTheme } from '../../contexts/ThemeContext';
 import { setKbPreview } from '../../preview/kbPreview';
 import type { KbCapabilities, KbPreviewRole, KbRole, KnowledgeBase } from '../../types';
-import { kbDisplayRole } from '../../utils/kbAccess';
-import { KB_ROLE_ICON, KB_ROLE_LABEL } from './kbRoleDisplay';
+import { kbEffectiveRole, kbHeldRole, kbSuperadminElevated } from '../../utils/kbAccess';
+import { KB_ROLE_ICON, KB_ROLE_LABEL, SUPERADMIN_ICON, kbHeldRoleLabel } from './kbRoleDisplay';
 
 const QUALIFIER: Partial<Record<NonNullable<KnowledgeBase['roleOrigin']>, string>> = {
   public: 'kbAccessQualifierPublic', systemAdmin: 'kbAccessQualifierSystemAdmin', superadmin: 'kbAccessQualifierSuperadmin',
@@ -49,22 +49,32 @@ export interface KbAccessChipProps {
  * from. For KB admins and owners it is also the way into the preview („Thema
  * ansehen als"); in a preview it names the previewed role and ends the
  * preview.
+ *
+ * The chip names the role the caller holds on the topic (kbHeldRole); a
+ * superadmin's elevation shows as the „Superadmin" qualifier next to it, or
+ * as „Superadmin" alone where they hold no role, while the rights and the
+ * preview follow the elevated role (kbEffectiveRole).
  */
 export function KbAccessChip({ kb }: KbAccessChipProps) {
   const { t } = useTheme();
-  const role = kbDisplayRole(kb);
+  const role = kbHeldRole(kb);
+  const acting = kbEffectiveRole(kb);
   const preview = kb.previewRole ?? null;
-  const RoleIcon = KB_ROLE_ICON[role];
-  const label = t(KB_ROLE_LABEL[role]);
-  // A superadmin resolves to owner on every topic; on their own one the
-  // ownership is the news, not the system role.
-  const origin = kb.roleOrigin === 'superadmin' && kb.myRole === 'owner' ? 'member' : kb.roleOrigin;
-  const qualifierKey = !preview && origin ? QUALIFIER[origin] : undefined;
+  const RoleIcon = role ? KB_ROLE_ICON[role] : SUPERADMIN_ICON;
+  const label = kbHeldRoleLabel(t, role);
+  const elevated = kbSuperadminElevated(kb);
+  // Where the role they hold comes from: their kb_members row, else a
+  // published public topic; a superadmin with neither acts on the system
+  // role alone, which the label then names.
+  const origin: KnowledgeBase['roleOrigin'] = kb.roleOrigin === 'superadmin'
+    ? (kb.myRole ? 'member' : role ? 'public' : 'superadmin')
+    : kb.roleOrigin;
+  const qualifierKey = preview || !role ? undefined : elevated ? QUALIFIER.superadmin : origin ? QUALIFIER[origin] : undefined;
   const qualifier = qualifierKey ? t(qualifierKey) : null;
-  const fullRights = role === 'admin' || role === 'owner';
+  const fullRights = acting === 'admin' || acting === 'owner';
   const canPreview = !preview && fullRights;
 
-  const startPreview = (next: KbPreviewRole) => setKbPreview({ kbId: kb.id, role: next, ownRole: role });
+  const startPreview = (next: KbPreviewRole) => setKbPreview({ kbId: kb.id, role: next, ownRole: role, superadmin: elevated });
 
   return (
     <Popover>
@@ -113,7 +123,7 @@ export function KbAccessChip({ kb }: KbAccessChipProps) {
             </p>
           ) : kb.capabilities && <RightsList caps={kb.capabilities} />}
           <p className="m-0 text-xs text-on-surface-variant">
-            {preview ? t('kbAccessOriginPreview') : <Origin kb={kb} origin={origin} role={role} />}
+            {preview ? t('kbAccessOriginPreview') : <Origin kb={kb} origin={origin} role={role} elevated={elevated} />}
           </p>
         </div>
         {canPreview && (
@@ -144,8 +154,17 @@ export function KbAccessChip({ kb }: KbAccessChipProps) {
   );
 }
 
-/** Where the caller's role comes from: who granted it, or the implicit rule. */
-function Origin({ kb, origin, role }: { kb: KnowledgeBase; origin: KnowledgeBase['roleOrigin']; role: KbRole }) {
+/**
+ * Where the caller's role comes from: who granted it, or the implicit rule —
+ * followed, for a superadmin acting above that role, by the elevation.
+ */
+function Origin({ kb, origin, role, elevated }: { kb: KnowledgeBase; origin: KnowledgeBase['roleOrigin']; role: KbRole | null; elevated: boolean }) {
+  const { t } = useTheme();
+  if (!elevated || origin === 'superadmin') return <OwnOrigin kb={kb} origin={origin} role={role} />;
+  return <><OwnOrigin kb={kb} origin={origin} role={role} elevated /> {t('kbAccessOriginSuperadmin')}</>;
+}
+
+function OwnOrigin({ kb, origin, role, elevated = false }: { kb: KnowledgeBase; origin: KnowledgeBase['roleOrigin']; role: KbRole | null; elevated?: boolean }) {
   const { t } = useTheme();
   if (origin === 'public') return <>{t('kbAccessOriginPublic')}</>;
   if (origin === 'systemAdmin') return <>{t('kbAccessOriginSystemAdmin')}</>;
@@ -157,7 +176,7 @@ function Origin({ kb, origin, role }: { kb: KnowledgeBase; origin: KnowledgeBase
       <>
         {before}<strong className="font-semibold text-on-surface">{personName(by)}</strong>{after}
         {by.role && <> {t('kbAccessGrantedByRole').replace('{role}', t(KB_ROLE_LABEL[by.role]))}</>}
-        .{role === 'view' && <> {t('kbAccessAskForMore')}</>}
+        .{role === 'view' && !elevated && <> {t('kbAccessAskForMore')}</>}
       </>
     );
   }

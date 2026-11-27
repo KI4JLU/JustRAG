@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { PrivateKbCard } from './KbCard';
+import { KbRoleBadge, PrivateKbCard } from './KbCard';
 import { translations, type Language } from '../../i18n/translations';
 import type { KnowledgeBase } from '../../types';
 
@@ -186,5 +186,24 @@ describe('PrivateKbCard share item', () => {
     await userEvent.click((await shareItem(item, 'user', onOpenShare))!);
     expect(onOpenShare).toHaveBeenCalledTimes(1);
     expect(onOpenShare).toHaveBeenCalledWith(item, expect.anything());
+  });
+});
+
+// ORACLE: kbaccess.ResolveRole resolves a superadmin to owner on every topic;
+// the badge names the role they hold, or „Superadmin" where they hold none.
+describe('KbRoleBadge for a superadmin', () => {
+  const t = tFor('de');
+  const superadmin = { effectiveRole: 'owner', roleOrigin: 'superadmin' } as const;
+
+  it('names the held viewer role, not Besitzer', () => {
+    render(<KbRoleBadge kb={kb({ ...superadmin, myRole: 'view', userId: 'other' })} t={t} />);
+    expect(screen.getByText(t('kbRoleView'))).toBeInTheDocument();
+    expect(screen.queryByText(t('kbRoleOwner'))).toBeNull();
+  });
+
+  it('names a superadmin holding no role „Superadmin"', () => {
+    render(<KbRoleBadge kb={kb({ ...superadmin, myRole: undefined, userId: 'other' })} t={t} />);
+    expect(screen.getByText(t('kbRoleSuperadmin'))).toBeInTheDocument();
+    expect(screen.queryByText(t('kbRoleOwner'))).toBeNull();
   });
 });

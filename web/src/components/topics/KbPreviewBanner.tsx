@@ -2,7 +2,7 @@ import { Alert, AlertAction, AlertDescription, AlertTitle, Button } from '@ki4jl
 import { SquareDashedMousePointer } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { setKbPreview, type KbPreview } from '../../preview/kbPreview';
-import { KB_ROLE_LABEL } from './kbRoleDisplay';
+import { KB_ROLE_LABEL, kbHeldRoleLabel } from './kbRoleDisplay';
 
 /**
  * The banner above the app while a KB admin previews the open topic as a
@@ -20,7 +20,7 @@ export function KbPreviewBanner({ preview }: { preview: KbPreview }) {
     <Alert tone="info" layout="banner" live="polite" icon={<SquareDashedMousePointer aria-hidden="true" />}>
       <AlertTitle>{t('kbPreviewBannerTitle').replace('{role}', role)}</AlertTitle>
       <AlertDescription>
-        {t('kbPreviewBannerText').replace('{roles}', roles).replace('{role}', t(KB_ROLE_LABEL[preview.ownRole]))}
+        {t('kbPreviewBannerText').replace('{roles}', roles).replace('{role}', kbHeldRoleLabel(t, preview.ownRole, preview.superadmin))}
       </AlertDescription>
       <AlertAction>
         <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
