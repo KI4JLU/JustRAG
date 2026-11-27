@@ -16,6 +16,7 @@ import { ToastStack } from '../components/ui/ToastStack';
 import { AppUpdateProvider } from '../contexts/AppUpdateContext';
 import { useVersionCheck } from '../hooks/useVersionCheck';
 import { goToSsoLogin, reloadPage, startSsoReauth } from '../routing/sessionExpiry';
+import { clearStoredSession } from '../components/translator/translatorSessionStorage';
 // Lazy load
 const Login = lazy(() => import('../pages/Login'));
 const AuthenticatedApp = lazy(() => import('./AuthenticatedApp'));
@@ -144,6 +145,8 @@ export function AppRoot() {
 
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    // The translator's text is the signed-in user's: the next one in this tab must not find it.
+    clearStoredSession();
 
     if (wasOidc) {
       // Top-level nav to the OIDC logout endpoint — it discovers the IdP's
@@ -223,6 +226,7 @@ export function AppRoot() {
 
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    clearStoredSession();
 
     if (userRef.current?.authMethod === 'oidc'
       && startSsoReauth(window.location.pathname + window.location.search)) {

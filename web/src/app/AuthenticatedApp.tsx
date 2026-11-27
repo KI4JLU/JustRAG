@@ -25,6 +25,7 @@ import { useWebTools } from '../hooks/useWebTools';
 import { useKbPreviewSync } from '../preview/useKbPreviewSync';
 import { useKnowledgeBases } from '../hooks/useKnowledgeBases';
 import { useJoinInvite } from '../hooks/useJoinInvite';
+import { useJoinGlossary } from '../hooks/useJoinGlossary';
 import { useKbSearchState } from '../hooks/useKbSearchState';
 import { useSearchNavigation } from '../hooks/useSearchNavigation';
 import { useRssFeeds } from '../hooks/useRssFeeds';
@@ -43,6 +44,7 @@ import { useChatRoute, useChatTopic } from '../hooks/useChatRoute';
 import { MyTopicsView } from '../pages/MyTopicsView';
 import { SharedTopicsView } from '../pages/SharedTopicsView';
 import { DiscoverView } from '../pages/DiscoverView';
+import { TranslatorView } from '../pages/TranslatorView';
 import { AppFrame, TopicProviders, type AppChromeView, type TopicFrame } from '../components/shell/AppChrome';
 import { ChatView } from '../components/chat/ChatView';
 import { TopicModals } from '../components/topics/TopicModals';
@@ -54,6 +56,7 @@ const KbSettingsPanel = lazy(() => import('../components/kbSettings/KbSettingsPa
 import { LegalPage } from '../pages/LegalPage';
 import { PolicyAcceptanceGate } from '../components/shell/PolicyAcceptanceDialog';
 import { JoinInviteDialog } from '../components/shell/JoinInviteDialog';
+import { JoinGlossaryDialog } from '../components/shell/JoinGlossaryDialog';
 import { viewportHeight } from '../utils/viewport';
 import { chatWebSearchRequestField } from '../utils/chatWebSearch';
 import { kbSourceRights } from '../utils/kbAccess';
@@ -259,6 +262,8 @@ function AuthenticatedAppInner() {
     view === 'not-found' ? { view: 'my-topics' }
     // A chat that is not the caller's, gone, a library chat, or whose lookup failed (already toasted).
     : view === 'chat' && (chatTopic.topic?.status === 'missing' || chatTopic.topic?.status === 'failed') ? { view: 'my-topics' }
+    // A glossary invite link reached inside the running app: its token goes to the join dialog (below).
+    : view === 'join-glossary' ? { view: 'my-topics' }
     : view === 'global-kb-settings' && !isSystemAdmin ? { view: 'my-topics' }
     : view === 'global-kb-settings' && routeKb && !routeKb.isGlobal ? { view: 'kb', kbId: routeKb.id }
     : null;
@@ -295,6 +300,12 @@ function AuthenticatedAppInner() {
   const joinInvite = useJoinInvite({
     openKbById: kbMgmt.handleOpenKbById,
     refreshKbs: () => kbMgmt.fetchKBs({ silent: true }),
+  });
+
+  // The glossary invite link, the same way: resolved once signed in, joined only on accept.
+  const joinGlossary = useJoinGlossary({
+    openTranslator: () => navigateTo({ view: 'translator' }),
+    routeToken: route.view === 'join-glossary' ? route.token : null,
   });
 
   /* The header search's state (cards KI-787, KI-837). Held HERE rather than
@@ -384,6 +395,7 @@ function AuthenticatedAppInner() {
     onViewMyTopics: goHome,
     onViewSharedTopics: () => navigateTo({ view: 'shared-topics' }),
     onViewDiscover: () => navigateTo({ view: 'discover' }),
+    onViewTranslator: () => navigateTo({ view: 'translator' }),
     onViewProfile: () => openSettingsDialog('profile'),
     onEditGlobalKb: (kb) => kbMgmt.handleOpenGlobalKbSettings(kb.id),
     onViewLegal: (page) => navigateTo({ view: page }),
@@ -567,6 +579,9 @@ function AuthenticatedAppInner() {
         onOpenKbById={kbMgmt.handleOpenKbById}
       />
     );
+  } else if (view === 'translator') {
+    active = 'translator';
+    main = <TranslatorView />;
   } else if (view === 'shared-topics') {
     active = 'shared-topics';
     main = (
@@ -639,6 +654,13 @@ function AuthenticatedAppInner() {
           onClose={joinInvite.close}
           onAddFavorite={() => void joinInvite.addFavorite()}
           onOpenKb={() => void joinInvite.openKb()}
+        />
+        <JoinGlossaryDialog
+          invite={joinGlossary.invite}
+          busy={joinGlossary.busy}
+          onAccept={() => void joinGlossary.accept()}
+          onClose={joinGlossary.close}
+          onOpen={joinGlossary.open}
         />
       </KbSearchProvider>
     </AppNavProvider>

@@ -1,5 +1,6 @@
 import type { AdminSection } from '../../hooks/adminDialog';
 import { RIGHT_LABEL_KEY } from '../../utils/kbRoleRights';
+import { GLOSSARY_RIGHT_LABEL_KEY } from '../../utils/glossaryRoleRights';
 import { AGENT_SEARCH_KEYS } from './agentSections';
 
 /*
@@ -29,6 +30,7 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
         'confluenceSettings', 'confluenceEnabled', 'confluenceBaseUrl', 'gitRepoSettings', 'gitRepoEnabled',
         'policyAcceptanceSection', 'policyAcceptanceVersion',
     ],
+    extensions: ['extensionTranslation', 'translatorEnabled', 'translatorDefaultTargetLanguage', 'translatorModel'],
     notice: [
         'systemNoticeEnabled', 'systemNoticeEdit', 'systemNoticeTone', 'systemNoticePlacement', 'systemNoticeTitle',
         'systemNoticeTemplate', 'systemNoticeText', 'systemNoticeLink', 'systemNoticeLinkUrl', 'systemNoticeLinkLabel',
@@ -45,10 +47,12 @@ export const ADMIN_SEARCH_KEYS: Record<AdminSection, readonly string[]> = {
         'roleSuperAdmin', 'deleteUser', 'firstName', 'lastName', 'username', 'role', 'userInfoMemberSince', 'userInfoId',
     ],
     roles: [
-        'arSystemRolesTitle', 'arKbRolesTitle', 'arMappingTitle', 'arPerTopic',
+        'arSystemRolesTitle', 'arKbRolesTitle', 'arGlossaryRolesTitle', 'arMappingTitle', 'arPerTopic',
         'roleUser', 'roleApiUser', 'roleAdmin', 'roleSuperAdmin', 'kbRoleOwner', 'kbRoleAdmin', 'kbRoleEdit', 'kbRoleView',
         // The per-topic rights matrix (read-only here): its row labels.
         ...Object.values(RIGHT_LABEL_KEY),
+        // The extension rights and the glossary rights, likewise.
+        'arGroupExtensions', 'arRightUseTranslation', ...Object.values(GLOSSARY_RIGHT_LABEL_KEY),
     ],
     health: ['reembedAllTitle'],
     eval: [

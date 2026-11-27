@@ -57,15 +57,20 @@ export type SystemRight =
     // (superadminChain); the Suchanbieter / Agenten / Einstellungen tabs.
     | 'systemSettings'
     // GET /api/admin/audit-logs (superadminChain).
-    | 'auditLogs';
+    | 'auditLogs'
+    // /api/translator/…, /api/glossaries…: the translation permission, fixed in code for user,
+    // admin, superadmin and api-user; while translator_enabled is off every route but
+    // GET /api/translator/config answers 403.
+    | 'useTranslation';
 
-export type SystemRightGroupId = 'users' | 'topics' | 'system';
+export type SystemRightGroupId = 'users' | 'topics' | 'system' | 'extensions';
 
 /** Row groups as rendered. */
 export const SYSTEM_RIGHT_GROUPS: readonly { id: SystemRightGroupId; rights: readonly SystemRight[] }[] = [
     { id: 'users', rights: ['manageUsers', 'appointAdmins', 'deleteUsers'] },
     { id: 'topics', rights: ['createPrivateTopic', 'manageGlobalTopics', 'advancedTopicSettings', 'manageAnyTopic'] },
     { id: 'system', rights: ['apiAccess', 'aiModels', 'authProviders', 'monitoring', 'systemSettings', 'auditLogs'] },
+    { id: 'extensions', rights: ['useTranslation'] },
 ];
 
 export const SYSTEM_RIGHTS: readonly SystemRight[] = SYSTEM_RIGHT_GROUPS.flatMap(g => g.rights);
@@ -94,6 +99,7 @@ export const SYSTEM_RIGHT_ROUTES: Record<SystemRight, readonly string[]> = {
     monitoring: ['/api/admin/kb-overview', '/api/system-health', '/metrics', '/api/admin/agent-metrics'],
     systemSettings: ['POST /api/site-config', '/api/admin/reembed-all'],
     auditLogs: ['GET /api/admin/audit-logs'],
+    useTranslation: ['/api/translator', '/api/glossaries', '/api/glossary-invites'],
 };
 
 /**
@@ -114,21 +120,25 @@ const MATRIX: Record<SystemRole, Record<SystemRight, SystemRightCell>> = {
         manageUsers: yes(), appointAdmins: yes(), deleteUsers: yes(),
         createPrivateTopic: yes(), manageGlobalTopics: yes(), advancedTopicSettings: yes(), manageAnyTopic: yes(),
         apiAccess: yes(), aiModels: yes(), authProviders: yes(), monitoring: yes(), systemSettings: yes(), auditLogs: yes(),
+        useTranslation: yes(),
     },
     admin: {
         manageUsers: yes('arScopeUpToApiUser'), appointAdmins: no, deleteUsers: no,
         createPrivateTopic: yes(), manageGlobalTopics: yes(), advancedTopicSettings: yes('arScopeAsTopicAdmin'), manageAnyTopic: no,
         apiAccess: yes(), aiModels: yes(), authProviders: no, monitoring: yes(), systemSettings: no, auditLogs: no,
+        useTranslation: yes(),
     },
     'api-user': {
         manageUsers: no, appointAdmins: no, deleteUsers: no,
         createPrivateTopic: yes(), manageGlobalTopics: no, advancedTopicSettings: yes('arScopeAsTopicAdmin'), manageAnyTopic: no,
         apiAccess: yes(), aiModels: no, authProviders: no, monitoring: no, systemSettings: no, auditLogs: no,
+        useTranslation: yes(),
     },
     user: {
         manageUsers: no, appointAdmins: no, deleteUsers: no,
         createPrivateTopic: yes(), manageGlobalTopics: no, advancedTopicSettings: no, manageAnyTopic: no,
         apiAccess: no, aiModels: no, authProviders: no, monitoring: no, systemSettings: no, auditLogs: no,
+        useTranslation: yes(),
     },
 };
 

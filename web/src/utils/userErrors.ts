@@ -34,6 +34,12 @@ const CODE_KEYS: Record<string, string> = {
   already_in_kb: 'errorAlreadyInKb',
   too_large_for_context: 'errorTooLongForContext',
   invalid_upload: 'errorUploadFailed',
+  translator_model_failed: 'errorTranslatorModelFailed',
+  translator_model_timeout: 'errorTranslatorModelTimeout',
+  translator_model_unavailable: 'errorTranslatorModelUnavailable',
+  translator_disabled: 'errorTranslatorDisabled',
+  glossary_too_many_entries: 'errorGlossaryTooManyEntries',
+  glossary_term_invalid: 'errorGlossaryTermInvalid',
 };
 
 /** Codes that say something about one file the user attached or uploaded. */

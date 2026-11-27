@@ -34,6 +34,8 @@ export interface AppNavContextValue {
   onViewSharedTopics: () => void;
   /** „Entdecken" — the catalog of global topics not held yet. */
   onViewDiscover: () => void;
+  /** „Übersetzung" — the translation extension; the entry shows only while it is switched on. */
+  onViewTranslator: () => void;
   /** „Mein Profil" — the settings window on its Profil tab. */
   onViewProfile: () => void;
   /**

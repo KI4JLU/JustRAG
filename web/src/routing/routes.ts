@@ -29,6 +29,12 @@ function buildRouteTree(rootComponent: RouteComponent) {
   const myTopics = createRoute({ getParentRoute: () => rootRoute, path: '/' });
   const sharedTopics = createRoute({ getParentRoute: () => rootRoute, path: '/shared' });
   const discover = createRoute({ getParentRoute: () => rootRoute, path: '/discover' });
+  // The translation extension (only while it is switched on).
+  const translator = createRoute({ getParentRoute: () => rootRoute, path: '/translator' });
+  // A glossary invite link. The path is captured before the router starts (hooks/useJoinLink.ts)
+  // like a knowledge base's /join/<token>; the route keeps it from being an unknown path when it
+  // is reached inside the running app.
+  const joinGlossary = createRoute({ getParentRoute: () => rootRoute, path: '/join-glossary/$token' });
   const terms = createRoute({ getParentRoute: () => rootRoute, path: '/terms' });
   const privacy = createRoute({ getParentRoute: () => rootRoute, path: '/privacy' });
   const accessibility = createRoute({ getParentRoute: () => rootRoute, path: '/accessibility' });
@@ -39,7 +45,7 @@ function buildRouteTree(rootComponent: RouteComponent) {
   const chat = createRoute({ getParentRoute: () => rootRoute, path: '/c/$chatId' });
 
   return rootRoute.addChildren([
-    myTopics, sharedTopics, discover, terms, privacy, accessibility,
+    myTopics, sharedTopics, discover, translator, joinGlossary, terms, privacy, accessibility,
     globalKbSettings, kb, chat,
   ]);
 }

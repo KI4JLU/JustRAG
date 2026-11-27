@@ -59,12 +59,41 @@ describe('AdminRolesTab', () => {
     it('renders the system and the topic matrix', () => {
         render(<AdminRolesTab users={USERS} />);
         const sys = screen.getByRole('table', { name: 'arSystemRolesTitle' });
-        // 13 rights + 3 group headings (scope="rowgroup" is a row header too).
-        expect(within(sys).getAllByRole('rowheader')).toHaveLength(16);
+        // 14 rights + 4 group headings (scope="rowgroup" is a row header too).
+        expect(within(sys).getAllByRole('rowheader')).toHaveLength(18);
         const kb = screen.getByRole('table', { name: 'arKbRolesTitle' });
         // 7 rights + 3 group headings.
         expect(within(kb).getAllByRole('rowheader')).toHaveLength(10);
         // Per-topic switches are named, not shown as a fixed value.
         expect(within(kb).getAllByText('arPerTopic').length).toBeGreaterThan(0);
+    });
+
+    // ORACLE: docs/glossary-access.md — owner, admin, editor, viewer, with the rights written out by hand.
+    it('renders the glossary roles beside the topic roles', () => {
+        render(<AdminRolesTab users={USERS} />);
+        const table = screen.getByRole('table', { name: 'arGlossaryRolesTitle' });
+        const headers = within(table).getAllByRole('columnheader');
+        // [Recht, owner, admin, editor, viewer]
+        expect(headers.slice(1).map(h => h.getAttribute('aria-label'))).toEqual(['kbRoleOwner', 'kbRoleAdmin', 'kbRoleEdit', 'kbRoleView']);
+        // 8 rights + 3 group headings; a CSV import is no right of a glossary that exists.
+        expect(within(table).getAllByRole('rowheader')).toHaveLength(11);
+        expect(within(table).queryByRole('rowheader', { name: 'arGlossaryRightImport' })).toBeNull();
+
+        const row = (right: string) => within(table).getByRole('rowheader', { name: right }).closest('tr') as HTMLElement;
+        const marks = (right: string) => within(row(right)).getAllByRole('img').map(m => m.getAttribute('aria-label') ?? '');
+        // Columns: owner, admin, editor, viewer. A viewer reads; only the owner deletes.
+        expect(marks('arGlossaryRightRead').map(l => l.includes('rrGranted'))).toEqual([true, true, true, true]);
+        expect(marks('arGlossaryRightEditEntries').map(l => l.includes('rrGranted'))).toEqual([true, true, true, false]);
+        expect(marks('arGlossaryRightMembers').map(l => l.includes('rrGranted'))).toEqual([true, true, false, false]);
+        expect(marks('arGlossaryRightDelete').map(l => l.includes('rrGranted'))).toEqual([true, false, false, false]);
+    });
+
+    it('has the extension right for all four system roles, in a group of its own', () => {
+        render(<AdminRolesTab users={USERS} />);
+        const sys = screen.getByRole('table', { name: 'arSystemRolesTitle' });
+        expect(within(sys).getByRole('rowheader', { name: /arGroupExtensions/ })).toBeInTheDocument();
+        const row = within(sys).getByRole('rowheader', { name: 'arRightUseTranslation' }).closest('tr') as HTMLElement;
+        const granted = within(row).getAllByRole('img').map(m => (m.getAttribute('aria-label') ?? '').includes('rrGranted'));
+        expect(granted).toEqual([true, true, true, true]);
     });
 });

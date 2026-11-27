@@ -65,6 +65,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
     // unauthenticated preview endpoint that hands KB names to anyone holding
     // a token.
     const hasPendingJoin = peekJoinToken() !== null;
+    const hasPendingGlossaryJoin = peekJoinToken('glossary') !== null;
 
     // The /admin path is the superadmin breakglass: it always shows the local
     // username/password form and never the SSO button.
@@ -276,9 +277,9 @@ const Login: React.FC<LoginProps> = ({ onLogin, siteConfigs, sessionExpired = fa
                         </Alert>
                     )}
 
-                    {hasPendingJoin && (
+                    {(hasPendingJoin || hasPendingGlossaryJoin) && (
                         <p className="text-sm text-on-surface-variant">
-                            {t('joinLinkLoginHint')}
+                            {t(hasPendingJoin ? 'joinLinkLoginHint' : 'joinGlossaryLoginHint')}
                         </p>
                     )}
 
