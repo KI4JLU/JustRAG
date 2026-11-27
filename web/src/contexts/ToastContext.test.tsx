@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { act, render, renderHook, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { Toaster, toast as sonner } from '@ki4jlu/design-system';
 import { ToastProvider, useToast } from './ToastContext';
@@ -61,7 +60,9 @@ describe('ToastProvider', () => {
   it('shows a retry raised while the closed toast is still leaving', async () => {
     const toast = setup();
     await raise(() => toast.current.error('Speichern fehlgeschlagen'));
-    await userEvent.click(screen.getByRole('button', { name: 'Schließen' }));
+    // A plain click: a pointer press reaches Sonner's swipe handler, which
+    // needs `setPointerCapture` — jsdom has none.
+    fireEvent.click(screen.getByRole('button', { name: 'Schließen' }));
     await raise(() => toast.current.error('Speichern fehlgeschlagen'));
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 400));
