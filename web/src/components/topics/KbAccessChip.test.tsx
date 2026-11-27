@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { translations } from '../../i18n/translations';
 import type { KnowledgeBase } from '../../types';
+import { getKbPreview, setKbPreview } from '../../preview/kbPreview';
 import { KbAccessChip } from './KbAccessChip';
 
 /* The topic bar's role chip for a superadmin. Oracle: the server resolves a
@@ -25,6 +26,8 @@ function kb(over: Partial<KnowledgeBase>): KnowledgeBase {
 }
 
 describe('KbAccessChip for a superadmin', () => {
+  afterEach(() => setKbPreview(null));
+
   it('names the held viewer role with the Superadmin qualifier and keeps the elevated rights', async () => {
     render(<KbAccessChip kb={kb({ myRole: 'view', roleGrantedBy: { firstName: 'Test', lastName: 'User', username: 'test' } })} />);
     const chip = screen.getByRole('button', { name: new RegExp(`${DE.kbRoleView} · ${DE.kbAccessQualifierSuperadmin}`) });
@@ -34,6 +37,19 @@ describe('KbAccessChip for a superadmin', () => {
     expect(screen.getByText(DE.kbPreviewAs)).toBeInTheDocument();
     expect(screen.getByText(new RegExp(DE.kbAccessOriginSuperadmin))).toBeInTheDocument();
     expect(screen.queryByText(new RegExp(DE.kbAccessAskForMore))).toBeNull();
+    // The preview remembers the held role and the elevation, for the banner.
+    await userEvent.click(screen.getByRole('button', { name: DE.kbRoleEdit }));
+    expect(getKbPreview()).toEqual({ kbId: 'kb-1', role: 'edit', ownRole: 'view', superadmin: true });
+  });
+
+  it('names a superadmin holding no role „Superadmin", once', async () => {
+    render(<KbAccessChip kb={kb({ visibility: 'public', isGlobal: true, isPublished: false })} />);
+    const chip = screen.getByRole('button', { name: new RegExp(DE.kbRoleSuperadmin) });
+    expect(chip).not.toHaveTextContent(DE.kbRoleOwner);
+    expect(chip).not.toHaveTextContent('·');
+    await userEvent.click(chip);
+    expect(screen.getAllByText(new RegExp(DE.kbAccessOriginSuperadmin))).toHaveLength(1);
+    expect(screen.getByText(DE.kbPreviewAs)).toBeInTheDocument();
   });
 
   it('shows an owned topic as Besitzer without a qualifier', () => {

@@ -1196,6 +1196,8 @@ export const translations = {
     kbRoleEdit: { de: 'Bearbeiter', en: 'Editor' },
     kbRoleAdmin: { de: 'Admin', en: 'Admin' },
     kbRoleOwner: { de: 'Besitzer', en: 'Owner' },
+    // A superadmin on a topic they hold no role in: the label instead of a role name.
+    kbRoleSuperadmin: { de: 'Superadmin', en: 'Superadmin' },
     // The caller's own Berechtigung on a topic (chip in the topic bar) and
     // the preview as another role (API.md "Previewing a KB as another role").
     kbAccessChipLabel: { de: 'Deine Berechtigung: {role}. Details anzeigen', en: 'Your access: {role}. Show details' },
