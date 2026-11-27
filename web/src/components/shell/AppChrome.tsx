@@ -46,7 +46,7 @@ import { TopicSettingsButton } from '../topics/TopicSettingsButton';
 import { SourcesPanel } from '../sources/SourcesPanel';
 import { HistoryPanel, NewChatButton } from '../history/HistoryPanel';
 import type { MobileTab } from '../../utils/activeMobileTab';
-import { canOpenKbTopicSettings, kbSourceRights } from '../../utils/kbAccess';
+import { canOpenKbTopicSettings, kbSourceRights, kbSuperadminElevated } from '../../utils/kbAccess';
 import { topicSection } from '../../utils/topicSection';
 import { visibilityState } from '../../utils/kbVisibility';
 import { useKbPreview } from '../../preview/kbPreview';
@@ -489,11 +489,12 @@ export function AppFrame({ active, contentId, topic = null, children }: AppFrame
         // The caller's Berechtigung (and the way into the preview), then the
         // settings gear for those who may open it. The chip only on a topic
         // others use too (shared or public): on a personal one there is no
-        // other role to show or preview.
+        // other role to show or preview — unless a superadmin opened someone
+        // else's, whose access the chip then explains.
         headerActions={topic && currentKb
           ? (
             <div className="flex items-center gap-1">
-              {(currentKb.previewRole || visibilityState(currentKb) !== 'personal') && <KbAccessChip kb={currentKb} />}
+              {(currentKb.previewRole || visibilityState(currentKb) !== 'personal' || kbSuperadminElevated(currentKb)) && <KbAccessChip kb={currentKb} />}
               {canEditSystemPrompt && <TopicSettingsButton diff={settingsDiff} onClick={() => topic.layout.setSystemPromptOpen(true)} />}
             </div>
           )

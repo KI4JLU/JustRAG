@@ -316,6 +316,16 @@ describe('AppFrame, topic open Chrome-Leiste', () => {
     expect(screen.queryByRole('button', { name: /kbAccessChipLabel/ }) !== null).toBe(shown);
   });
 
+  // ORACLE: kbaccess.ResolveRole — a superadmin acts as owner on someone
+  // else's personal topic without holding a role there; the chip explains it.
+  it('zeigt den Berechtigungs-Chip einem Superadmin auf dem persönlichen Thema eines anderen', () => {
+    authUser = { id: 'u1', role: 'superadmin' };
+    kbExtra = { userId: 'other', memberCount: 1, myRole: undefined, effectiveRole: 'owner', roleOrigin: 'superadmin' };
+    renderLayout();
+    render(<div>{shellProps.headerActions}</div>);
+    expect(screen.getByRole('button', { name: /kbAccessChipLabel/ })).toBeInTheDocument();
+  });
+
   it('zeigt dem Eigentümer das System-Prompt-Zahnrad und schaltet damit den Editor', async () => {
     authUser = { id: 'u1', role: 'user' };
     kbExtra = { userId: 'u1' };

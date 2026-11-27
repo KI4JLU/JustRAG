@@ -49,7 +49,8 @@ describe('KbAccessChip for a superadmin', () => {
     expect(chip).not.toHaveTextContent('·');
     await userEvent.click(chip);
     expect(screen.getAllByText(new RegExp(DE.kbAccessOriginSuperadmin))).toHaveLength(1);
-    expect(screen.getByText(DE.kbPreviewAs)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: DE.kbRoleView }));
+    expect(getKbPreview()).toEqual({ kbId: 'kb-1', role: 'view', ownRole: null, superadmin: true });
   });
 
   it('shows an owned topic as Besitzer without a qualifier', () => {
