@@ -233,10 +233,34 @@ export function splitKbsByOwnership<K extends Pick<KnowledgeBase, 'myRole'>>(
 
 /**
  * The role to show for the caller on `kb` („Deine Berechtigung"): the
- * previewed role in a preview, else the server's resolution (effectiveRole,
- * implicit roles included), else the raw kb_members row, else an implicit
- * viewer — the only role a KB row without either can mean.
+ * previewed role in a preview, else the caller's own role on the topic —
+ * their kb_members row, else the implicit role a published public topic
+ * grants — else an implicit viewer.
+ *
+ * A superadmin's elevation is not shown as their role: the server resolves a
+ * superadmin to owner on every topic (roleOrigin 'superadmin'), which would
+ * label every topic „Besitzer". Their access stays elevated — capabilities,
+ * settings and the preview read kbEffectiveRole / the system role — only the
+ * label names the role they actually hold. A superadmin with no own role on
+ * the topic keeps the elevated one; nothing else would be true.
  */
-export function kbDisplayRole(kb: Pick<KnowledgeBase, 'effectiveRole' | 'myRole' | 'previewRole'>): KbRole {
+export function kbDisplayRole(
+  kb: Pick<KnowledgeBase, 'effectiveRole' | 'roleOrigin' | 'myRole' | 'previewRole' | 'isGlobal' | 'visibility' | 'isPublished'>,
+): KbRole {
+  if (kb.previewRole) return kb.previewRole;
+  if (kb.roleOrigin === 'superadmin') {
+    if (kb.myRole) return kb.myRole;
+    if ((kb.isGlobal || kb.visibility === 'public') && kb.isPublished) return 'view';
+  }
+  return kbEffectiveRole(kb);
+}
+
+/**
+ * The role the caller acts with on `kb`: the previewed role in a preview,
+ * else the server's resolution (effectiveRole, implicit roles and the
+ * superadmin elevation included), else the raw kb_members row, else an
+ * implicit viewer.
+ */
+export function kbEffectiveRole(kb: Pick<KnowledgeBase, 'effectiveRole' | 'myRole' | 'previewRole'>): KbRole {
   return kb.previewRole ?? kb.effectiveRole ?? kb.myRole ?? 'view';
 }
