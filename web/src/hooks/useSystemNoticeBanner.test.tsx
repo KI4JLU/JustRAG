@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '../contexts/ThemeContext';
 import { AuthProvider } from '../contexts/AuthContext';
 import type { User } from '../types';
-import { SYSTEM_NOTICE_DISMISSED_KEY, useSystemNoticeBanner } from './useSystemNoticeBanner';
+import { SYSTEM_NOTICE_DISMISSED_KEY, SYSTEM_NOTICE_SEEN_KEY, useSystemNoticeBanner } from './useSystemNoticeBanner';
 
 // The waiting-update state, set per test; the real one needs a service worker.
 const appUpdate = vi.hoisted(() => ({ available: false, apply: vi.fn() }));
@@ -103,7 +103,7 @@ describe('useSystemNoticeBanner', () => {
     expect(screen.queryByTestId('status-slot')).toBeNull();
 
     rerenderWith({ ...NOTICE, system_notice_placement: 'toast' });
-    expect(screen.getByTestId('status-slot')).toHaveAttribute('data-position', 'bottom-end');
+    expect(screen.getByTestId('status-slot')).toHaveAttribute('data-position', 'top-end');
     expect(screen.getByRole('status')).toHaveAttribute('data-layout', 'toast');
     expect(screen.queryByTestId('notice-slot')).toBeNull();
 
@@ -115,7 +115,18 @@ describe('useSystemNoticeBanner', () => {
 
   it('shows the title before the text', () => {
     renderBanner({ ...NOTICE, system_notice_title: 'Hohe Auslastung' });
-    expect(screen.getByRole('status')).toHaveTextContent(`Hohe Auslastung${NOTICE.system_notice_text}`);
+    const text = screen.getByRole('status').textContent ?? '';
+    expect(text.indexOf('Hohe Auslastung')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('Hohe Auslastung')).toBeLessThan(text.indexOf(NOTICE.system_notice_text));
+  });
+
+  // Oracle: the card's <time> and the stored first sighting, which a reload
+  // reads back, are the same moment.
+  it('shows when this browser first showed the notice, and stores it for a reload', () => {
+    renderBanner({ ...NOTICE, system_notice_title: 'Hohe Auslastung' });
+    const shownAt = screen.getByRole('status').querySelector('time')!.getAttribute('dateTime')!;
+    const stored = JSON.parse(localStorage.getItem(SYSTEM_NOTICE_SEEN_KEY) ?? '{}') as Record<string, number>;
+    expect(Object.values(stored)).toContain(Date.parse(shownAt));
   });
 
   it('comes back when the admin edits the title', async () => {

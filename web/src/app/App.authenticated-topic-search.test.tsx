@@ -323,7 +323,8 @@ describe('App — the topic header search, scoped to the open topic', () => {
     // The combobox registers its items after mount; on a slow runner the
     // option can land a tick after the status line.
     expect(await screen.findByRole('option', { name: translations.topicSearchAllTopics.de }, { timeout: 2000 })).toBeInTheDocument();
-    const toasts = document.querySelector('.toast-container');
+    // `hidden`: the open search popup hides the rest of the page from assistive tech.
+    const toasts = screen.getByRole('region', { name: `${translations.toastRegionLabel.de} alt+T`, hidden: true });
     expect(toasts).not.toBeNull();
     expect(toasts!.textContent).toBe('');
     expect(document.activeElement).toBe(field);

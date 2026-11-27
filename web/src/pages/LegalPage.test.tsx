@@ -8,7 +8,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LegalPage } from './LegalPage';
 import { ToastProvider } from '../contexts/ToastContext';
-import { ToastContainer } from '../components/ui/ToastContainer';
+import { ToastStack } from '../components/ui/ToastStack';
 import { translations, type Language } from '../i18n/translations';
 
 /* ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ function renderLegalPage(props: ComponentProps<typeof LegalPage>) {
   return render(
     <ToastProvider>
       <LegalPage {...props} />
-      <ToastContainer />
+      <ToastStack />
     </ToastProvider>,
   );
 }
@@ -96,9 +96,8 @@ function stubPendingFetch() {
 beforeEach(() => {
   vi.clearAllMocks();
   themeMock.language = 'en';
-  // jsdom ships no matchMedia. The real ToastContainer's items call
-  // useReducedMotion, which reads it, so rendering an actual toast needs it
-  // stubbed (same pattern as HomeView.test.tsx / KbSettingsPanel.test.tsx).
+  // jsdom ships no matchMedia; the page's own pieces read it (same pattern
+  // as HomeView.test.tsx / KbSettingsPanel.test.tsx).
   stubViewport();
 });
 
@@ -183,18 +182,19 @@ describe('LegalPage — injected HTML', () => {
     // (src/contexts/ToastContext.tsx) and translations.ts for the message.
     // Neither is derived from this component. The signature is now exercised
     // rather than asserted against a spy: the real provider stores what
-    // `error(message)` was called with and the real ToastContainer renders it
+    // `error(message)` was called with and the real ToastStack renders it
     // verbatim, so the translated string showing up in the notification
     // region is the same claim the old `toHaveBeenCalledWith` made — plus the
     // proof that provider and container are actually wired to each other.
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
     renderLegalPage({ page: 'terms', onBack: vi.fn() });
 
-    // ORACLE for the region: WAI-ARIA — `aria-label` is the container's
-    // accessible name (ToastContainer sets "Notifications"), so the toast is
-    // located the way an assistive technology would, not by CSS class.
+    // ORACLE for the region: WAI-ARIA — the stack's region is named by
+    // `toastRegionLabel` (followed by Sonner's hotkey, alt+T), so the toast
+    // is located the way an assistive technology would, not by CSS class.
     const message = await screen.findByText(translations.pageLoadError.en);
-    expect(screen.getByLabelText('Notifications')).toContainElement(message);
+    const region = screen.getByRole('region', { name: `${translations.toastRegionLabel.en} alt+T` });
+    expect(region).toContainElement(message);
   });
 
   it('throws instead of swallowing the failure when no ToastProvider is mounted', () => {

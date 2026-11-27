@@ -1,11 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, type ReactNode } from 'react';
+import { toast as sonner } from '@ki4jlu/design-system';
 
-export interface Toast {
-  id: string;
-  type: 'success' | 'error' | 'info' | 'warning';
-  message: string;
-  duration: number;
-}
+export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 interface ToastOptions {
   duration?: number;
@@ -18,45 +14,14 @@ interface ToastApi {
   warning: (message: string, options?: ToastOptions) => void;
 }
 
-interface ToastContextValue {
-  toasts: Toast[];
-  toast: ToastApi;
-  removeToast: (id: string) => void;
-}
-
-type Action =
-  | { type: 'ADD'; toast: Toast }
-  | { type: 'REMOVE'; id: string };
-
-const MAX_TOASTS = 5;
-
-function toastReducer(state: Toast[], action: Action): Toast[] {
-  switch (action.type) {
-    case 'ADD': {
-      // An identical toast still on screen is replaced, not stacked: when the
-      // server is unreachable every load fails with the same message, and
-      // one toast says it (with its timer restarted) where four would shout.
-      const rest = state.filter(t => t.type !== action.toast.type || t.message !== action.toast.message);
-      const next = [...rest, action.toast];
-      return next.length > MAX_TOASTS ? next.slice(next.length - MAX_TOASTS) : next;
-    }
-    case 'REMOVE':
-      return state.filter(t => t.id !== action.id);
-    default:
-      return state;
-  }
-}
-
-const DEFAULT_DURATIONS: Record<Toast['type'], number> = {
+const DEFAULT_DURATIONS: Record<ToastType, number> = {
   success: 4000,
   error: 6000,
   info: 4000,
   warning: 5000,
 };
 
-let toastCounter = 0;
-
-const ToastContext = createContext<ToastContextValue | null>(null);
+const ToastContext = createContext<ToastApi | null>(null);
 
 interface ToastProviderProps {
   children: ReactNode;
@@ -68,18 +33,36 @@ interface ToastProviderProps {
   muteErrors?: () => boolean;
 }
 
+/**
+ * The app's toast API over the design system's `toast` (Sonner), shown by the
+ * one `Toaster` (components/ui/ToastStack.tsx). Sonner owns the queue, the
+ * timers and the pile; this adds the app's rules on top: default durations
+ * per type, errors muted while the session ends, and an identical toast still
+ * on screen replaced instead of stacked — when the server is unreachable
+ * every load fails with the same message, and one toast says it where four
+ * would shout. The same type and message reuse the toast's id while it is
+ * on screen, so Sonner updates it in place; once it starts to leave (closed,
+ * swiped, timed out) the id is retired, so a retry in its exit animation gets
+ * a toast of its own instead of updating the leaving one into oblivion.
+ */
 export function ToastProvider({ children, muteErrors }: ToastProviderProps) {
-  const [toasts, dispatch] = useReducer(toastReducer, []);
-
-  const removeToast = useCallback((id: string) => {
-    dispatch({ type: 'REMOVE', id });
-  }, []);
-
-  const addToast = useCallback((type: Toast['type'], message: string, options?: ToastOptions) => {
+  // `type:message` → the id of that toast while it is on screen.
+  const active = useRef(new Map<string, string>());
+  const count = useRef(0);
+  const addToast = useCallback((type: ToastType, message: string, options?: ToastOptions) => {
     if (type === 'error' && muteErrors?.()) return;
-    const id = `toast-${++toastCounter}`;
-    const duration = options?.duration ?? DEFAULT_DURATIONS[type];
-    dispatch({ type: 'ADD', toast: { id, type, message, duration } });
+    const key = `${type}:${message}`;
+    const id = active.current.get(key) ?? `${key}#${++count.current}`;
+    active.current.set(key, id);
+    const retire = () => {
+      if (active.current.get(key) === id) active.current.delete(key);
+    };
+    sonner[type](message, {
+      id,
+      duration: options?.duration ?? DEFAULT_DURATIONS[type],
+      onDismiss: retire,
+      onAutoClose: retire,
+    });
   }, [muteErrors]);
 
   const toast: ToastApi = useMemo(() => ({
@@ -89,10 +72,8 @@ export function ToastProvider({ children, muteErrors }: ToastProviderProps) {
     warning: (msg: string, opts?: ToastOptions) => addToast('warning', msg, opts),
   }), [addToast]);
 
-  const value = useMemo(() => ({ toasts, toast, removeToast }), [toasts, toast, removeToast]);
-
   return (
-    <ToastContext.Provider value={value}>
+    <ToastContext.Provider value={toast}>
       {children}
     </ToastContext.Provider>
   );
@@ -101,11 +82,5 @@ export function ToastProvider({ children, muteErrors }: ToastProviderProps) {
 export function useToast(): ToastApi {
   const ctx = useContext(ToastContext);
   if (!ctx) throw new Error('useToast must be used within ToastProvider');
-  return ctx.toast;
-}
-
-export function useToastContext(): ToastContextValue {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error('useToastContext must be used within ToastProvider');
   return ctx;
 }

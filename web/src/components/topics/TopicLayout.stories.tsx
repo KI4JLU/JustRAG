@@ -176,7 +176,7 @@ export const KbColumnHeadingBaseline: Story = {
  * left the bar with the sidebar redesign, so there is no title to keep wide
  * any more. The search must sit on the bar's centre (developer, 2026-09-29:
  * „the combobox has to sit centred in the KB view"), the bar has to stay 56px
- * (`h-14` since the redesign; `Toast.css`'s `top: 68px`), nothing may overlap,
+ * (`h-14` since the redesign), nothing may overlap,
  * and the open list must hang under the field without the bar clipping it.
  * jsdom performs no layout; only Chromium can say any of that.
  *

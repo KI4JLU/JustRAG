@@ -248,4 +248,4 @@ A section the user may not see falls back to `configs`.
 | Usage-policy notice | `components/shell/PolicyAcceptanceDialog.tsx` | The configured policy version is not accepted yet. Until the lookup answers, the signed-in app is inert except the legal pages; a failed lookup offers retry or sign-out. |
 | System notice | `components/shell/SystemNotice.tsx` | Enabled with a text; a dismissible one hides once dismissed. Banner above the app, pill over the main area, or toast. |
 | App update | `hooks/useSystemNoticeBanner.tsx` | A new version is waiting: an alert in the shell that applies it and reloads |
-| Toasts | `ToastContainer` | Mounted above the sign-in split, so they work on both sides |
+| Toasts | `components/ui/ToastStack.tsx` (the design system's `Toaster`) | Mounted above the sign-in split, so they work on both sides. Top right under the bar, newest in front; the update card and a toast-placed system notice join the same pile |

@@ -1,8 +1,8 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Stack } from '@ki4jlu/design-system';
 import { useAuth } from '../contexts/AuthContext';
 import { useAppUpdate } from '../contexts/AppUpdateContext';
-import { AppUpdateAlert, NoticeHeight, SystemNoticeAlert } from '../components/shell/SystemNotice';
+import { AppUpdateAlert, SystemNoticeAlert } from '../components/shell/SystemNotice';
 import { readSystemNotice } from '../utils/systemNotice';
 import { STORAGE_NAMESPACE } from './useStoredFlag';
 
@@ -25,6 +25,58 @@ function writeDismissed(version: string): void {
   }
 }
 
+/**
+ * When this browser first showed each notice version — its creation time on
+ * the card. The notice carries no time of its own; remembered, so a reload
+ * does not move it, and kept per version, so a notice that comes back keeps
+ * its first time. `{ [version]: epoch ms }`, the newest few.
+ */
+export const SYSTEM_NOTICE_SEEN_KEY = `${STORAGE_NAMESPACE}chrome.systemNotice.seen`;
+const SEEN_KEEP = 10;
+type SeenTimes = Record<string, number>;
+
+/** Only times a `Date` can hold: anything else is dropped. */
+const validTime = (at: unknown): at is number =>
+  typeof at === 'number' && !Number.isNaN(new Date(at).getTime());
+
+function readSeen(): SeenTimes {
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(SYSTEM_NOTICE_SEEN_KEY) ?? '{}');
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+    return Object.fromEntries(Object.entries(stored).filter(([, at]) => validTime(at)));
+  } catch {
+    return {};
+  }
+}
+
+// This page's first sightings, over the stored ones: the same time on every
+// render, from the first one on, without a second commit to fill it in.
+let sightings: SeenTimes | null = null;
+
+function firstSight(version: string): number {
+  sightings ??= readSeen();
+  sightings[version] ??= Date.now();
+  return sightings[version];
+}
+
+function writeSeen(): void {
+  if (!sightings) return;
+  // Merged with what other tabs stored meanwhile, the earliest time per
+  // version winning, so one tab does not overwrite another's.
+  const merged: SeenTimes = { ...readSeen() };
+  for (const [version, at] of Object.entries(sightings)) {
+    merged[version] = Math.min(at, merged[version] ?? at);
+  }
+  sightings = Object.fromEntries(
+    Object.entries(merged).sort(([, a], [, b]) => b - a).slice(0, SEEN_KEEP),
+  );
+  try {
+    window.localStorage.setItem(SYSTEM_NOTICE_SEEN_KEY, JSON.stringify(sightings));
+  } catch {
+    // Not remembered: the next page load shows its own time.
+  }
+}
+
 /** What the shell hangs into its slots; each null when there is nothing for it. */
 export interface SystemNoticeSlots {
   /** `AppShell` `notice`: the full-width banner. */
@@ -32,8 +84,8 @@ export interface SystemNoticeSlots {
   /** `AppShell` `status`: the floating message, at `statusPosition`. */
   status: ReactNode;
   /**
-   * `AppShell` `statusPosition`: top centre (`inline`), bottom right (`toast`)
-   * or, while the update card is shown, top right.
+   * `AppShell` `statusPosition`: top centre (`inline`), or top right in the
+   * toast pile (`toast`, and the update card).
    */
   statusPosition: 'top' | 'top-end' | 'bottom-end';
 }
@@ -56,9 +108,18 @@ export function useSystemNoticeBanner(returnFocusTo?: () => HTMLElement | null):
   const { siteConfigs } = useAuth();
   const notice = useMemo(() => readSystemNotice(siteConfigs), [siteConfigs]);
   const [dismissed, setDismissed] = useState(readDismissed);
+  // The version on screen, if any: only a notice that is shown is "seen".
+  const shown = notice && !(notice.dismissible && dismissed === notice.version) ? notice.version : undefined;
+  const seenAt = shown ? new Date(firstSight(shown)) : undefined;
+  // Stored once it is on screen.
+  useEffect(() => {
+    if (shown) writeSeen();
+  }, [shown]);
 
   const update = useAppUpdate();
-  const updateCard = update.available ? <AppUpdateAlert onApply={update.apply} /> : null;
+  const updateCard = update.available ? (
+    <AppUpdateAlert onApply={update.apply} time={update.since ?? undefined} />
+  ) : null;
 
   if (!notice || (notice.dismissible && dismissed === notice.version)) {
     return updateCard ? { notice: null, status: updateCard, statusPosition: 'top-end' } : NONE;
@@ -73,8 +134,7 @@ export function useSystemNoticeBanner(returnFocusTo?: () => HTMLElement | null):
     : undefined;
   if (notice.placement === 'banner') {
     return {
-      // The banner pushes the chrome down; the toasts follow it (NoticeHeight).
-      notice: <NoticeHeight><SystemNoticeAlert notice={notice} onDismiss={onDismiss} /></NoticeHeight>,
+      notice: <SystemNoticeAlert notice={notice} onDismiss={onDismiss} time={seenAt} />,
       status: updateCard,
       statusPosition: updateCard ? 'top-end' : 'top',
     };
@@ -85,7 +145,7 @@ export function useSystemNoticeBanner(returnFocusTo?: () => HTMLElement | null):
       status: (
         <Stack direction="column" gap="sm">
           {updateCard}
-          <SystemNoticeAlert notice={{ ...notice, placement: 'toast' }} onDismiss={onDismiss} />
+          <SystemNoticeAlert notice={{ ...notice, placement: 'toast' }} onDismiss={onDismiss} time={seenAt} />
         </Stack>
       ),
       statusPosition: 'top-end',
@@ -93,7 +153,8 @@ export function useSystemNoticeBanner(returnFocusTo?: () => HTMLElement | null):
   }
   return {
     notice: null,
-    status: <SystemNoticeAlert notice={notice} onDismiss={onDismiss} />,
-    statusPosition: notice.placement === 'toast' ? 'bottom-end' : 'top',
+    status: <SystemNoticeAlert notice={notice} onDismiss={onDismiss} time={seenAt} />,
+    // A toast joins the toast stack, top right, as the update card does.
+    statusPosition: notice.placement === 'toast' ? 'top-end' : 'top',
   };
 }

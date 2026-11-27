@@ -571,6 +571,7 @@ export const translations = {
     saveSuccess: { de: 'Analyse erfolgreich gespeichert', en: 'Analysis saved successfully' },
     saveError: { de: 'Fehler beim Speichern', en: 'Error saving analysis' },
     close: { de: 'Schließen', en: 'Close' },
+    toastRegionLabel: { de: 'Benachrichtigungen', en: 'Notifications' },
 
     // Research
     researchSearching: { de: 'Durchsuche das Web...', en: 'Searching the web...' },
@@ -2582,7 +2583,7 @@ export const translations = {
     systemNoticePlacementInline: { de: 'Im Inhalt', en: 'In the content' },
     systemNoticePlacementInlineHelp: { de: 'Oben im Inhaltsbereich', en: 'At the top of the content area' },
     systemNoticePlacementToast: { de: 'Toast', en: 'Toast' },
-    systemNoticePlacementToastHelp: { de: 'Unten rechts, schwebend', en: 'Floating, bottom right' },
+    systemNoticePlacementToastHelp: { de: 'Oben rechts, schwebend', en: 'Floating, top right' },
     systemNoticeDismissible: { de: 'Schließbar', en: 'Can be closed' },
     systemNoticeDismissibleHelp: { de: 'Nutzer können die Meldung ausblenden. Sie bleibt im jeweiligen Browser ausgeblendet, bis die Meldung geändert wird.', en: 'Users can hide the notice. It stays hidden in that browser until the notice is changed.' },
     systemNoticeLink: { de: 'Link', en: 'Link' },
@@ -2597,7 +2598,7 @@ export const translations = {
     systemNoticePreviewOff: { de: 'Ausgeschaltet', en: 'Switched off' },
     systemNoticePositionBanner: { de: 'Position: Balken über der ganzen App.', en: 'Position: a bar above the whole app.' },
     systemNoticePositionInline: { de: 'Position: kleine Meldung oben im Inhaltsbereich.', en: 'Position: a small message at the top of the content area.' },
-    systemNoticePositionToast: { de: 'Position: schwebende Meldung unten rechts.', en: 'Position: a floating message at the bottom right.' },
+    systemNoticePositionToast: { de: 'Position: schwebende Meldung oben rechts.', en: 'Position: a floating message at the top right.' },
     systemNoticeSaveHint: { de: 'Änderungen werden erst nach dem Speichern für Nutzer sichtbar.', en: 'Users see changes only after saving.' },
     systemNoticeDismiss: { de: 'Meldung schließen', en: 'Close notice' },
     appUpdateTitle: { de: 'Neue Version verfügbar', en: 'New version available' },
