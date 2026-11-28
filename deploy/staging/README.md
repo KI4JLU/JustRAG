@@ -49,8 +49,12 @@ image.
 
 - **It does not update the compose files.** Only the image follows
   `:staging`; the checkout in `/opt/justrag` stays where it is. When a change
-  touches `docker-compose*.yml` or `.env.example`, update the checkout by hand
-  (`git pull`) to the branch you are testing.
+  touches `docker-compose*.yml`, `.env.example` or `nginx/nginx.conf`, update
+  the checkout by hand (`git pull`) to the branch you are testing. After a
+  change to `nginx/nginx.conf`, recreate nginx
+  (`docker compose up -d --no-deps --force-recreate nginx`): the file is
+  bind-mounted, `git pull` replaces it, and a running container (reload
+  included) keeps the old one.
 - **It cannot undo migrations.** Every image staging pulls runs its
   migrations, and `cmd/migrate` is up-only. Deploying an older image after a
   newer one with a migration means old code on a newer schema. To really go
