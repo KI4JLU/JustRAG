@@ -145,8 +145,6 @@ function MetaLine({ icon, label, value, testId, tone }: { icon: React.ReactNode;
     <CardMetaItem data-testid={testId} tone={tone}>
       {icon}
       <CardMetaLabel>{label}</CardMetaLabel>
-      {/* A real space for the text (copy, screen readers); flex ignores it in the layout. */}
-      {' '}
       <CardMetaValue>{value}</CardMetaValue>
     </CardMetaItem>
   );

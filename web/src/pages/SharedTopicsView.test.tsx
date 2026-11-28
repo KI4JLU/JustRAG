@@ -455,7 +455,7 @@ describe('SharedTopicsView without an access filter', () => {
     const viewer: KnowledgeBase = { ...baseKb, id: 'kb-view', name: 'Lesethema', myRole: 'view', effectiveRole: 'view' };
     const editor: KnowledgeBase = { ...baseKb, id: 'kb-edit', name: 'Bearbeitungsthema', myRole: 'edit', effectiveRole: 'edit' };
     renderView(<SharedTopicsView {...noopProps} kbs={[viewer, editor]} globalKbs={[]} />);
-    const lines = screen.getAllByTestId('kb-meta-role').map((el) => el.textContent);
+    const lines = screen.getAllByTestId('kb-meta-role').map((el) => el.textContent?.trim());
     expect(lines).toEqual(expect.arrayContaining([
       `${translations.kbCardRole.en} ${translations.kbRoleView.en}`,
       `${translations.kbCardRole.en} ${translations.kbRoleEdit.en}`,
