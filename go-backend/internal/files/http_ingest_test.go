@@ -159,49 +159,6 @@ func mockHTTPTarget(t *testing.T, body, contentType string) *httptest.Server {
 	}))
 }
 
-func TestFetchURL_Valid(t *testing.T) {
-	// Start a local server.
-	target := mockHTTPTarget(t, "<html>hello</html>", "text/html")
-	defer target.Close()
-
-	store := &mockStore{}
-
-	// The target URL points to 127.0.0.1 which normally triggers SSRF rejection.
-	// We use a custom validateURL bypass by pointing to the test server directly.
-	// To avoid the SSRF check blocking the test, we wrap using an httptest.Server
-	// on 127.0.0.1 and bypass the DNS-resolution check by using a custom dialer.
-	// Instead, we test FetchURL via a real loopback server but mock the validation
-	// step: inject the raw URL after the SSRF check would normally reject it.
-	//
-	// Simplest approach: use the handler with a modified URL that passes validation.
-	// Since we cannot inject a custom dialer here, we verify the happy-path by
-	// confirming that 201 is returned when the target is reachable.
-	//
-	// The SSRF check will reject 127.0.0.1, so we call FetchURL indirectly through
-	// the endpoint with the test server URL, which will fail the private-IP check.
-	// To prove the happy-path works, we use an explicitly allowed public host
-	// in a stub test that mocks fetchURL — files.StubFetchForTest (export_test.go)
-	// now provides exactly that stub; see http_uploader_test.go.
-	//
-	// Resolution: use httptest.NewTLSServer on a loopback is still rejected.
-	// We therefore test the 400 path for private IPs (the SSRF rejection) and
-	// verify the 201 path with a mock store where StoreFile succeeds, using
-	// a direct call that bypasses network by checking a non-reachable URL
-	// is rejected at validation, and reachable public URL returns 201 when network
-	// is available.
-	//
-	// For a deterministic unit test, we verify the 400 for private IP here.
-	_ = store
-	_ = target
-
-	// Actually test the valid path by using the target.URL with IP replaced.
-	// The test server listens on 127.0.0.1; the SSRF check will block it.
-	// We test the 400 case in a dedicated test. This test exercises the storage
-	// and DB creation path assuming SSRF validation is bypassed, which is
-	// covered by the integration layer.
-	t.Skip("FetchURL happy-path requires network access without SSRF; tested via integration tests")
-}
-
 func TestFetchURL_Valid_WithTestServer(t *testing.T) {
 	// This test exercises as much of the FetchURL flow as possible using a
 	// mock HTTP server. Because the server listens on 127.0.0.1 the SSRF
@@ -353,49 +310,6 @@ func TestFetchURL_Unauthenticated(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func intPtr(n int) *int { return &n }
-
-// ---------------------------------------------------------------------------
-// FetchURL — real network happy-path (guarded by build tag / env check)
-// ---------------------------------------------------------------------------
-
-// TestFetchURL_RealPublicURL tests the actual network fetch path.
-// It is skipped unless the test environment has network access to example.com.
-func TestFetchURL_RealPublicURL(t *testing.T) {
-	// This test makes a real network call to example.com.
-	// Skip in environments where network is unavailable.
-	t.Skip("skipped by default; remove Skip to run in environments with public network access")
-
-	kb := defaultKB()
-	ownerID := "user-1"
-	kb.UserID = &ownerID
-
-	store := &mockStore{
-		kb: kb,
-	}
-	h := defaultIngestHandler(store)
-
-	body := `{"url":"https://example.com/"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/kb/kb-1/fetch-url", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.SetPathValue("id", "kb-1")
-	req = withUser(req, ingestUser())
-	req = withKBAccess(req, kb)
-
-	rr := httptest.NewRecorder()
-	h.FetchURL(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
-	}
-
-	var resp map[string]any
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if resp["id"] == "" || resp["id"] == nil {
-		t.Error("expected non-empty file ID in response")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // Enqueue-failure compensating-cleanup tests
