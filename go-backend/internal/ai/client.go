@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/justrag/go-backend/internal/httpclient"
+	"github.com/justrag/go-backend/internal/logctx"
 )
 
 // streamScannerBufPool recycles the 64 KB initial buffer that bufio.Scanner
@@ -367,10 +368,12 @@ type StreamChunk struct {
 	FinishReason string
 
 	// Err is non-nil when the stream terminated abnormally — a transport
-	// error mid-stream (connection reset) or an SSE frame exceeding the
-	// scanner cap (bufio.ErrTooLong). Only ever set on a chunk with
-	// Done=true. Content delivered before this chunk is TRUNCATED output:
-	// callers must not persist it as a complete AI message.
+	// error mid-stream (connection reset), an SSE frame exceeding the
+	// scanner cap (bufio.ErrTooLong), or the request context ending before
+	// the provider finished (then it wraps context.Canceled or
+	// context.DeadlineExceeded). Only ever set on a chunk with Done=true.
+	// Content delivered before this chunk is TRUNCATED output: callers must
+	// not persist it as a complete AI message.
 	Err error
 }
 
@@ -497,7 +500,8 @@ func (c *Client) ChatCompletion(ctx context.Context, req *ChatRequest) (*ChatRes
 }
 
 // StreamChatCompletion calls the chat/completions endpoint with stream:true and
-// returns a channel of StreamChunk values. The final chunk always has Done:true.
+// returns a channel of StreamChunk values. The final chunk normally has
+// Done:true; when ctx ends before the provider finished, it also carries Err.
 // The caller must drain the channel to completion; cancelling ctx will cause the
 // goroutine to terminate and close the channel.
 func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-chan StreamChunk, error) {
@@ -582,25 +586,10 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-c
 			// Every send to ch must select on ctx.Done() — otherwise a
 			// downstream consumer that exits (e.g. HTTP client disconnect)
 			// will deadlock this goroutine on an unbuffered send and leak it
-			// until the process restarts.
-			//
-			// The select below is non-blocking (default branch). That's
-			// intentional and safe: scanner.Scan() is what would actually
-			// block, and when the consumer/client disconnects, the HTTP/TLS
-			// teardown closes resp.Body which causes Scan() to return false
-			// and exit the loop. The ctx check is a fast best-effort poll
-			// between lines; the truly interrupt-driven cancellation lives
-			// on every send to ch below.
-			select {
-			case <-ctx.Done():
-				select {
-				case ch <- StreamChunk{Done: true}:
-				default:
-				}
-				return
-			default:
-			}
-
+			// until the process restarts. scanner.Scan() is what would
+			// actually block, and when the consumer/client disconnects, the
+			// HTTP/TLS teardown closes resp.Body which causes Scan() to return
+			// false and exit the loop.
 			// scanner.Bytes() returns a slice into the scanner's internal
 			// buffer — valid only until the next Scan() call, but that's
 			// fine here because json.Unmarshal copies any data it retains
@@ -623,6 +612,14 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-c
 			payload := line[len(ssePrefix):]
 
 			if bytes.Equal(payload, sseDoneToken) {
+				// The provider finished. Deliver Done if there is room even
+				// when ctx has ended, so the select below cannot drop it by
+				// picking ctx.Done() while both cases are ready.
+				select {
+				case ch <- StreamChunk{Done: true}:
+					return
+				default:
+				}
 				select {
 				case ch <- StreamChunk{Done: true}:
 				case <-ctx.Done():
@@ -672,6 +669,15 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-c
 				}
 			}
 
+			// The context ended before this output reached the consumer:
+			// the stream is truncated. Checked here, after the [DONE] marker
+			// and frames without output, so a provider that already finished
+			// is never reported as cut off. Without this non-blocking check
+			// the send below could still win against ctx.Done().
+			if ctx.Err() != nil {
+				endStreamOnContext(ctx, ch)
+				return
+			}
 			select {
 			case ch <- StreamChunk{
 				Content:          delta.Content,
@@ -681,6 +687,7 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-c
 				FinishReason:     finishReason,
 			}:
 			case <-ctx.Done():
+				endStreamOnContext(ctx, ch)
 				return
 			}
 		}
@@ -689,19 +696,21 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-c
 		// 1 MB cap → bufio.ErrTooLong) ends the loop exactly like clean EOF.
 		// Without checking scanner.Err() here, a truncated stream would be
 		// reported as a clean completion and downstream callers would
-		// persist the partial answer as a complete AI message.
+		// persist the partial answer as a complete AI message. A body closed
+		// by the context fails the read too; then the context, not the read
+		// error, says what happened.
 		if err := scanner.Err(); err != nil {
-			if errors.Is(ctx.Err(), context.Canceled) {
-				// The caller stopped the stream on purpose (client gone,
-				// agent cancelled); the truncation is expected. A deadline
-				// (turn budget) is not on purpose and keeps its WARN.
-				slog.Debug("stream ended by caller cancellation", "error", err)
-			} else {
-				slog.Warn("stream scan error — content truncated", "error", err)
+			if ctx.Err() != nil {
+				endStreamOnContext(ctx, ch)
+				return
 			}
+			// The context is live, so wait for room: the queued content is
+			// valid and must not give way to the error.
 			select {
 			case ch <- StreamChunk{Done: true, Err: fmt.Errorf("ai: stream read: %w", err)}:
+				logctx.From(ctx).Warn("stream scan error — content truncated", "error", err)
 			case <-ctx.Done():
+				endStreamOnContext(ctx, ch)
 			}
 			return
 		}
@@ -714,6 +723,41 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-c
 	}()
 
 	return ch, nil
+}
+
+// endStreamOnContext ends a stream the reader stopped because ctx is done.
+// The terminal chunk carries ctx.Err(), so the content delivered so far is
+// never taken for a complete answer. A caller cancelling on purpose expects
+// the truncation; a deadline (turn budget) does not and keeps its WARN.
+func endStreamOnContext(ctx context.Context, ch chan StreamChunk) {
+	err := ctx.Err()
+	sendTerminal(ch, StreamChunk{Done: true, Err: fmt.Errorf("ai: stream read: %w", err)})
+	if errors.Is(err, context.Canceled) {
+		logctx.From(ctx).Debug("stream ended by caller cancellation", "error", err)
+	} else {
+		logctx.From(ctx).Warn("stream ended by deadline — content truncated", "error", err)
+	}
+}
+
+// sendTerminal puts the final chunk of an aborted stream on ch without
+// blocking: the consumer may already be gone. When the buffer is full, the
+// queued chunk is dropped for the terminal one; the output is truncated
+// either way, and a consumer that keeps reading must see the error. Only the
+// stream goroutine sends on ch, so the second send always finds room.
+func sendTerminal(ch chan StreamChunk, v StreamChunk) {
+	select {
+	case ch <- v:
+		return
+	default:
+	}
+	select {
+	case <-ch:
+	default:
+	}
+	select {
+	case ch <- v:
+	default:
+	}
 }
 
 // Embedding calls the embeddings endpoint. The caller is responsible for
